@@ -1,0 +1,39 @@
+.root {
+  display: grid;
+  grid-template-rows: auto auto 1fr auto;
+  height: 100vh;
+  min-height: 0;
+}
+
+.header {
+  border-bottom: 1px solid var(--figma-color-border);
+}
+
+.status {
+  border-bottom: 1px solid var(--figma-color-border);
+}
+
+.fields {
+  min-height: 0;
+  overflow: auto;
+}
+
+.field {
+  display: grid;
+  gap: 8px;
+}
+
+.footer {
+  border-top: 1px solid var(--figma-color-border);
+}
+
+.actions {
+  display: grid;
+  grid-template-columns: 1fr auto auto auto;
+  gap: 8px;
+  align-items: center;
+}
+
+.spacer {
+  min-width: 1px;
+}

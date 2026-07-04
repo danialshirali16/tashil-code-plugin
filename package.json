@@ -1,0 +1,62 @@
+{
+  "name": "tashil-code-plugin",
+  "version": "1.0.0",
+  "description": "Figma Dev Mode codegen plugin for Tashil UI components",
+  "scripts": {
+    "build": "build-figma-plugin --typecheck --minify",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
+    "watch": "build-figma-plugin --typecheck --watch"
+  },
+  "figma-plugin": {
+    "id": "1654920127584180700",
+    "name": "Tashil Code",
+    "api": "1.0.0",
+    "main": "src/main.ts",
+    "ui": "src/ui.tsx",
+    "capabilities": [
+      "codegen"
+    ],
+    "enableProposedApi": false,
+    "documentAccess": "dynamic-page",
+    "editorType": [
+      "figma",
+      "dev"
+    ],
+    "menu": [
+      {
+        "name": "Connect component",
+        "main": "src/main.ts",
+        "ui": "src/ui.tsx"
+      }
+    ],
+    "codegenLanguages": [
+      {
+        "label": "Tashil UI",
+        "value": "tashil-ui"
+      }
+    ],
+    "networkAccess": {
+      "allowedDomains": [
+        "none"
+      ]
+    }
+  },
+  "author": "",
+  "license": "",
+  "devDependencies": {
+    "@create-figma-plugin/build": "^4.0.3",
+    "@eslint/js": "^9.39.4",
+    "@figma/eslint-plugin-figma-plugins": "*",
+    "@figma/plugin-typings": "*",
+    "create-figma-plugin": "^4.0.3",
+    "eslint": "^9.39.4",
+    "typescript": "^5.9.3",
+    "typescript-eslint": "^8.57.1"
+  },
+  "dependencies": {
+    "@create-figma-plugin/ui": "^4.0.3",
+    "@create-figma-plugin/utilities": "^4.0.3",
+    "preact": "^10.29.4"
+  }
+}
