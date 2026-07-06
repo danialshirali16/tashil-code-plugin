@@ -33,6 +33,6 @@ module.exports = tseslint.config(
     },
   },
   {
-    ignores: ['build', 'code.js', 'dist', 'eslint.config.js'],
+    ignores: ['.kilo', 'build', 'code.js', 'dist', 'eslint.config.js'],
   },
 )

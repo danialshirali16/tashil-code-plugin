@@ -9,6 +9,13 @@
   border-bottom: 1px solid var(--figma-color-border);
 }
 
+.top-bar {
+  align-items: start;
+  display: grid;
+  gap: 12px;
+  grid-template-columns: 1fr auto;
+}
+
 .status {
   border-bottom: 1px solid var(--figma-color-border);
 }
@@ -36,4 +43,47 @@
 
 .spacer {
   min-width: 1px;
+}
+
+.button-content {
+  align-items: center;
+  display: inline-flex;
+  gap: 4px;
+}
+
+.help-page {
+  grid-row: 2 / 5;
+  min-height: 0;
+  overflow: auto;
+}
+
+.help-section {
+  border-bottom: 1px solid var(--figma-color-border);
+  padding-bottom: 16px;
+}
+
+.help-list {
+  color: var(--figma-color-text);
+  line-height: 20px;
+  margin: 0;
+  padding-left: 18px;
+}
+
+.help-list li + li {
+  margin-top: 8px;
+}
+
+.help-table {
+  display: grid;
+  gap: 10px;
+}
+
+.help-row {
+  display: grid;
+  gap: 4px;
+}
+
+.help-row > *:first-child {
+  color: var(--figma-color-text);
+  font-weight: 600;
 }
