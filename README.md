@@ -1,3 +1,5 @@
+![Tashil Code cover](assets/cover.png)
+
 # Tashil Code
 
 Figma Dev Mode plugin for connecting Figma components to Storybook-backed production components.
