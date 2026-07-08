@@ -1,48 +1,123 @@
 .root {
+  background: var(--figma-color-bg);
+  color: var(--figma-color-text);
   display: grid;
-  grid-template-rows: auto auto 1fr auto;
+  grid-template-rows: 40px 1fr 48px;
   height: 100vh;
   min-height: 0;
+  overflow: hidden;
+}
+
+.root-no-footer {
+  grid-template-rows: 40px 1fr;
 }
 
 .header {
+  background: var(--figma-color-bg);
   border-bottom: 1px solid var(--figma-color-border);
+  grid-row: 1;
+  min-height: 0;
+  overflow: hidden;
 }
 
 .top-bar {
-  align-items: start;
+  align-items: center;
   display: grid;
-  gap: 12px;
+  gap: 8px;
   grid-template-columns: 1fr auto;
+  height: 40px;
+  margin-left: -8px;
+  margin-right: -8px;
 }
 
-.status {
-  border-bottom: 1px solid var(--figma-color-border);
+.reference-tabs {
+  align-items: center;
+  display: flex;
+  gap: 4px;
+  height: 24px;
+  min-width: 0;
+}
+
+.reference-tab {
+  appearance: none;
+  background: transparent;
+  border: 0;
+  border-radius: 4px;
+  color: var(--figma-color-text-secondary);
+  cursor: default;
+  font: inherit;
+  font-size: 11px;
+  font-weight: 400;
+  height: 24px;
+  line-height: 16px;
+  padding: 4px 8px;
+}
+
+.reference-tab-active {
+  background: var(--figma-color-bg-secondary);
+  color: var(--figma-color-text);
+  font-weight: 600;
 }
 
 .fields {
+  grid-row: 2;
   min-height: 0;
   overflow: auto;
 }
 
 .field {
   display: grid;
-  gap: 8px;
+  row-gap: 8px;
+}
+
+.field > *:first-child {
+  font-size: 11px;
+  line-height: 16px;
+  margin: 0;
+}
+
+.form-stack {
+  display: grid;
+  gap: 16px;
+}
+
+.section-heading {
+  display: grid;
+  gap: 4px;
+}
+
+.section-heading > *:first-child {
+  font-weight: 600;
+}
+
+.section-heading > *:last-child {
+  color: var(--figma-color-text-secondary);
 }
 
 .footer {
+  background: var(--figma-color-bg);
   border-top: 1px solid var(--figma-color-border);
+  grid-row: 3;
+  min-height: 0;
+  overflow: hidden;
 }
 
 .actions {
-  display: grid;
-  grid-template-columns: 1fr auto auto auto;
-  gap: 8px;
   align-items: center;
+  display: grid;
+  grid-template-columns: 1fr 93px;
+  height: 48px;
+  padding: 0 8px;
 }
 
 .spacer {
   min-width: 1px;
+}
+
+.primary-actions {
+  display: grid;
+  gap: 7px;
+  grid-template-columns: 44px 42px;
 }
 
 .button-content {
@@ -51,15 +126,176 @@
   gap: 4px;
 }
 
+.resize-corner {
+  background:
+    linear-gradient(135deg, transparent 0 50%, var(--figma-color-icon-secondary) 50% 58%, transparent 58%),
+    linear-gradient(135deg, transparent 0 66%, var(--figma-color-icon-secondary) 66% 74%, transparent 74%);
+  bottom: 4px;
+  height: 10px;
+  opacity: 0.65;
+  pointer-events: none;
+  position: fixed;
+  right: 4px;
+  width: 10px;
+  z-index: 1;
+}
+
 .help-page {
-  grid-row: 2 / 5;
+  grid-row: 2;
   min-height: 0;
   overflow: auto;
 }
 
+.inspect-content {
+  align-content: start;
+  display: grid;
+  gap: 16px;
+  grid-row: 2;
+  min-height: 0;
+  overflow: auto;
+  padding: 16px;
+}
+
+.code-section {
+  display: grid;
+  gap: 4px;
+  min-height: 0;
+}
+
+.code-section-header {
+  align-items: center;
+  display: grid;
+  grid-template-columns: 1fr auto;
+  height: 24px;
+}
+
+.code-section-header > *:first-child {
+  font-size: 11px;
+  line-height: 16px;
+}
+
+.code-block {
+  background: var(--figma-color-bg);
+  border: 1px solid var(--figma-color-border);
+  border-radius: 4px;
+  box-sizing: border-box;
+  color: var(--figma-color-text);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 11px;
+  line-height: 16px;
+  margin: 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding: 0;
+  width: 100%;
+}
+
+.code-line {
+  display: grid;
+  grid-template-columns: 30px 1fr;
+  min-height: 16px;
+  min-width: max-content;
+}
+
+.code-line:first-child {
+  padding-top: 4px;
+}
+
+.code-line:last-child {
+  padding-bottom: 4px;
+}
+
+.code-line-number {
+  color: var(--figma-color-text-tertiary, var(--figma-color-text-secondary));
+  box-sizing: border-box;
+  padding: 0 8px;
+  text-align: right;
+  user-select: none;
+}
+
+.code-line-content {
+  box-sizing: border-box;
+  padding: 0 8px;
+  white-space: pre;
+}
+
+.syntax-keyword {
+  color: #c678dd;
+}
+
+.syntax-string {
+  color: #22863a;
+}
+
+.syntax-tag {
+  color: #8250df;
+}
+
+.syntax-attribute {
+  color: #0969da;
+}
+
+.syntax-expression {
+  color: #953800;
+}
+
+.syntax-punctuation {
+  color: var(--figma-color-text-secondary);
+}
+
+.inspect-empty {
+  align-content: center;
+  display: grid;
+  grid-row: 2;
+  row-gap: 16px;
+  justify-items: center;
+  min-height: 0;
+  overflow: hidden;
+  padding: 16px;
+}
+
+.connect-empty {
+  align-content: center;
+  border-bottom: 1px solid var(--figma-color-border);
+  display: grid;
+  grid-row: 2;
+  justify-items: center;
+  min-height: 0;
+  overflow: hidden;
+  padding: 16px;
+  row-gap: 12px;
+}
+
+.inspect-empty-label {
+  color: var(--figma-color-text-tertiary, var(--figma-color-text-secondary));
+  line-height: 16px;
+  margin: 0;
+}
+
+.inspect-empty-label > * {
+  margin: 0;
+}
+
+.inspect-empty-icon {
+  align-items: center;
+  border: 1px dashed var(--figma-color-border);
+  color: var(--figma-color-icon-tertiary, var(--figma-color-icon-secondary));
+  display: flex;
+  height: 64px;
+  justify-content: center;
+  line-height: 1;
+  width: 64px;
+}
+
+.inspect-empty-icon svg,
+.inspect-empty-icon > * {
+  height: 48px;
+  width: 48px;
+}
+
 .help-section {
   border-bottom: 1px solid var(--figma-color-border);
-  padding-bottom: 16px;
+  padding-bottom: 18px;
 }
 
 .help-list {
@@ -86,4 +322,21 @@
 .help-row > *:first-child {
   color: var(--figma-color-text);
   font-weight: 600;
+}
+
+.fields input {
+  background: var(--figma-color-bg-secondary);
+  border-color: transparent;
+  border-radius: 6px;
+  font-size: 11px;
+  min-height: 24px;
+}
+
+.fields textarea {
+  background: var(--figma-color-bg-secondary);
+  border-color: transparent;
+  border-radius: 6px;
+  font-size: 11px;
+  min-height: 140px;
+  resize: vertical;
 }

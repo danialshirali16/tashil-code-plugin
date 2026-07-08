@@ -25,7 +25,6 @@ type ResolvedSelection = {
   mainComponent: ConnectableComponentNode;
   componentProperties: Record<string, string | boolean>;
   displayText: string;
-  source: 'selection' | 'current-page-fallback';
 };
 
 type CodeProp = {
@@ -46,9 +45,20 @@ type UiSelectionState = {
   message: string;
 };
 
+type InspectCodeState = {
+  status: 'connected' | 'not-connected' | 'invalid-selection';
+  code?: string;
+  references?: string;
+};
+
 type SelectionStateHandler = {
   name: 'SELECTION_STATE';
   handler: (state: UiSelectionState) => void;
+};
+
+type InspectCodeStateHandler = {
+  name: 'INSPECT_CODE_STATE';
+  handler: (state: InspectCodeState) => void;
 };
 
 type SaveConnectionHandler = {
@@ -66,6 +76,11 @@ type RefreshSelectionHandler = {
   handler: () => void;
 };
 
+type ResizeWindowHandler = {
+  name: 'RESIZE_WINDOW';
+  handler: (size: { width: number; height: number }) => void;
+};
+
 type CloseHandler = {
   name: 'CLOSE';
   handler: () => void;
@@ -81,7 +96,7 @@ export default function (): void {
     return;
   }
 
-  showUI({ width: 460, height: 640 });
+  showUI({ width: 480, height: 589 });
 
   on<SaveConnectionHandler>('SAVE_CONNECTION', (metadata) => {
     void saveConnection(metadata);
@@ -93,6 +108,10 @@ export default function (): void {
 
   on<RefreshSelectionHandler>('REFRESH_SELECTION', () => {
     void sendSelectionState();
+  });
+
+  on<ResizeWindowHandler>('RESIZE_WINDOW', (size) => {
+    figma.ui.resize(size.width, size.height);
   });
 
   on<CloseHandler>('CLOSE', () => {
@@ -224,7 +243,6 @@ async function resolveSelection(node: SceneNode): Promise<ResolvedSelection | nu
       mainComponent: connectionTarget,
       componentProperties: collectComponentProperties(node, mainComponent, connectionTarget),
       displayText: getDisplayText(node),
-      source: 'selection',
     };
   }
 
@@ -235,7 +253,6 @@ async function resolveSelection(node: SceneNode): Promise<ResolvedSelection | nu
       mainComponent: connectionTarget,
       componentProperties: collectComponentProperties(node, node, connectionTarget),
       displayText: getDisplayText(node),
-      source: 'selection',
     };
   }
 
@@ -244,7 +261,6 @@ async function resolveSelection(node: SceneNode): Promise<ResolvedSelection | nu
       mainComponent: node,
       componentProperties: readComponentProperties(node),
       displayText: node.name,
-      source: 'selection',
     };
   }
 
@@ -255,47 +271,44 @@ async function resolveCurrentSelection(): Promise<ResolvedSelection | null> {
   const [selectedNode] = figma.currentPage.selection;
 
   if (!selectedNode) {
-    return resolveFallbackComponentFromCurrentPage();
+    return null;
   }
 
   return resolveSelection(selectedNode);
 }
 
-function resolveFallbackComponentFromCurrentPage(): ResolvedSelection | null {
-  const candidates = figma.currentPage.findAll((node) => {
-    return node.type === 'COMPONENT_SET' || node.type === 'COMPONENT';
-  }) as Array<ComponentNode | ComponentSetNode>;
+async function sendSelectionState(): Promise<void> {
+  const state = await createSelectionState();
+  const inspectState = await createInspectCodeState();
 
-  const componentSets = candidates.filter((node): node is ComponentSetNode => {
-    return node.type === 'COMPONENT_SET';
-  });
+  emit<SelectionStateHandler>('SELECTION_STATE', state);
+  emit<InspectCodeStateHandler>('INSPECT_CODE_STATE', inspectState);
+}
 
-  const exactButton = componentSets.find((node) => {
-    return normalizeName(node.name) === 'button';
-  });
+async function createInspectCodeState(): Promise<InspectCodeState> {
+  const selectedNode = figma.currentPage.selection[0];
 
-  const exactNameMatch = componentSets.find((node) => {
-    return normalizeName(node.name).includes('button');
-  });
+  if (!selectedNode) {
+    return { status: 'invalid-selection' };
+  }
 
-  const fallbackTarget = exactButton || exactNameMatch || (componentSets.length === 1 ? componentSets[0] : null);
+  const selection = await resolveSelection(selectedNode);
 
-  if (!fallbackTarget) {
-    return null;
+  if (!selection) {
+    return { status: 'invalid-selection' };
+  }
+
+  const connection = readConnectionMetadata(selection.mainComponent);
+
+  if (!connection.ok) {
+    return { status: 'not-connected' };
   }
 
   return {
-    mainComponent: fallbackTarget,
-    componentProperties: readComponentProperties(fallbackTarget),
-    displayText: fallbackTarget.name,
-    source: 'current-page-fallback',
+    status: 'connected',
+    code: createUsageSnippet(connection.metadata, selection),
+    references: createReferenceText(connection.metadata),
   };
-}
-
-async function sendSelectionState(): Promise<void> {
-  const state = await createSelectionState();
-
-  emit<SelectionStateHandler>('SELECTION_STATE', state);
 }
 
 async function createSelectionState(): Promise<UiSelectionState> {
@@ -326,16 +339,8 @@ async function createSelectionState(): Promise<UiSelectionState> {
     existingConnection: connection.ok ? connection.metadata : undefined,
     message: connection.ok
       ? 'This component already has a Storybook connection.'
-      : createReadyMessage(selection),
+      : 'This component is ready to connect.',
   };
-}
-
-function createReadyMessage(selection: ResolvedSelection): string {
-  if (selection.source === 'current-page-fallback') {
-    return `No active selection was visible to the plugin. Using "${selection.mainComponent.name}" from the current page.`;
-  }
-
-  return 'This component is ready to connect.';
 }
 
 function collectComponentProperties(
@@ -356,10 +361,6 @@ function getConnectionTarget(component: ComponentNode): ConnectableComponentNode
   }
 
   return component;
-}
-
-function normalizeName(name: string): string {
-  return name.trim().toLowerCase();
 }
 
 function readComponentProperties(
