@@ -1,23 +1,30 @@
 import { emit, on, showUI } from '@create-figma-plugin/utilities';
-
-const CONNECTION_NAMESPACE = 'tashil_storybook';
-const CONNECTION_KEY = 'connection';
-
-type PropMapping = {
-  prop: string;
-  value: string | number | boolean;
-  raw?: boolean;
-};
-
-type ConnectionMetadata = {
-  componentName: string;
-  importPath: string;
-  storybookUrl?: string;
-  sourcePath?: string;
-  updatedAt?: string;
-  defaultProps?: Record<string, string | number | boolean>;
-  propMappings?: Record<string, Record<string, PropMapping>>;
-};
+import {
+  createUsageSnippet,
+  isConnectionMetadata,
+  validateConnectionMetadata,
+} from './codegen';
+import {
+  CONNECTION_KEY,
+  CONNECTION_NAMESPACE,
+  CURRENT_SCHEMA_VERSION,
+  type ClearConnectionHandler,
+  type CloseHandler,
+  type CodegenBlock,
+  type ConnectionMetadata,
+  type InspectCodeState,
+  type InspectCodeStateHandler,
+  type PropMapping,
+  type PropMappings,
+  type RefreshSelectionHandler,
+  type ResizeWindowHandler,
+  type SaveConnectionHandler,
+  type SaveResultHandler,
+  type ScaffoldPropMappingsHandler,
+  type ScaffoldResultHandler,
+  type SelectionStateHandler,
+  type UiSelectionState,
+} from './types';
 
 type ConnectableComponentNode = ComponentNode | ComponentSetNode;
 
@@ -25,70 +32,6 @@ type ResolvedSelection = {
   mainComponent: ConnectableComponentNode;
   componentProperties: Record<string, string | boolean>;
   displayText: string;
-};
-
-type CodeProp = {
-  value: string | number | boolean;
-  raw?: boolean;
-};
-
-type CodegenBlock = {
-  title: string;
-  language: 'PLAINTEXT' | 'TYPESCRIPT';
-  code: string;
-};
-
-type UiSelectionState = {
-  status: 'ready' | 'empty';
-  componentName?: string;
-  existingConnection?: ConnectionMetadata;
-  message: string;
-};
-
-type InspectCodeState = {
-  status: 'connected' | 'not-connected' | 'invalid-selection';
-  code?: string;
-  references?: string;
-};
-
-type SelectionStateHandler = {
-  name: 'SELECTION_STATE';
-  handler: (state: UiSelectionState) => void;
-};
-
-type InspectCodeStateHandler = {
-  name: 'INSPECT_CODE_STATE';
-  handler: (state: InspectCodeState) => void;
-};
-
-type SaveConnectionHandler = {
-  name: 'SAVE_CONNECTION';
-  handler: (metadata: ConnectionMetadata) => void;
-};
-
-type ClearConnectionHandler = {
-  name: 'CLEAR_CONNECTION';
-  handler: () => void;
-};
-
-type RefreshSelectionHandler = {
-  name: 'REFRESH_SELECTION';
-  handler: () => void;
-};
-
-type ResizeWindowHandler = {
-  name: 'RESIZE_WINDOW';
-  handler: (size: { width: number; height: number }) => void;
-};
-
-type CloseHandler = {
-  name: 'CLOSE';
-  handler: () => void;
-};
-
-type SaveResultHandler = {
-  name: 'SAVE_RESULT';
-  handler: (result: { ok: boolean; message: string }) => void;
 };
 
 export default function (): void {
@@ -108,6 +51,10 @@ export default function (): void {
 
   on<RefreshSelectionHandler>('REFRESH_SELECTION', () => {
     void sendSelectionState();
+  });
+
+  on<ScaffoldPropMappingsHandler>('SCAFFOLD_PROP_MAPPINGS', () => {
+    void scaffoldPropMappings();
   });
 
   on<ResizeWindowHandler>('RESIZE_WINDOW', (size) => {
@@ -200,6 +147,7 @@ async function saveConnection(metadata: ConnectionMetadata): Promise<void> {
 
   const connectionMetadata = {
     ...metadata,
+    schemaVersion: CURRENT_SCHEMA_VERSION,
     updatedAt: new Date().toISOString(),
   };
 
@@ -227,6 +175,54 @@ async function clearConnection(): Promise<void> {
   selection.mainComponent.setSharedPluginData(CONNECTION_NAMESPACE, CONNECTION_KEY, '');
   figma.notify('Storybook connection cleared');
   await sendSelectionState();
+}
+
+/**
+ * Build a prop-mapping skeleton from the selected component's
+ * `componentPropertyDefinitions`. Every VARIANT property becomes a mapping
+ * group; each of its `variantOptions` maps to a React prop of the same name.
+ * Non-variant properties are skipped (they need a human to decide the target).
+ */
+async function scaffoldPropMappings(): Promise<void> {
+  const selection = await resolveCurrentSelection();
+
+  if (!selection) {
+    emit<ScaffoldResultHandler>('SCAFFOLD_RESULT', {
+      ok: false,
+      message: 'Select a component instance or main component before scaffolding.',
+    });
+    return;
+  }
+
+  const propertyDefinitions = selection.mainComponent.componentPropertyDefinitions;
+  const mappings: PropMappings = {};
+
+  for (const [propertyName, definition] of Object.entries(propertyDefinitions)) {
+    if (definition.type !== 'VARIANT') {
+      continue;
+    }
+
+    const options = definition.variantOptions ?? [];
+    const group: Record<string, PropMapping> = {};
+
+    for (const option of options) {
+      group[option] = { prop: propertyName, value: option };
+    }
+
+    if (Object.keys(group).length > 0) {
+      mappings[propertyName] = group;
+    }
+  }
+
+  if (Object.keys(mappings).length === 0) {
+    emit<ScaffoldResultHandler>('SCAFFOLD_RESULT', {
+      ok: false,
+      message: 'No variant properties found on this component to scaffold.',
+    });
+    return;
+  }
+
+  emit<ScaffoldResultHandler>('SCAFFOLD_RESULT', { ok: true, mappings });
 }
 
 async function resolveSelection(node: SceneNode): Promise<ResolvedSelection | null> {
@@ -268,13 +264,13 @@ async function resolveSelection(node: SceneNode): Promise<ResolvedSelection | nu
 }
 
 async function resolveCurrentSelection(): Promise<ResolvedSelection | null> {
-  const [selectedNode] = figma.currentPage.selection;
+  const selection = figma.currentPage.selection;
 
-  if (!selectedNode) {
+  if (selection.length === 0) {
     return null;
   }
 
-  return resolveSelection(selectedNode);
+  return resolveSelection(selection[0]);
 }
 
 async function sendSelectionState(): Promise<void> {
@@ -286,19 +282,37 @@ async function sendSelectionState(): Promise<void> {
 }
 
 async function createInspectCodeState(): Promise<InspectCodeState> {
-  const selectedNode = figma.currentPage.selection[0];
+  const selection = figma.currentPage.selection;
 
-  if (!selectedNode) {
+  if (selection.length === 0) {
     return { status: 'invalid-selection' };
   }
 
-  const selection = await resolveSelection(selectedNode);
+  const selectedNode = selection[0];
 
-  if (!selection) {
-    return { status: 'invalid-selection' };
+  if (selection.length > 1) {
+    return {
+      status: 'invalid-selection',
+      message: [
+        `${selection.length} layers selected.`,
+        'Select a single component instance, main component, or component set.',
+      ].join('\n'),
+    };
   }
 
-  const connection = readConnectionMetadata(selection.mainComponent);
+  const resolved = await resolveSelection(selectedNode);
+
+  if (!resolved) {
+    return {
+      status: 'invalid-selection',
+      message: [
+        `"${selectedNode.name}" (${selectedNode.type}) is not connectable.`,
+        'Select a single component instance, main component, or component set.',
+      ].join('\n'),
+    };
+  }
+
+  const connection = readConnectionMetadata(resolved.mainComponent);
 
   if (!connection.ok) {
     return { status: 'not-connected' };
@@ -306,27 +320,40 @@ async function createInspectCodeState(): Promise<InspectCodeState> {
 
   return {
     status: 'connected',
-    code: createUsageSnippet(connection.metadata, selection),
+    code: createUsageSnippet(connection.metadata, resolved),
     references: createReferenceText(connection.metadata),
   };
 }
 
 async function createSelectionState(): Promise<UiSelectionState> {
-  const selection = await resolveCurrentSelection();
+  const selectedNodes = figma.currentPage.selection;
 
-  if (!selection) {
-    const selectedNodes = figma.currentPage.selection;
-    const selectionSummary = selectedNodes.length === 0
-      ? 'Selection count: 0'
-      : selectedNodes.map((node) => {
-        return `${node.type} "${node.name}"`;
-      }).join(', ');
+  if (selectedNodes.length === 0) {
+    return {
+      status: 'empty',
+      message: 'Select a component instance, main component, or component set to connect it.',
+    };
+  }
 
+  if (selectedNodes.length > 1) {
     return {
       status: 'empty',
       message: [
-        'Select a component instance, main component, or component set to connect it.',
-        selectionSummary,
+        `${selectedNodes.length} layers selected.`,
+        'Select a single component instance, main component, or component set.',
+      ].join('\n'),
+    };
+  }
+
+  const selection = await resolveSelection(selectedNodes[0]);
+
+  if (!selection) {
+    const node = selectedNodes[0];
+    return {
+      status: 'empty',
+      message: [
+        `"${node.name}" (${node.type}) is not connectable.`,
+        'Select a component instance, main component, or component set.',
       ].join('\n'),
     };
   }
@@ -423,7 +450,7 @@ function readConnectionMetadata(
 
     return {
       ok: true,
-      metadata: parsedConnection,
+      metadata: migrateConnectionMetadata(parsedConnection),
     };
   } catch (_error) {
     return {
@@ -433,262 +460,24 @@ function readConnectionMetadata(
   }
 }
 
-function isConnectionMetadata(value: unknown): value is ConnectionMetadata {
-  if (!isRecord(value)) {
-    return false;
+/**
+ * Bring persisted connection metadata up to {@link CURRENT_SCHEMA_VERSION}.
+ *
+ * Data written by older plugin builds has no `schemaVersion` field — treat that
+ * as version 1. Add a `case` for each future breaking change to the shape.
+ */
+function migrateConnectionMetadata(metadata: ConnectionMetadata): ConnectionMetadata {
+  const version = metadata.schemaVersion ?? 1;
+
+  if (version >= CURRENT_SCHEMA_VERSION) {
+    return metadata;
   }
 
-  if (typeof value.componentName !== 'string' || value.componentName.length === 0) {
-    return false;
-  }
+  // v1 -> v2: no structural change; the version field is simply adopted.
+  // Future migrations go here, e.g.:
+  // if (version < 2) { metadata = reshapeV1ToV2(metadata); }
 
-  if (typeof value.importPath !== 'string' || value.importPath.length === 0) {
-    return false;
-  }
-
-  if (value.storybookUrl !== undefined && typeof value.storybookUrl !== 'string') {
-    return false;
-  }
-
-  if (value.sourcePath !== undefined && typeof value.sourcePath !== 'string') {
-    return false;
-  }
-
-  if (value.updatedAt !== undefined && typeof value.updatedAt !== 'string') {
-    return false;
-  }
-
-  if (value.defaultProps !== undefined && !isDefaultProps(value.defaultProps)) {
-    return false;
-  }
-
-  if (value.propMappings !== undefined && !isPropMappings(value.propMappings)) {
-    return false;
-  }
-
-  return true;
-}
-
-function isPropMappings(value: unknown): value is Record<string, Record<string, PropMapping>> {
-  if (!isRecord(value)) {
-    return false;
-  }
-
-  return Object.values(value).every((mappingGroup) => {
-    if (!isRecord(mappingGroup)) {
-      return false;
-    }
-
-    return Object.values(mappingGroup).every((mapping) => {
-      if (!isRecord(mapping)) {
-        return false;
-      }
-
-      const mappingValue = mapping.value;
-
-      return (
-        typeof mapping.prop === 'string'
-        && mapping.prop.length > 0
-        && (
-          typeof mappingValue === 'string'
-          || typeof mappingValue === 'number'
-          || typeof mappingValue === 'boolean'
-        )
-        && (
-          mapping.raw === undefined
-          || typeof mapping.raw === 'boolean'
-        )
-      );
-    });
-  });
-}
-
-function isDefaultProps(value: unknown): value is Record<string, string | number | boolean> {
-  if (!isRecord(value)) {
-    return false;
-  }
-
-  return Object.values(value).every((propValue) => {
-    return (
-      typeof propValue === 'string'
-      || typeof propValue === 'number'
-      || typeof propValue === 'boolean'
-    );
-  });
-}
-
-function validateConnectionMetadata(
-  metadata: ConnectionMetadata,
-): { ok: true } | { ok: false; message: string } {
-  if (!isConnectionMetadata(metadata)) {
-    return {
-      ok: false,
-      message: 'Connection metadata is missing a valid component name, import path, or prop mappings value.',
-    };
-  }
-
-  return { ok: true };
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
-
-function createUsageSnippet(metadata: ConnectionMetadata, selection: ResolvedSelection): string {
-  const props = createMappedProps(metadata, selection.componentProperties);
-  const label = getComponentLabel(selection);
-  const isIconOnly = props.includes('iconOnly');
-  const openTag = createOpeningTag(metadata.componentName, props);
-
-  const lines = [
-    `import { ${metadata.componentName} } from '${metadata.importPath}';`,
-    '',
-  ];
-
-  if (isIconOnly) {
-    const iconOnlyOpenTag = createOpeningTag(metadata.componentName, [
-      ...props,
-      `aria-label="${escapeAttributeValue(label)}"`,
-    ]);
-
-    lines.push(iconOnlyOpenTag);
-    lines.push('  <Icon />');
-    lines.push(`</${metadata.componentName}>`);
-    return lines.join('\n');
-  }
-
-  lines.push(openTag);
-  lines.push(`  ${escapeJsxText(label)}`);
-  lines.push(`</${metadata.componentName}>`);
-
-  return lines.join('\n');
-}
-
-function createMappedProps(
-  metadata: ConnectionMetadata,
-  componentProperties: Record<string, string | boolean>,
-): string[] {
-  const propValues = new Map<string, CodeProp>();
-
-  for (const [prop, value] of Object.entries(getDefaultProps(metadata))) {
-    propValues.set(prop, { value });
-  }
-
-  for (const [prop, value] of Object.entries(
-    getMappedPropValues(getPropMappings(metadata), componentProperties),
-  )) {
-    propValues.set(prop, value);
-  }
-
-  return Array.from(propValues.entries()).flatMap(([prop, value]) => {
-    const assignment = formatPropAssignment(prop, value);
-    return assignment ? [assignment] : [];
-  });
-}
-
-function getMappedPropValues(
-  propMappings: NonNullable<ConnectionMetadata['propMappings']>,
-  componentProperties: Record<string, string | boolean>,
-): Record<string, CodeProp> {
-  if (!propMappings) {
-    return {};
-  }
-
-  return Object.fromEntries(Object.entries(componentProperties).flatMap(([figmaProperty, figmaValue]) => {
-    const mapping = propMappings[figmaProperty]?.[String(figmaValue)];
-
-    if (!mapping) {
-      return [];
-    }
-
-    return [[mapping.prop, { value: mapping.value, raw: mapping.raw }]];
-  }));
-}
-
-function getPropMappings(metadata: ConnectionMetadata): NonNullable<ConnectionMetadata['propMappings']> {
-  return {
-    ...getDefaultPropMappings(metadata),
-    ...metadata.propMappings,
-  };
-}
-
-function getDefaultPropMappings(metadata: ConnectionMetadata): NonNullable<ConnectionMetadata['propMappings']> {
-  if (metadata.componentName !== 'Button' || metadata.importPath !== 'tashil-ui') {
-    return {};
-  }
-
-  return {
-    intent: {
-      primary: { prop: 'intent', value: 'primary' },
-      neutral: { prop: 'intent', value: 'neutral' },
-      positive: { prop: 'intent', value: 'success' },
-      negative: { prop: 'intent', value: 'error' },
-    },
-    style: {
-      solid: { prop: 'variant', value: 'solid' },
-      tonal: { prop: 'variant', value: 'tonal' },
-      outline: { prop: 'variant', value: 'outline' },
-      ghost: { prop: 'variant', value: 'ghost' },
-      link: { prop: 'variant', value: 'link' },
-    },
-    state: {
-      loading: { prop: 'loading', value: true },
-      disabled: { prop: 'disabled', value: true },
-    },
-    size: {
-      md: { prop: 'size', value: 'md' },
-      sm: { prop: 'size', value: 'sm' },
-    },
-    isOnlyIcon: {
-      true: { prop: 'iconOnly', value: true },
-    },
-    hasLeadingIcon: {
-      true: { prop: 'leadingIcon', value: '<Icon />', raw: true },
-    },
-    hasTrailingIcon: {
-      true: { prop: 'trailingIcon', value: '<Icon />', raw: true },
-    },
-  };
-}
-
-function getDefaultProps(metadata: ConnectionMetadata): Record<string, string | number | boolean> {
-  if (metadata.defaultProps) {
-    return metadata.defaultProps;
-  }
-
-  if (metadata.componentName === 'Button' && metadata.importPath === 'tashil-ui') {
-    return {
-      intent: 'primary',
-      variant: 'solid',
-      size: 'md',
-    };
-  }
-
-  return {};
-}
-
-function formatPropAssignment(prop: string, propValue: CodeProp): string | null {
-  if (propValue.value === false) {
-    return null;
-  }
-
-  if (propValue.value === true) {
-    return prop;
-  }
-
-  if (propValue.raw && typeof propValue.value === 'string') {
-    return `${prop}={${propValue.value}}`;
-  }
-
-  return `${prop}=${formatPropValue(propValue.value)}`;
-}
-
-function formatPropValue(value: string | number | boolean): string {
-  if (typeof value === 'string') {
-    return `"${escapeAttributeValue(value)}"`;
-  }
-
-  return `{${String(value)}}`;
+  return { ...metadata, schemaVersion: CURRENT_SCHEMA_VERSION };
 }
 
 function createReferenceText(metadata: ConnectionMetadata): string {
@@ -699,40 +488,12 @@ function createReferenceText(metadata: ConnectionMetadata): string {
   ].filter(Boolean).join('\n');
 }
 
-function createOpeningTag(componentName: string, props: string[]): string {
-  if (props.length === 0) {
-    return `<${componentName}>`;
-  }
-
-  if (props.length <= 3) {
-    return `<${componentName} ${props.join(' ')}>`;
-  }
-
-  return [
-    `<${componentName}`,
-    ...props.map((prop) => {
-      return `  ${prop}`;
-    }),
-    '>',
-  ].join('\n');
-}
-
 function getDisplayText(node: SceneNode): string {
   if ('characters' in node && typeof node.characters === 'string' && node.characters.length > 0) {
     return node.characters;
   }
 
   return node.name;
-}
-
-function getComponentLabel(selection: ResolvedSelection): string {
-  const label = selection.componentProperties.label;
-
-  if (typeof label === 'string' && label.trim().length > 0) {
-    return label;
-  }
-
-  return selection.displayText;
 }
 
 function formatDateTime(value: string): string {
@@ -743,14 +504,6 @@ function formatDateTime(value: string): string {
   }
 
   return date.toLocaleString();
-}
-
-function escapeAttributeValue(value: string): string {
-  return value.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
-}
-
-function escapeJsxText(value: string): string {
-  return value.replace(/{/g, '&#123;').replace(/}/g, '&#125;');
 }
 
 function createPlainTextBlock(title: string, code: string): CodegenBlock {

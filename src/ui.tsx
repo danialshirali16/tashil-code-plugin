@@ -18,69 +18,22 @@ import { emit, on } from '@create-figma-plugin/utilities';
 import { Fragment, h } from 'preact';
 import { useCallback, useEffect, useState } from 'preact/hooks';
 import '!./ui.css';
-
-type PropMapping = {
-  prop: string;
-  value: string | number | boolean;
-  raw?: boolean;
-};
-
-type ConnectionMetadata = {
-  componentName: string;
-  importPath: string;
-  storybookUrl?: string;
-  sourcePath?: string;
-  defaultProps?: Record<string, string | number | boolean>;
-  propMappings?: Record<string, Record<string, PropMapping>>;
-};
-
-type UiSelectionState = {
-  status: 'ready' | 'empty';
-  componentName?: string;
-  existingConnection?: ConnectionMetadata;
-  message: string;
-};
-
-type InspectCodeState = {
-  status: 'connected' | 'not-connected' | 'invalid-selection';
-  code?: string;
-  references?: string;
-};
-
-type SelectionStateHandler = {
-  name: 'SELECTION_STATE';
-  handler: (state: UiSelectionState) => void;
-};
-
-type InspectCodeStateHandler = {
-  name: 'INSPECT_CODE_STATE';
-  handler: (state: InspectCodeState) => void;
-};
-
-type SaveConnectionHandler = {
-  name: 'SAVE_CONNECTION';
-  handler: (metadata: ConnectionMetadata) => void;
-};
-
-type ClearConnectionHandler = {
-  name: 'CLEAR_CONNECTION';
-  handler: () => void;
-};
-
-type RefreshSelectionHandler = {
-  name: 'REFRESH_SELECTION';
-  handler: () => void;
-};
-
-type ResizeWindowHandler = {
-  name: 'RESIZE_WINDOW';
-  handler: (size: { width: number; height: number }) => void;
-};
-
-type SaveResultHandler = {
-  name: 'SAVE_RESULT';
-  handler: (result: { ok: boolean; message: string }) => void;
-};
+import {
+  CURRENT_SCHEMA_VERSION,
+  type ClearConnectionHandler,
+  type ConnectionMetadata,
+  type InspectCodeState,
+  type InspectCodeStateHandler,
+  type PropMappings,
+  type RefreshSelectionHandler,
+  type ResizeWindowHandler,
+  type SaveConnectionHandler,
+  type SaveResultHandler,
+  type ScaffoldPropMappingsHandler,
+  type ScaffoldResultHandler,
+  type SelectionStateHandler,
+  type UiSelectionState,
+} from './types';
 
 const PROP_MAPPINGS_PLACEHOLDER = `e.g.,
 {
@@ -144,6 +97,34 @@ function Plugin(): h.JSX.Element {
     resizeDirection: 'both',
   });
 
+  // WAI-ARIA tabs pattern: Arrow keys move between tabs, Home/End jump to the ends.
+  function handleTabKeyDown(event: h.JSX.TargetedKeyboardEvent<HTMLDivElement>): void {
+    const tabs: Array<'connect' | 'generate'> = ['connect', 'generate'];
+    const currentIndex = tabs.indexOf(workflowTab);
+
+    let nextIndex: number | null = null;
+    if (event.key === 'ArrowRight') {
+      nextIndex = (currentIndex + 1) % tabs.length;
+    } else if (event.key === 'ArrowLeft') {
+      nextIndex = (currentIndex - 1 + tabs.length) % tabs.length;
+    } else if (event.key === 'Home') {
+      nextIndex = 0;
+    } else if (event.key === 'End') {
+      nextIndex = tabs.length - 1;
+    }
+
+    if (nextIndex === null) {
+      return;
+    }
+
+    event.preventDefault();
+    const nextTab = tabs[nextIndex];
+    setWorkflowTab(nextTab);
+    // Move focus to the newly selected tab (roving tabindex).
+    const tabId = nextTab === 'connect' ? 'tashil-tab-connect' : 'tashil-tab-generate';
+    document.getElementById(tabId)?.focus();
+  }
+
   useEffect(() => {
     const offSelectionState = on<SelectionStateHandler>('SELECTION_STATE', (state) => {
       setSelectionState(state);
@@ -159,14 +140,48 @@ function Plugin(): h.JSX.Element {
       setInspectCodeState(state);
     });
 
+    const offScaffoldResult = on<ScaffoldResultHandler>('SCAFFOLD_RESULT', (result) => {
+      if (!result.ok) {
+        setErrorMessage(result.message || 'Could not scaffold prop mappings.');
+        return;
+      }
+
+      setErrorMessage('');
+      mergePropMappings(result.mappings ?? {});
+    });
+
     emit<RefreshSelectionHandler>('REFRESH_SELECTION');
 
     return () => {
       offSelectionState();
       offSaveResult();
       offInspectCodeState();
+      offScaffoldResult();
     };
   }, []);
+
+  /**
+   * Merge scaffolded mappings into the textarea, preserving any manually
+   * authored keys. Existing keys win; only new keys are added.
+   */
+  function mergePropMappings(incoming: PropMappings): void {
+    let existing: PropMappings = {};
+    try {
+      existing = propMappings.trim() === ''
+        ? {}
+        : JSON.parse(propMappings) as PropMappings;
+    } catch (_error) {
+      setErrorMessage('Fix the existing prop mappings JSON before scaffolding.');
+      return;
+    }
+
+    const merged: PropMappings = {
+      ...incoming,
+      ...existing,
+    };
+
+    setPropMappings(JSON.stringify(merged, null, 2));
+  }
 
   function fillForm(connection?: ConnectionMetadata, fallbackComponentName?: string): void {
     setComponentName(connection?.componentName || fallbackComponentName || '');
@@ -185,9 +200,9 @@ function Plugin(): h.JSX.Element {
         : JSON.parse(propMappings) as ConnectionMetadata['propMappings'];
 
       emit<SaveConnectionHandler>('SAVE_CONNECTION', {
+        schemaVersion: CURRENT_SCHEMA_VERSION,
         componentName: componentName.trim(),
         importPath: importPath.trim(),
-        defaultProps: getDefaultProps(componentName, importPath),
         storybookUrl: storybookUrl.trim() || undefined,
         sourcePath: sourcePath.trim() || undefined,
         propMappings: parsedPropMappings,
@@ -197,19 +212,8 @@ function Plugin(): h.JSX.Element {
     }
   }
 
-  function getDefaultProps(
-    currentComponentName: string,
-    currentImportPath: string,
-  ): ConnectionMetadata['defaultProps'] {
-    if (currentComponentName.trim() === 'Button' && currentImportPath.trim() === 'tashil-ui') {
-      return {
-        intent: 'primary',
-        variant: 'solid',
-        size: 'md',
-      };
-    }
-
-    return undefined;
+  function handleScaffold(): void {
+    emit<ScaffoldPropMappingsHandler>('SCAFFOLD_PROP_MAPPINGS');
   }
 
   const hasFooter = view === 'connect' && workflowTab === 'connect' && isReady;
@@ -232,21 +236,27 @@ function Plugin(): h.JSX.Element {
                 </span>
               </Button>
             ) : (
-              <div class="reference-tabs" role="tablist" aria-label="Tashil Code workflow">
+              <div class="reference-tabs" onKeyDown={handleTabKeyDown} role="tablist" aria-label="Tashil Code workflow">
                 <button
+                  aria-controls="tashil-tabpanel-connect"
                   aria-selected={workflowTab === 'connect'}
                   class={workflowTab === 'connect' ? 'reference-tab reference-tab-active' : 'reference-tab'}
+                  id="tashil-tab-connect"
                   onClick={() => setWorkflowTab('connect')}
                   role="tab"
+                  tabIndex={workflowTab === 'connect' ? 0 : -1}
                   type="button"
                 >
                   Connect Component
                 </button>
                 <button
+                  aria-controls="tashil-tabpanel-generate"
                   aria-selected={workflowTab === 'generate'}
                   class={workflowTab === 'generate' ? 'reference-tab reference-tab-active' : 'reference-tab'}
+                  id="tashil-tab-generate"
                   onClick={() => setWorkflowTab('generate')}
                   role="tab"
+                  tabIndex={workflowTab === 'generate' ? 0 : -1}
                   type="button"
                 >
                   Inspect Code
@@ -265,28 +275,43 @@ function Plugin(): h.JSX.Element {
       </div>
 
       {view === 'connect' && workflowTab === 'connect' ? (
-        <ConnectComponentView
-          componentName={componentName}
-          errorMessage={errorMessage}
-          handleSave={handleSave}
-          importPath={importPath}
-          isReady={isReady}
-          propMappings={propMappings}
-          selectionState={selectionState}
-          setComponentName={setComponentName}
-          setImportPath={setImportPath}
-          setPropMappings={setPropMappings}
-          setSourcePath={setSourcePath}
-          setStorybookUrl={setStorybookUrl}
-          sourcePath={sourcePath}
-          storybookUrl={storybookUrl}
-        />
+        <div
+          aria-labelledby="tashil-tab-connect"
+          class="tabpanel"
+          id="tashil-tabpanel-connect"
+          role="tabpanel"
+        >
+          <ConnectComponentView
+            componentName={componentName}
+            errorMessage={errorMessage}
+            handleSave={handleSave}
+            handleScaffold={handleScaffold}
+            importPath={importPath}
+            isReady={isReady}
+            propMappings={propMappings}
+            selectionState={selectionState}
+            setComponentName={setComponentName}
+            setImportPath={setImportPath}
+            setPropMappings={setPropMappings}
+            setSourcePath={setSourcePath}
+            setStorybookUrl={setStorybookUrl}
+            sourcePath={sourcePath}
+            storybookUrl={storybookUrl}
+          />
+        </div>
       ) : null}
       {view === 'connect' && workflowTab === 'generate' ? (
-        <InspectCodeView
-          inspectCodeState={inspectCodeState}
-          onGoToConnect={() => setWorkflowTab('connect')}
-        />
+        <div
+          aria-labelledby="tashil-tab-generate"
+          class="tabpanel"
+          id="tashil-tabpanel-generate"
+          role="tabpanel"
+        >
+          <InspectCodeView
+            inspectCodeState={inspectCodeState}
+            onGoToConnect={() => setWorkflowTab('connect')}
+          />
+        </div>
       ) : null}
       {view === 'help' ? (
         <HowItWorksView />
@@ -300,6 +325,7 @@ function ConnectComponentView(props: {
   componentName: string;
   errorMessage: string;
   handleSave: () => void;
+  handleScaffold: () => void;
   importPath: string;
   isReady: boolean;
   propMappings: string;
@@ -314,7 +340,7 @@ function ConnectComponentView(props: {
 }): h.JSX.Element {
   if (!props.isReady) {
     return (
-      <EmptyComponentSelectionState />
+      <EmptyComponentSelectionState message={props.selectionState.message} />
     );
   }
 
@@ -360,7 +386,17 @@ function ConnectComponentView(props: {
               />
             </Field>
 
-            <Field label="Prop mappings JSON">
+            <div class="field">
+              <div class="field-label-row">
+                <Text>Prop mappings JSON</Text>
+                <Button
+                  disabled={!props.isReady}
+                  onClick={props.handleScaffold}
+                  secondary
+                >
+                  Generate from component
+                </Button>
+              </div>
               <TextboxMultiline
                 disabled={!props.isReady}
                 grow
@@ -370,7 +406,7 @@ function ConnectComponentView(props: {
                 value={props.propMappings}
                 placeholder={PROP_MAPPINGS_PLACEHOLDER}
               />
-            </Field>
+            </div>
           </div>
           {props.errorMessage ? (
             <Fragment>
@@ -399,14 +435,18 @@ function ConnectComponentView(props: {
   );
 }
 
-function EmptyComponentSelectionState(): h.JSX.Element {
+function EmptyComponentSelectionState(props: { message: string }): h.JSX.Element {
+  const lines = props.message.split('\n');
+
   return (
     <div class="connect-empty">
       <div aria-hidden="true" class="inspect-empty-icon">
         <IconInteractionClickSmall48 />
       </div>
       <div class="inspect-empty-label">
-        <Text>Select a component</Text>
+        {lines.map((line, index) => (
+          <Text key={index}>{line}</Text>
+        ))}
       </div>
     </div>
   );
@@ -420,7 +460,7 @@ function InspectCodeView(props: {
     return (
       <EmptyInspectState
         icon={<IconInteractionClickSmall48 />}
-        label="Select a component"
+        label={props.inspectCodeState.message || 'Select a component'}
       />
     );
   }
@@ -430,7 +470,7 @@ function InspectCodeView(props: {
       <EmptyInspectState
         actionLabel="Go to Connect Component"
         icon={<IconDetach48 />}
-        label="Unconnected this component"
+        label="This component isn't connected"
         onAction={props.onGoToConnect}
       />
     );

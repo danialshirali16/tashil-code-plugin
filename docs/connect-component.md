@@ -65,6 +65,12 @@ Make sure:
    **Prop mappings JSON**
    Maps Figma variant properties to React props.
 
+   You can write this JSON by hand, or click **Generate from component** to
+   scaffold a mapping skeleton from the selected component's variant properties.
+   Each variant property becomes a mapping group; every option maps to a React
+   prop of the same name. Generated mappings are merged into the field, so any
+   keys you already wrote are preserved — edit the values afterwards as needed.
+
    ```json
    {
      "intent": {
@@ -165,6 +171,7 @@ The plugin stores this JSON shape internally:
 
 ```json
 {
+  "schemaVersion": 2,
   "componentName": "Button",
   "importPath": "tashil-ui",
   "storybookUrl": "https://storybook.example.com/?path=/story/components-button--primary",

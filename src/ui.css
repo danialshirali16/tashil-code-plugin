@@ -6,6 +6,23 @@
   height: 100vh;
   min-height: 0;
   overflow: hidden;
+  --syntax-attribute: #0969da;
+  --syntax-expression: #953800;
+  --syntax-keyword: #8250df;
+  --syntax-punctuation: var(--figma-color-text-secondary);
+  --syntax-string: #1a7f37;
+  --syntax-tag: #8250df;
+}
+
+@media (prefers-color-scheme: dark) {
+  .root {
+    --syntax-attribute: #79c0ff;
+    --syntax-expression: #ffa657;
+    --syntax-keyword: #d2a8ff;
+    --syntax-punctuation: var(--figma-color-text-secondary);
+    --syntax-string: #7ee787;
+    --syntax-tag: #d2a8ff;
+  }
 }
 
 .root-no-footer {
@@ -65,9 +82,26 @@
   overflow: auto;
 }
 
+/*
+ * Tab panels use `display: contents` so the wrapped view's grid-targeted
+ * children (`.fields` at grid-row 2, `.footer` at grid-row 3) remain direct
+ * grid items of `.root`, preserving the header/content/footer layout. The
+ * `role="tabpanel"` semantics still apply to the logical element.
+ */
+.tabpanel {
+  display: contents;
+}
+
 .field {
   display: grid;
   row-gap: 8px;
+}
+
+.field-label-row {
+  align-items: center;
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
 }
 
 .field > *:first-child {
@@ -220,27 +254,27 @@
 }
 
 .syntax-keyword {
-  color: #c678dd;
+  color: var(--syntax-keyword);
 }
 
 .syntax-string {
-  color: #22863a;
+  color: var(--syntax-string);
 }
 
 .syntax-tag {
-  color: #8250df;
+  color: var(--syntax-tag);
 }
 
 .syntax-attribute {
-  color: #0969da;
+  color: var(--syntax-attribute);
 }
 
 .syntax-expression {
-  color: #953800;
+  color: var(--syntax-expression);
 }
 
 .syntax-punctuation {
-  color: var(--figma-color-text-secondary);
+  color: var(--syntax-punctuation);
 }
 
 .inspect-empty {
@@ -264,6 +298,12 @@
   overflow: hidden;
   padding: 16px;
   row-gap: 12px;
+}
+
+.connect-empty .inspect-empty-label {
+  display: grid;
+  row-gap: 4px;
+  text-align: center;
 }
 
 .inspect-empty-label {

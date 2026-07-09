@@ -4,3 +4,6 @@ build/
 *.log
 .env
 .env.*
+
+# Local tooling worktrees (editor/agent scratch space, not project source)
+.kilo/

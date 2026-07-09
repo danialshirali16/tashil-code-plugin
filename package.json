@@ -6,6 +6,8 @@
     "build": "build-figma-plugin --typecheck --minify",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
+    "test": "vitest run",
+    "test:watch": "vitest",
     "watch": "build-figma-plugin --typecheck --watch"
   },
   "figma-plugin": {
@@ -42,8 +44,8 @@
       ]
     }
   },
-  "author": "",
-  "license": "",
+  "author": "danialshirali16 <danialshirali16@gmail.com>",
+  "license": "MIT",
   "devDependencies": {
     "@create-figma-plugin/build": "^4.0.3",
     "@eslint/js": "^9.39.4",
@@ -52,7 +54,8 @@
     "create-figma-plugin": "^4.0.3",
     "eslint": "^9.39.4",
     "typescript": "^5.9.3",
-    "typescript-eslint": "^8.57.1"
+    "typescript-eslint": "^8.57.1",
+    "vitest": "^3.2.4"
   },
   "dependencies": {
     "@create-figma-plugin/ui": "^4.0.3",

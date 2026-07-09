@@ -12,7 +12,9 @@ module.exports = tseslint.config(
   {
     languageOptions: {
       parserOptions: {
-        projectService: true,
+        projectService: {
+          allowDefaultProject: ['src/*.test.ts', 'src/*.test.tsx'],
+        },
         tsconfigRootDir: __dirname,
       },
     },
