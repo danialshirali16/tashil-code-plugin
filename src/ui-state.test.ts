@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { CURRENT_SCHEMA_VERSION, type UiSelectionState } from './types';
 import {
+  clearFormDraft,
   createFormDraft,
   createFormValues,
   createPendingMutationState,
@@ -372,6 +373,30 @@ describe('selection-scoped drafts', () => {
 
     expect(markFormDraftSaved(submittedDraft, submitted).isDirty).toBe(false);
     expect(markFormDraftSaved(editedAgain, submitted)).toBe(editedAgain);
+  });
+
+  it('clears every input for only the requested selection', () => {
+    const otherDraft = createFormDraft({ ...EMPTY_FORM, componentName: 'Card' });
+    const currentDraft = createFormDraft({
+      ...EMPTY_FORM,
+      componentName: 'Button',
+      importPath: 'tashil-ui',
+      propMappings: '{}',
+      sourcePath: 'src/Button.tsx',
+      storybookUrl: 'https://storybook.test/button',
+    });
+    const cleared = clearFormDraft(new Map([
+      ['current', currentDraft],
+      ['other', otherDraft],
+    ]), 'current');
+
+    expect(cleared.draft).toEqual({
+      baseline: EMPTY_FORM,
+      isDirty: false,
+      values: EMPTY_FORM,
+    });
+    expect(cleared.drafts.get('current')).toBe(cleared.draft);
+    expect(cleared.drafts.get('other')).toBe(otherDraft);
   });
 });
 

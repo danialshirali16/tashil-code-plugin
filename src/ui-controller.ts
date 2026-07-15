@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from 'preact/hooks';
 import { mergePropMappingsJson } from './prop-mappings';
 import {
   FORM_FIELD_IDS,
+  clearFormDraft,
   createFormDraft,
   createFormValues,
   createMutationOperationId,
@@ -202,19 +203,11 @@ export function useConnectionController(): ConnectionController {
         }
       }
     } else if (result.ok) {
-      const nextDrafts = new Map(draftsRef.current);
-      nextDrafts.delete(result.selectionToken);
-      draftsRef.current = nextDrafts;
+      const cleared = clearFormDraft(draftsRef.current, result.selectionToken);
+      draftsRef.current = cleared.drafts;
 
       if (isActiveSelection) {
-        const currentState = selectionStateRef.current;
-        const fallbackComponentName = currentState.status === 'ready'
-          ? currentState.componentName
-          : undefined;
-        const clearedDraft = createFormDraft(createFormValues(undefined, fallbackComponentName));
-        nextDrafts.set(result.selectionToken, clearedDraft);
-        draftsRef.current = nextDrafts;
-        displayFormDraft(clearedDraft);
+        displayFormDraft(cleared.draft);
       }
     }
 

@@ -239,6 +239,16 @@ export function createFormDraft(values: ConnectionFormValues): FormDraft {
   };
 }
 
+export function clearFormDraft(
+  drafts: DraftStore,
+  selectionToken: string,
+): { draft: FormDraft; drafts: DraftStore } {
+  const draft = createFormDraft(createFormValues());
+  const nextDrafts = new Map(drafts);
+  nextDrafts.set(selectionToken, draft);
+  return { draft, drafts: nextDrafts };
+}
+
 export function selectFormDraft(
   drafts: DraftStore,
   state: UiSelectionState,
