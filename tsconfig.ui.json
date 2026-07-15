@@ -8,7 +8,9 @@
   },
   "include": [
     "src/ui.tsx",
+    "src/ui-controller.ts",
     "src/ui.css.d.ts",
+    "src/external-url.ts",
     "src/prop-mappings.ts",
     "src/types.ts"
   ]

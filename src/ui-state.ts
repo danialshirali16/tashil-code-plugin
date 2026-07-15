@@ -1,14 +1,23 @@
 import {
   CURRENT_SCHEMA_VERSION,
+  DEFAULT_CHILDREN_TEXT_PROPERTY,
+  type ChildrenMode,
   type ConnectionMetadata,
   type UiSelectionState,
 } from './types';
+import { isPropMappings } from './codegen';
+import { normalizeOptionalHttpUrl } from './external-url';
 
 export type ConnectionFormValues = {
+  childrenMode: ChildrenMode;
+  childrenTextProperty: string;
   componentName: string;
+  iconComponentName: string;
+  iconImportPath: string;
   importPath: string;
   propMappings: string;
   sourcePath: string;
+  sourceUrl: string;
   storybookUrl: string;
 };
 
@@ -29,27 +38,195 @@ export type FormValidationResult =
 
 export type CopyStatus = 'copied' | 'error' | 'idle';
 
+export type ConnectionStatusSummary = {
+  connectionLabel: 'Connected' | 'Not connected';
+  unsavedLabel?: 'Unsaved changes' | 'Unsaved setup';
+};
+
+export type FormattedConnectionUpdatedAt = {
+  dateTime: string;
+  label: string;
+};
+
+export type MutationOperation = 'clear' | 'save' | 'scaffold';
+
+export type PendingMutation =
+  | {
+      operation: 'save';
+      operationId: string;
+      selectionToken: string;
+      submittedValues: ConnectionFormValues;
+    }
+  | {
+      operation: 'clear' | 'scaffold';
+      operationId: string;
+      selectionToken: string;
+    };
+
+export type PendingMutationState = {
+  byOperationId: ReadonlyMap<string, PendingMutation>;
+  operationIdBySelection: ReadonlyMap<string, string>;
+};
+
+export type MutationResultIdentity = {
+  operation: MutationOperation;
+  operationId: string;
+  selectionToken: string;
+};
+
 const COMPONENT_IDENTIFIER_PATTERN = /^[A-Z_$][A-Za-z0-9_$]*$/;
 
 export const FORM_FIELD_IDS: Record<FormField, string> = {
+  childrenMode: 'tashil-children-mode',
+  childrenTextProperty: 'tashil-children-text-property',
   componentName: 'tashil-component-name',
+  iconComponentName: 'tashil-icon-component-name',
+  iconImportPath: 'tashil-icon-import-path',
   importPath: 'tashil-import-path',
   propMappings: 'tashil-prop-mappings',
   sourcePath: 'tashil-source-path',
+  sourceUrl: 'tashil-source-url',
   storybookUrl: 'tashil-storybook-url',
 };
+
+let nextMutationOperationSequence = 0;
+
+/** Create an ID unique for the lifetime of this UI session. */
+export function createMutationOperationId(): string {
+  nextMutationOperationSequence += 1;
+  return `mutation-${Date.now().toString(36)}-${nextMutationOperationSequence.toString(36)}`;
+}
+
+export function createPendingMutationState(): PendingMutationState {
+  return {
+    byOperationId: new Map(),
+    operationIdBySelection: new Map(),
+  };
+}
+
+/**
+ * Register a mutation unless that selection already has one in flight. The
+ * operation-id index is authoritative, which lets result handlers reject late
+ * or duplicated messages without disturbing a newer request.
+ */
+export function startPendingMutation(
+  state: PendingMutationState,
+  mutation: PendingMutation,
+): { started: boolean; state: PendingMutationState } {
+  if (
+    state.byOperationId.has(mutation.operationId)
+    || state.operationIdBySelection.has(mutation.selectionToken)
+  ) {
+    return { started: false, state };
+  }
+
+  const byOperationId = new Map(state.byOperationId);
+  const operationIdBySelection = new Map(state.operationIdBySelection);
+  byOperationId.set(mutation.operationId, mutation);
+  operationIdBySelection.set(mutation.selectionToken, mutation.operationId);
+
+  return {
+    started: true,
+    state: { byOperationId, operationIdBySelection },
+  };
+}
+
+/**
+ * Consume only the exact pending request identified by a result. A stale,
+ * duplicated, or mismatched result leaves all pending state untouched.
+ */
+export function finishPendingMutation(
+  state: PendingMutationState,
+  result: MutationResultIdentity,
+): { mutation?: PendingMutation; state: PendingMutationState } {
+  const mutation = state.byOperationId.get(result.operationId);
+
+  if (
+    !mutation
+    || mutation.operation !== result.operation
+    || mutation.selectionToken !== result.selectionToken
+    || state.operationIdBySelection.get(result.selectionToken) !== result.operationId
+  ) {
+    return { state };
+  }
+
+  const byOperationId = new Map(state.byOperationId);
+  const operationIdBySelection = new Map(state.operationIdBySelection);
+  byOperationId.delete(result.operationId);
+  operationIdBySelection.delete(result.selectionToken);
+
+  return {
+    mutation,
+    state: { byOperationId, operationIdBySelection },
+  };
+}
+
+export function getPendingMutationForSelection(
+  state: PendingMutationState,
+  selectionToken: string,
+): PendingMutation | undefined {
+  const operationId = state.operationIdBySelection.get(selectionToken);
+  return operationId === undefined ? undefined : state.byOperationId.get(operationId);
+}
+
+export function getSelectionStatusAnnouncement(state: UiSelectionState): string {
+  return state.status === 'ready'
+    ? `${state.componentName} selected. ${state.message}`
+    : state.message;
+}
+
+export function getConnectionStatusSummary(
+  hasConnection: boolean,
+  isDirty: boolean,
+): ConnectionStatusSummary {
+  return {
+    connectionLabel: hasConnection ? 'Connected' : 'Not connected',
+    ...(isDirty
+      ? { unsavedLabel: hasConnection ? 'Unsaved changes' : 'Unsaved setup' }
+      : {}),
+  };
+}
+
+export function formatConnectionUpdatedAt(
+  value: string | undefined,
+): FormattedConnectionUpdatedAt | null {
+  if (!value) {
+    return null;
+  }
+
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return null;
+  }
+
+  return {
+    dateTime: date.toISOString(),
+    label: date.toLocaleString(),
+  };
+}
 
 export function createFormValues(
   connection?: ConnectionMetadata,
   fallbackComponentName?: string,
 ): ConnectionFormValues {
+  const childrenMode = connection?.childrenMode === 'icon-only'
+    || connection?.childrenMode === 'none'
+    ? connection.childrenMode
+    : 'text';
+
   return {
+    childrenMode,
+    childrenTextProperty: connection?.childrenTextProperty
+      || DEFAULT_CHILDREN_TEXT_PROPERTY,
     componentName: connection?.componentName || fallbackComponentName || '',
+    iconComponentName: connection?.iconComponentName || '',
+    iconImportPath: connection?.iconImportPath || '',
     importPath: connection?.importPath || '',
     propMappings: connection?.propMappings
       ? JSON.stringify(connection.propMappings, null, 2)
       : '',
     sourcePath: connection?.sourcePath || '',
+    sourceUrl: connection?.sourceUrl || '',
     storybookUrl: connection?.storybookUrl || '',
   };
 }
@@ -113,9 +290,14 @@ export function areFormValuesEqual(
   second: ConnectionFormValues,
 ): boolean {
   return first.componentName === second.componentName
+    && first.childrenMode === second.childrenMode
+    && first.childrenTextProperty === second.childrenTextProperty
+    && first.iconComponentName === second.iconComponentName
+    && first.iconImportPath === second.iconImportPath
     && first.importPath === second.importPath
     && first.propMappings === second.propMappings
     && first.sourcePath === second.sourcePath
+    && first.sourceUrl === second.sourceUrl
     && first.storybookUrl === second.storybookUrl;
 }
 
@@ -125,6 +307,11 @@ export function validateConnectionForm(
   const errors: FormErrors = {};
   const componentName = values.componentName.trim();
   const importPath = values.importPath.trim();
+  const childrenTextProperty = values.childrenTextProperty.trim();
+  const iconComponentName = values.iconComponentName.trim();
+  const iconImportPath = values.iconImportPath.trim();
+  const storybookUrl = normalizeOptionalHttpUrl(values.storybookUrl);
+  const sourceUrl = normalizeOptionalHttpUrl(values.sourceUrl);
 
   if (componentName === '') {
     errors.componentName = 'Enter a component name.';
@@ -136,14 +323,42 @@ export function validateConnectionForm(
     errors.importPath = 'Enter an import path.';
   }
 
+  if (storybookUrl === null) {
+    errors.storybookUrl = 'Use a complete http:// or https:// URL without credentials.';
+  }
+
+  if (sourceUrl === null) {
+    errors.sourceUrl = 'Use a complete http:// or https:// URL without credentials.';
+  }
+
+  if (values.childrenMode !== 'none' && childrenTextProperty === '') {
+    errors.childrenTextProperty = 'Enter the Figma property used for child text.';
+  }
+
+  if (values.childrenMode === 'icon-only') {
+    if (iconComponentName === '') {
+      errors.iconComponentName = 'Enter the exported icon component name.';
+    } else if (!COMPONENT_IDENTIFIER_PATTERN.test(iconComponentName)) {
+      errors.iconComponentName = 'Use a valid exported component name, for example TrashIcon.';
+    } else if (iconComponentName === componentName && iconImportPath !== importPath) {
+      errors.iconComponentName = 'Use a different local component name for a different import path.';
+    }
+
+    if (iconImportPath === '') {
+      errors.iconImportPath = 'Enter the icon import path.';
+    }
+  }
+
   let propMappings: ConnectionMetadata['propMappings'] = {};
   if (values.propMappings.trim() !== '') {
     try {
       const parsed = JSON.parse(values.propMappings) as unknown;
       if (!isRecord(parsed)) {
         errors.propMappings = 'Prop mappings must be a JSON object.';
+      } else if (!isPropMappings(parsed)) {
+        errors.propMappings = 'Each mapping needs a valid `prop` and a string/number/boolean `value`.';
       } else {
-        propMappings = parsed as ConnectionMetadata['propMappings'];
+        propMappings = parsed;
       }
     } catch (_error) {
       errors.propMappings = 'Prop mappings must be valid JSON.';
@@ -163,8 +378,14 @@ export function validateConnectionForm(
       schemaVersion: CURRENT_SCHEMA_VERSION,
       componentName,
       importPath,
-      storybookUrl: values.storybookUrl.trim() || undefined,
+      storybookUrl: storybookUrl ?? undefined,
       sourcePath: values.sourcePath.trim() || undefined,
+      sourceUrl: sourceUrl ?? undefined,
+      childrenMode: values.childrenMode,
+      ...(values.childrenMode === 'none' ? {} : { childrenTextProperty }),
+      ...(values.childrenMode === 'icon-only'
+        ? { iconComponentName, iconImportPath }
+        : {}),
       propMappings,
     },
     ok: true,
@@ -177,6 +398,10 @@ export function getFirstInvalidField(errors: FormErrors): FormField | undefined 
     'importPath',
     'storybookUrl',
     'sourcePath',
+    'sourceUrl',
+    'childrenTextProperty',
+    'iconComponentName',
+    'iconImportPath',
     'propMappings',
   ];
   return fieldOrder.find((field) => Boolean(errors[field]));

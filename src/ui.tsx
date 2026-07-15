@@ -7,6 +7,7 @@ import {
   IconCopySmall24,
   IconHelp16,
   render,
+  SegmentedControl,
   Stack,
   Text,
   Textbox,
@@ -14,44 +15,38 @@ import {
   useWindowResize,
   VerticalSpace,
 } from '@create-figma-plugin/ui';
-import { emit, on } from '@create-figma-plugin/utilities';
+import { emit } from '@create-figma-plugin/utilities';
 import { Fragment, h } from 'preact';
 import { useCallback, useEffect, useRef, useState } from 'preact/hooks';
 import '!./ui.css';
-import { mergePropMappingsJson } from './prop-mappings';
+import { normalizeHttpUrl } from './external-url';
 import { copyToClipboard } from './ui-clipboard';
+import { useConnectionController } from './ui-controller';
 import {
   FORM_FIELD_IDS,
-  createFormDraft,
-  createFormValues,
-  getClearAction,
+  formatConnectionUpdatedAt,
+  getConnectionStatusSummary,
   getCopyFeedback,
-  getFirstInvalidField,
-  markFormDraftSaved,
-  selectFormDraft,
-  updateFormDraft,
-  validateConnectionForm,
-  type ConnectionFormValues,
   type CopyStatus,
-  type DraftStore,
-  type FormDraft,
   type FormErrors,
   type FormField,
+  type PendingMutation,
 } from './ui-state';
 import {
-  type ClearConnectionHandler,
+  type ChildrenMode,
+  type ConnectionIssue,
+  type ConnectionReferences,
   type InspectCodeState,
-  type InspectCodeStateHandler,
-  type PropMappings,
-  type RefreshSelectionHandler,
+  type OpenExternalHandler,
   type ResizeWindowHandler,
-  type SaveConnectionHandler,
-  type SaveResultHandler,
-  type ScaffoldPropMappingsHandler,
-  type ScaffoldResultHandler,
-  type SelectionStateHandler,
   type UiSelectionState,
 } from './types';
+
+const CHILDREN_MODE_OPTIONS = [
+  { children: 'Text', value: 'text' },
+  { children: 'Icon', value: 'icon-only' },
+  { children: 'None', value: 'none' },
+];
 
 const PROP_MAPPINGS_PLACEHOLDER = `e.g.,
 {
@@ -76,9 +71,6 @@ const PROP_MAPPINGS_PLACEHOLDER = `e.g.,
     "md": { "prop": "size", "value": "md" },
     "sm": { "prop": "size", "value": "sm" }
   },
-  "isOnlyIcon": {
-    "true": { "prop": "iconOnly", "value": true }
-  },
   "hasLeadingIcon": {
     "true": { "prop": "leadingIcon", "value": "<Icon />", "raw": true }
   },
@@ -87,34 +79,40 @@ const PROP_MAPPINGS_PLACEHOLDER = `e.g.,
   }
 }`;
 
-function Plugin(): h.JSX.Element {
+export function Plugin(): h.JSX.Element {
   const [view, setView] = useState<'connect' | 'help'>('connect');
   const [workflowTab, setWorkflowTab] = useState<'connect' | 'generate'>('connect');
-  const [selectionState, setSelectionState] = useState<UiSelectionState>({
-    status: 'empty',
-    message: 'Select a component instance or main component.',
-  });
-  const initialFormValues = createFormValues();
-  const [formValues, setFormValuesState] = useState(initialFormValues);
-  const formValuesRef = useRef(initialFormValues);
-  const draftsRef = useRef<DraftStore>(new Map());
-  const activeSelectionTokenRef = useRef<string>();
-  const selectionStateRef = useRef<UiSelectionState>({
-    status: 'empty',
-    message: 'Select a component instance or main component.',
-  });
-  const pendingSaveValuesRef = useRef(new Map<string, ConnectionFormValues>());
-  const clearCancelButtonRef = useRef<HTMLButtonElement>(null);
-  const [isDirty, setIsDirty] = useState(false);
-  const [fieldErrors, setFieldErrors] = useState<FormErrors>({});
-  const [errorMessage, setErrorMessage] = useState('');
-  const [statusMessage, setStatusMessage] = useState('');
-  const [isClearConfirmationOpen, setIsClearConfirmationOpen] = useState(false);
-  const [inspectCodeState, setInspectCodeState] = useState<InspectCodeState>({
-    status: 'invalid-selection',
-  });
+  const {
+    activePendingOperation,
+    cancelClear: handleCancelClear,
+    clear: handleClear,
+    clearCancelButtonRef,
+    errorMessage,
+    fieldErrors,
+    formValues,
+    inspectCodeState,
+    isClearConfirmationOpen,
+    isDirty,
+    isReady,
+    save: handleSave,
+    scaffold: handleScaffold,
+    selectionState,
+    selectionStatusAnnouncement,
+    setChildrenMode,
+    setFormField,
+    statusMessage,
+  } = useConnectionController();
 
-  const isReady = selectionState.status === 'ready';
+  useEffect(() => {
+    document.documentElement.lang = 'en';
+  }, []);
+
+  useEffect(() => {
+    if (view === 'help') {
+      document.getElementById('tashil-help-heading')?.focus();
+    }
+  }, [view]);
+
   const resizeWindow = useCallback((size: { width: number; height: number }) => {
     emit<ResizeWindowHandler>('RESIZE_WINDOW', size);
   }, []);
@@ -124,12 +122,6 @@ function Plugin(): h.JSX.Element {
     minWidth: 360,
     resizeDirection: 'both',
   });
-
-  useEffect(() => {
-    if (isClearConfirmationOpen) {
-      clearCancelButtonRef.current?.focus();
-    }
-  }, [isClearConfirmationOpen]);
 
   // WAI-ARIA tabs pattern: Arrow keys move between tabs, Home/End jump to the ends.
   function handleTabKeyDown(event: h.JSX.TargetedKeyboardEvent<HTMLDivElement>): void {
@@ -154,239 +146,18 @@ function Plugin(): h.JSX.Element {
     event.preventDefault();
     const nextTab = tabs[nextIndex];
     setWorkflowTab(nextTab);
-    // Move focus to the newly selected tab (roving tabindex).
     const tabId = nextTab === 'connect' ? 'tashil-tab-connect' : 'tashil-tab-generate';
     document.getElementById(tabId)?.focus();
   }
 
-  useEffect(() => {
-    const offSelectionState = on<SelectionStateHandler>('SELECTION_STATE', (state) => {
-      applySelectionState(state);
-    });
-
-    const offSaveResult = on<SaveResultHandler>('SAVE_RESULT', (result) => {
-      handleSaveResult(result);
-    });
-
-    const offInspectCodeState = on<InspectCodeStateHandler>('INSPECT_CODE_STATE', (state) => {
-      setInspectCodeState(state);
-    });
-
-    const offScaffoldResult = on<ScaffoldResultHandler>('SCAFFOLD_RESULT', (result) => {
-      if (!result.ok) {
-        if (activeSelectionTokenRef.current === result.selectionToken) {
-          setStatusMessage('');
-          setErrorMessage(result.message || 'Could not scaffold prop mappings.');
-        }
-        return;
-      }
-
-      mergePropMappings(result.selectionToken, result.mappings ?? {});
-    });
-
-    emit<RefreshSelectionHandler>('REFRESH_SELECTION');
-
-    return () => {
-      offSelectionState();
-      offSaveResult();
-      offInspectCodeState();
-      offScaffoldResult();
-    };
-  }, []);
-
-  function applySelectionState(state: UiSelectionState): void {
-    const previousToken = activeSelectionTokenRef.current;
-    selectionStateRef.current = state;
-    setSelectionState(state);
-    setErrorMessage('');
-    setFieldErrors({});
-
-    if (state.status !== 'ready') {
-      activeSelectionTokenRef.current = undefined;
-      displayFormDraft(createFormDraft(createFormValues()));
-      setStatusMessage('');
-      setIsClearConfirmationOpen(false);
-      return;
-    }
-
-    const result = selectFormDraft(draftsRef.current, state);
-    draftsRef.current = result.drafts;
-    activeSelectionTokenRef.current = state.selectionToken;
-    displayFormDraft(result.draft!);
-
-    if (previousToken !== state.selectionToken) {
-      setStatusMessage(result.restored
-        ? 'Restored your unsaved changes for this component.'
-        : '');
-      setIsClearConfirmationOpen(false);
-    }
+  function openHelp(): void {
+    setView('help');
   }
 
-  function handleSaveResult(result: Parameters<SaveResultHandler['handler']>[0]): void {
-    const isActiveSelection = activeSelectionTokenRef.current === result.selectionToken;
-
-    if (result.operation === 'save') {
-      const submittedValues = pendingSaveValuesRef.current.get(result.selectionToken);
-      pendingSaveValuesRef.current.delete(result.selectionToken);
-      const draft = draftsRef.current.get(result.selectionToken);
-
-      if (result.ok && submittedValues && draft) {
-        const savedDraft = markFormDraftSaved(draft, submittedValues);
-        const nextDrafts = new Map(draftsRef.current);
-        nextDrafts.set(result.selectionToken, savedDraft);
-        draftsRef.current = nextDrafts;
-        if (isActiveSelection) {
-          displayFormDraft(savedDraft);
-        }
-      }
-    } else if (result.ok) {
-      const nextDrafts = new Map(draftsRef.current);
-      nextDrafts.delete(result.selectionToken);
-      draftsRef.current = nextDrafts;
-
-      if (isActiveSelection) {
-        const currentState = selectionStateRef.current;
-        const fallbackComponentName = currentState.status === 'ready'
-          ? currentState.componentName
-          : undefined;
-        const clearedDraft = createFormDraft(createFormValues(undefined, fallbackComponentName));
-        nextDrafts.set(result.selectionToken, clearedDraft);
-        draftsRef.current = nextDrafts;
-        displayFormDraft(clearedDraft);
-      }
-    }
-
-    if (isActiveSelection) {
-      setErrorMessage(result.ok ? '' : result.message);
-      setStatusMessage(result.ok ? result.message : '');
-      setIsClearConfirmationOpen(false);
-    }
-  }
-
-  function mergePropMappings(selectionToken: string, incoming: PropMappings): void {
-    const draft = draftsRef.current.get(selectionToken);
-    if (!draft) {
-      return;
-    }
-
-    const result = mergePropMappingsJson(draft.values.propMappings, incoming);
-
-    if (!result.ok) {
-      if (activeSelectionTokenRef.current === selectionToken) {
-        setStatusMessage('');
-        setErrorMessage(result.message);
-      }
-      return;
-    }
-
-    const updatedDraft = updateFormDraft(draft, 'propMappings', result.value);
-    const nextDrafts = new Map(draftsRef.current);
-    nextDrafts.set(selectionToken, updatedDraft);
-    draftsRef.current = nextDrafts;
-
-    if (activeSelectionTokenRef.current === selectionToken) {
-      displayFormDraft(updatedDraft);
-      setFieldErrors((current) => ({ ...current, propMappings: undefined }));
-      setErrorMessage('');
-      setStatusMessage('Generated prop mappings from the selected component.');
-    }
-  }
-
-  function displayFormDraft(draft: FormDraft): void {
-    formValuesRef.current = draft.values;
-    setFormValuesState(draft.values);
-    setIsDirty(draft.isDirty);
-  }
-
-  function setFormField(field: FormField, value: string): void {
-    const selectionToken = activeSelectionTokenRef.current;
-    if (!selectionToken) {
-      return;
-    }
-
-    const draft = draftsRef.current.get(selectionToken)
-      ?? createFormDraft(formValuesRef.current);
-    const updatedDraft = updateFormDraft(draft, field, value);
-    const nextDrafts = new Map(draftsRef.current);
-    nextDrafts.set(selectionToken, updatedDraft);
-    draftsRef.current = nextDrafts;
-    displayFormDraft(updatedDraft);
-    setFieldErrors((current) => ({ ...current, [field]: undefined }));
-    setErrorMessage('');
-    setStatusMessage('');
-    setIsClearConfirmationOpen(false);
-  }
-
-  function handleSave(): void {
-    if (
-      selectionState.status !== 'ready'
-      || activeSelectionTokenRef.current !== selectionState.selectionToken
-    ) {
-      setErrorMessage('Selection changed. Select one component and try again.');
-      return;
-    }
-
-    const validation = validateConnectionForm(formValuesRef.current);
-    if (!validation.ok) {
-      setFieldErrors(validation.errors);
-      setStatusMessage('');
-      setErrorMessage(validation.message);
-      const firstInvalidField = getFirstInvalidField(validation.errors);
-      if (firstInvalidField) {
-        window.setTimeout(() => {
-          document.getElementById(FORM_FIELD_IDS[firstInvalidField])?.focus();
-        }, 0);
-      }
-      return;
-    }
-
-    setFieldErrors({});
-    setErrorMessage('');
-    setStatusMessage('Saving connection…');
-    pendingSaveValuesRef.current.set(
-      selectionState.selectionToken,
-      { ...formValuesRef.current },
-    );
-    emit<SaveConnectionHandler>('SAVE_CONNECTION', {
-      selectionToken: selectionState.selectionToken,
-      metadata: validation.metadata,
-    });
-  }
-
-  function handleScaffold(): void {
-    if (selectionState.status !== 'ready') {
-      setErrorMessage('Selection changed. Select one component and try again.');
-      return;
-    }
-
-    emit<ScaffoldPropMappingsHandler>('SCAFFOLD_PROP_MAPPINGS', {
-      selectionToken: selectionState.selectionToken,
-    });
-  }
-
-  function handleClear(): void {
-    if (selectionState.status !== 'ready') {
-      setErrorMessage('Selection changed. Select one component and try again.');
-      return;
-    }
-
-    if (getClearAction(isClearConfirmationOpen) === 'request-confirmation') {
-      setIsClearConfirmationOpen(true);
-      return;
-    }
-
-    setIsClearConfirmationOpen(false);
-    setErrorMessage('');
-    setStatusMessage('Clearing connection…');
-    emit<ClearConnectionHandler>('CLEAR_CONNECTION', {
-      selectionToken: selectionState.selectionToken,
-    });
-  }
-
-  function handleCancelClear(): void {
-    setIsClearConfirmationOpen(false);
+  function closeHelp(): void {
+    setView('connect');
     window.setTimeout(() => {
-      document.getElementById('tashil-clear-button')?.focus();
+      document.getElementById('tashil-help-button')?.focus();
     }, 0);
   }
 
@@ -394,13 +165,13 @@ function Plugin(): h.JSX.Element {
 
   return (
     <div class={hasFooter ? 'root' : 'root root-no-footer'}>
-      <div class="header">
+      <header class="header">
         <Container space="medium">
           <div class="top-bar">
             {view === 'help' ? (
               <Button
                 aria-label="Back to connect component"
-                onClick={() => setView('connect')}
+                onClick={closeHelp}
                 secondary
                 title="Back"
               >
@@ -437,15 +208,27 @@ function Plugin(): h.JSX.Element {
                 </button>
               </div>
             )}
-            <IconButton
-              aria-label={view === 'help' ? 'Back to connect component' : 'Open how it works'}
-              onClick={() => setView(view === 'help' ? 'connect' : 'help')}
-              title={view === 'help' ? 'Back' : 'How it works'}
-            >
-              <IconHelp16 />
-            </IconButton>
+            {view !== 'help' ? (
+              <IconButton
+                aria-label="Open how it works"
+                id="tashil-help-button"
+                onClick={openHelp}
+                title="How it works"
+              >
+                <IconHelp16 />
+              </IconButton>
+            ) : null}
           </div>
         </Container>
+      </header>
+
+      <div
+        aria-atomic="true"
+        aria-live="polite"
+        class="visually-hidden"
+        role="status"
+      >
+        {selectionStatusAnnouncement}
       </div>
 
       {view === 'connect' && workflowTab === 'connect' ? (
@@ -456,6 +239,8 @@ function Plugin(): h.JSX.Element {
           role="tabpanel"
         >
           <ConnectComponentView
+            childrenMode={formValues.childrenMode}
+            childrenTextProperty={formValues.childrenTextProperty}
             componentName={formValues.componentName}
             clearCancelButtonRef={(element) => {
               clearCancelButtonRef.current = element;
@@ -466,18 +251,27 @@ function Plugin(): h.JSX.Element {
             handleClear={handleClear}
             handleSave={handleSave}
             handleScaffold={handleScaffold}
+            iconComponentName={formValues.iconComponentName}
+            iconImportPath={formValues.iconImportPath}
             importPath={formValues.importPath}
             isClearConfirmationOpen={isClearConfirmationOpen}
             isDirty={isDirty}
             isReady={isReady}
+            pendingOperation={activePendingOperation}
             propMappings={formValues.propMappings}
             selectionState={selectionState}
+            setChildrenMode={setChildrenMode}
+            setChildrenTextProperty={(value) => setFormField('childrenTextProperty', value)}
             setComponentName={(value) => setFormField('componentName', value)}
+            setIconComponentName={(value) => setFormField('iconComponentName', value)}
+            setIconImportPath={(value) => setFormField('iconImportPath', value)}
             setImportPath={(value) => setFormField('importPath', value)}
             setPropMappings={(value) => setFormField('propMappings', value)}
             setSourcePath={(value) => setFormField('sourcePath', value)}
+            setSourceUrl={(value) => setFormField('sourceUrl', value)}
             setStorybookUrl={(value) => setFormField('storybookUrl', value)}
             sourcePath={formValues.sourcePath}
+            sourceUrl={formValues.sourceUrl}
             statusMessage={statusMessage}
             storybookUrl={formValues.storybookUrl}
           />
@@ -505,6 +299,8 @@ function Plugin(): h.JSX.Element {
 }
 
 function ConnectComponentView(props: {
+  childrenMode: ChildrenMode;
+  childrenTextProperty: string;
   clearCancelButtonRef: (element: HTMLButtonElement | null) => void;
   componentName: string;
   errorMessage: string;
@@ -513,18 +309,27 @@ function ConnectComponentView(props: {
   handleClear: () => void;
   handleSave: () => void;
   handleScaffold: () => void;
+  iconComponentName: string;
+  iconImportPath: string;
   importPath: string;
   isClearConfirmationOpen: boolean;
   isDirty: boolean;
   isReady: boolean;
+  pendingOperation?: PendingMutation['operation'];
   propMappings: string;
   selectionState: UiSelectionState;
+  setChildrenMode: (value: ChildrenMode) => void;
+  setChildrenTextProperty: (value: string) => void;
   setComponentName: (value: string) => void;
+  setIconComponentName: (value: string) => void;
+  setIconImportPath: (value: string) => void;
   setImportPath: (value: string) => void;
   setPropMappings: (value: string) => void;
   setSourcePath: (value: string) => void;
+  setSourceUrl: (value: string) => void;
   setStorybookUrl: (value: string) => void;
   sourcePath: string;
+  sourceUrl: string;
   statusMessage: string;
   storybookUrl: string;
 }): h.JSX.Element {
@@ -534,10 +339,28 @@ function ConnectComponentView(props: {
     );
   }
 
+  const existingConnection = props.selectionState.status === 'ready'
+    ? props.selectionState.existingConnection
+    : undefined;
+  const connectionIssue = props.selectionState.status === 'ready'
+    ? props.selectionState.connectionIssue
+    : undefined;
+
   return (
     <Fragment>
-      <div class="fields">
+      <main
+        aria-busy={props.pendingOperation ? 'true' : 'false'}
+        aria-label="Connect component setup"
+        class="fields"
+      >
         <Container space="medium">
+          <VerticalSpace space="medium" />
+          <ConnectionStatusPanel
+            connectionIssue={connectionIssue}
+            hasConnection={existingConnection !== undefined}
+            isDirty={props.isDirty}
+            updatedAt={existingConnection?.updatedAt}
+          />
           <VerticalSpace space="medium" />
           <div class="form-stack">
             <Field
@@ -574,8 +397,14 @@ function ConnectComponentView(props: {
               />
             </Field>
 
-            <Field id={FORM_FIELD_IDS.storybookUrl} label="Storybook URL">
+            <Field
+              error={props.fieldErrors.storybookUrl}
+              id={FORM_FIELD_IDS.storybookUrl}
+              label="Storybook URL"
+            >
               <Textbox
+                aria-describedby={getFieldErrorId('storybookUrl', props.fieldErrors)}
+                aria-invalid={Boolean(props.fieldErrors.storybookUrl)}
                 disabled={!props.isReady}
                 id={FORM_FIELD_IDS.storybookUrl}
                 onValueInput={props.setStorybookUrl}
@@ -594,17 +423,113 @@ function ConnectComponentView(props: {
               />
             </Field>
 
+            <Field
+              error={props.fieldErrors.sourceUrl}
+              id={FORM_FIELD_IDS.sourceUrl}
+              label="Source URL"
+            >
+              <Textbox
+                aria-describedby={getFieldErrorId('sourceUrl', props.fieldErrors)}
+                aria-invalid={Boolean(props.fieldErrors.sourceUrl)}
+                disabled={!props.isReady}
+                id={FORM_FIELD_IDS.sourceUrl}
+                onValueInput={props.setSourceUrl}
+                placeholder="e.g., https://github.com/org/repo/blob/main/src/..."
+                value={props.sourceUrl}
+              />
+            </Field>
+
+            <fieldset class="children-mode-fieldset">
+              <legend class="field-label">Children</legend>
+              <SegmentedControl
+                disabled={!props.isReady}
+                onValueChange={(value) => {
+                  if (value === 'text' || value === 'icon-only' || value === 'none') {
+                    props.setChildrenMode(value);
+                  }
+                }}
+                options={CHILDREN_MODE_OPTIONS}
+                value={props.childrenMode}
+              />
+            </fieldset>
+
+            {props.childrenMode !== 'none' ? (
+              <Field
+                error={props.fieldErrors.childrenTextProperty}
+                id={FORM_FIELD_IDS.childrenTextProperty}
+                label={props.childrenMode === 'icon-only'
+                  ? 'Accessible label property'
+                  : 'Figma text property'}
+              >
+                <Textbox
+                  aria-describedby={getFieldErrorId(
+                    'childrenTextProperty',
+                    props.fieldErrors,
+                  )}
+                  aria-invalid={Boolean(props.fieldErrors.childrenTextProperty)}
+                  aria-required="true"
+                  disabled={!props.isReady}
+                  id={FORM_FIELD_IDS.childrenTextProperty}
+                  onValueInput={props.setChildrenTextProperty}
+                  placeholder="e.g., label or Button Text"
+                  value={props.childrenTextProperty}
+                />
+              </Field>
+            ) : null}
+
+            {props.childrenMode === 'icon-only' ? (
+              <Fragment>
+                <Field
+                  error={props.fieldErrors.iconComponentName}
+                  id={FORM_FIELD_IDS.iconComponentName}
+                  label="Icon component"
+                >
+                  <Textbox
+                    aria-describedby={getFieldErrorId(
+                      'iconComponentName',
+                      props.fieldErrors,
+                    )}
+                    aria-invalid={Boolean(props.fieldErrors.iconComponentName)}
+                    aria-required="true"
+                    disabled={!props.isReady}
+                    id={FORM_FIELD_IDS.iconComponentName}
+                    onValueInput={props.setIconComponentName}
+                    placeholder="e.g., TrashIcon"
+                    value={props.iconComponentName}
+                  />
+                </Field>
+                <Field
+                  error={props.fieldErrors.iconImportPath}
+                  id={FORM_FIELD_IDS.iconImportPath}
+                  label="Icon import path"
+                >
+                  <Textbox
+                    aria-describedby={getFieldErrorId('iconImportPath', props.fieldErrors)}
+                    aria-invalid={Boolean(props.fieldErrors.iconImportPath)}
+                    aria-required="true"
+                    disabled={!props.isReady}
+                    id={FORM_FIELD_IDS.iconImportPath}
+                    onValueInput={props.setIconImportPath}
+                    placeholder="e.g., tashil-ui/icons"
+                    value={props.iconImportPath}
+                  />
+                </Field>
+              </Fragment>
+            ) : null}
+
             <div class="field">
               <div class="field-label-row">
                 <label class="field-label" htmlFor={FORM_FIELD_IDS.propMappings}>
                   Prop mappings JSON
                 </label>
                 <Button
-                  disabled={!props.isReady}
+                  disabled={!props.isReady || props.pendingOperation !== undefined}
                   onClick={props.handleScaffold}
                   secondary
                 >
-                  Generate from component
+                  {props.pendingOperation === 'scaffold'
+                    ? 'Generating…'
+                    : 'Generate from component'}
                 </Button>
               </div>
               <TextboxMultiline
@@ -637,14 +562,9 @@ function ConnectComponentView(props: {
           <div aria-atomic="true" aria-live="polite" class="form-status" role="status">
             {props.statusMessage}
           </div>
-          {props.isDirty ? (
-            <div aria-live="polite" class="dirty-indicator" role="status">
-              Unsaved changes for this component
-            </div>
-          ) : null}
           <VerticalSpace space="medium" />
         </Container>
-      </div>
+      </main>
 
       <div class="footer">
         <div class="actions">
@@ -660,11 +580,19 @@ function ConnectComponentView(props: {
                 <div>Deletes shared Storybook metadata.</div>
               </div>
               <div class="clear-confirmation-actions">
-                <Button onClick={props.handleCancelClear} ref={props.clearCancelButtonRef} secondary>
+                <Button
+                  disabled={props.pendingOperation !== undefined}
+                  onClick={props.handleCancelClear}
+                  ref={props.clearCancelButtonRef}
+                  secondary
+                >
                   Cancel
                 </Button>
-                <Button onClick={props.handleClear}>
-                  Clear connection
+                <Button
+                  disabled={props.pendingOperation !== undefined}
+                  onClick={props.handleClear}
+                >
+                  {props.pendingOperation === 'clear' ? 'Clearing…' : 'Clear connection'}
                 </Button>
               </div>
             </Fragment>
@@ -672,16 +600,26 @@ function ConnectComponentView(props: {
             <Fragment>
               <div class="spacer" />
               <div class="primary-actions">
+                {existingConnection && !connectionIssue ? (
+                  <Button
+                    disabled={!props.isReady || props.pendingOperation !== undefined}
+                    id="tashil-clear-button"
+                    onClick={props.handleClear}
+                    secondary
+                  >
+                    {props.pendingOperation === 'clear' ? 'Clearing…' : 'Clear'}
+                  </Button>
+                ) : null}
                 <Button
-                  disabled={!props.isReady}
-                  id="tashil-clear-button"
-                  onClick={props.handleClear}
-                  secondary
+                  disabled={
+                    !props.isReady
+                    || !props.isDirty
+                    || connectionIssue !== undefined
+                    || props.pendingOperation !== undefined
+                  }
+                  onClick={props.handleSave}
                 >
-                  Clear
-                </Button>
-                <Button disabled={!props.isReady} onClick={props.handleSave}>
-                  Save
+                  {props.pendingOperation === 'save' ? 'Saving…' : 'Save'}
                 </Button>
               </div>
             </Fragment>
@@ -692,11 +630,61 @@ function ConnectComponentView(props: {
   );
 }
 
+function ConnectionStatusPanel(props: {
+  connectionIssue?: ConnectionIssue;
+  hasConnection: boolean;
+  isDirty: boolean;
+  updatedAt?: string;
+}): h.JSX.Element {
+  const summary = getConnectionStatusSummary(props.hasConnection, props.isDirty);
+  const connectionLabel = props.connectionIssue
+    ? 'Stored connection needs attention'
+    : summary.connectionLabel;
+  const unsavedLabel = props.connectionIssue ? undefined : summary.unsavedLabel;
+  const updatedAt = formatConnectionUpdatedAt(props.updatedAt);
+  const className = props.connectionIssue
+    ? 'connection-status connection-status-issue'
+    : props.hasConnection
+      ? 'connection-status connection-status-connected'
+      : 'connection-status connection-status-not-connected';
+
+  return (
+    <section
+      aria-labelledby="tashil-connection-status-heading"
+      class={className}
+    >
+      <div class="connection-status-header">
+        <span aria-hidden="true" class="connection-status-indicator" />
+        <h1 class="connection-status-title" id="tashil-connection-status-heading">
+          {connectionLabel}
+        </h1>
+        {unsavedLabel ? (
+          <span class="connection-unsaved-label">{unsavedLabel}</span>
+        ) : null}
+      </div>
+      {props.connectionIssue ? (
+        <div class="connection-issue-message">
+          {props.connectionIssue.message}
+        </div>
+      ) : props.hasConnection ? (
+        <div class="connection-updated-at">
+          Last updated:{' '}
+          {updatedAt ? (
+            <time dateTime={updatedAt.dateTime}>{updatedAt.label}</time>
+          ) : (
+            'Not available'
+          )}
+        </div>
+      ) : null}
+    </section>
+  );
+}
+
 function EmptyComponentSelectionState(props: { message: string }): h.JSX.Element {
   const lines = props.message.split('\n');
 
   return (
-    <div class="connect-empty">
+    <main aria-label="Connect component selection" class="connect-empty">
       <div aria-hidden="true" class="inspect-empty-icon">
         <IconInteractionClickSmall48 />
       </div>
@@ -705,7 +693,7 @@ function EmptyComponentSelectionState(props: { message: string }): h.JSX.Element
           <Text key={index}>{line}</Text>
         ))}
       </div>
-    </div>
+    </main>
   );
 }
 
@@ -733,16 +721,124 @@ function InspectCodeView(props: {
     );
   }
 
+  if (props.inspectCodeState.status === 'connection-issue') {
+    return (
+      <EmptyInspectState
+        icon={<IconDetach48 />}
+        label={props.inspectCodeState.message || 'Stored connection needs attention'}
+      />
+    );
+  }
+
   return (
-    <div class="inspect-content">
+    <main aria-labelledby="tashil-inspect-code-heading" class="inspect-content">
+      <h1 class="visually-hidden" id="tashil-inspect-code-heading">Inspect code</h1>
       <CodeBlock
         code={props.inspectCodeState.code || ''}
         title="Code"
       />
-      <CodeBlock
-        code={props.inspectCodeState.references || ''}
-        title="References"
-      />
+      {props.inspectCodeState.diagnostics ? (
+        <CodeBlock
+          code={props.inspectCodeState.diagnostics}
+          title="Mapping diagnostics"
+        />
+      ) : null}
+      <ConnectionReferencesPanel references={props.inspectCodeState.references || {}} />
+    </main>
+  );
+}
+
+function ConnectionReferencesPanel(props: {
+  references: ConnectionReferences;
+}): h.JSX.Element {
+  const references = props.references;
+  const updatedAt = formatConnectionUpdatedAt(references.updatedAt);
+  const hasReferences = Boolean(
+    references.storybookUrl
+    || references.sourcePath
+    || references.sourceUrl
+    || references.updatedAt,
+  );
+
+  return (
+    <section aria-labelledby="tashil-references-heading" class="reference-section">
+      <h2 class="reference-section-heading" id="tashil-references-heading">References</h2>
+      {hasReferences ? (
+        <dl class="reference-list">
+          {references.storybookUrl ? (
+            <ReferenceUrlRow
+              label="Storybook"
+              target="storybook"
+              url={references.storybookUrl}
+            />
+          ) : null}
+          {references.sourceUrl ? (
+            <ReferenceUrlRow
+              label="Source"
+              target="source"
+              url={references.sourceUrl}
+            />
+          ) : null}
+          {references.sourcePath ? (
+            <div class="reference-row">
+              <dt class="reference-label-row">
+                <span>Source path</span>
+                <CopyButton text={references.sourcePath} title="source path" />
+              </dt>
+              <dd class="reference-value reference-path">{references.sourcePath}</dd>
+            </div>
+          ) : null}
+          {references.updatedAt ? (
+            <div class="reference-row">
+              <dt class="reference-label">Last updated</dt>
+              <dd class="reference-value">
+                {updatedAt ? (
+                  <time dateTime={updatedAt.dateTime}>{updatedAt.label}</time>
+                ) : (
+                  'Not available'
+                )}
+              </dd>
+            </div>
+          ) : null}
+        </dl>
+      ) : (
+        <p class="reference-empty">No references saved.</p>
+      )}
+    </section>
+  );
+}
+
+function ReferenceUrlRow(props: {
+  label: string;
+  target: 'source' | 'storybook';
+  url: string;
+}): h.JSX.Element {
+  const url = normalizeHttpUrl(props.url);
+
+  return (
+    <div class="reference-row">
+      <dt class="reference-label">{props.label}</dt>
+      <dd class="reference-value">
+        <span class="reference-url">{props.url}</span>
+        {url ? (
+          <button
+            class="reference-open-button"
+            onClick={() => {
+              emit<OpenExternalHandler>('OPEN_EXTERNAL', {
+                target: props.target,
+                url,
+              });
+            }}
+            type="button"
+          >
+            Open {props.label} in browser
+          </button>
+        ) : (
+          <span class="reference-warning">
+            This saved URL is not a valid HTTP(S) address. Update it in Connect Component.
+          </span>
+        )}
+      </dd>
     </div>
   );
 }
@@ -754,19 +850,17 @@ function EmptyInspectState(props: {
   onAction?: () => void;
 }): h.JSX.Element {
   return (
-    <div class="inspect-empty">
+    <main class="inspect-empty">
       <div aria-hidden="true" class="inspect-empty-icon">
         {props.icon}
       </div>
-      <div class="inspect-empty-label">
-        <Text>{props.label}</Text>
-      </div>
+      <h1 class="inspect-empty-label">{props.label}</h1>
       {props.actionLabel && props.onAction ? (
         <Button onClick={props.onAction}>
           {props.actionLabel}
         </Button>
       ) : null}
-    </div>
+    </main>
   );
 }
 
@@ -818,6 +912,34 @@ function IconDetach48(): h.JSX.Element {
 
 function CodeBlock(props: { code: string; title: string }): h.JSX.Element {
   const lines = props.code.length > 0 ? props.code.split('\n') : [''];
+  const headingId = props.title === 'Code'
+    ? 'tashil-generated-code-heading'
+    : 'tashil-mapping-diagnostics-heading';
+  const regionLabel = props.title === 'Code'
+    ? 'Generated TSX code, horizontally scrollable'
+    : 'Prop mapping diagnostics, horizontally scrollable';
+
+  return (
+    <section class="code-section">
+      <div class="code-section-header">
+        <h2 class="code-section-heading" id={headingId}>{props.title}</h2>
+        <CopyButton text={props.code} title={props.title} />
+      </div>
+      <pre aria-label={regionLabel} class="code-block" role="region" tabIndex={0}>
+        <code>
+          {lines.map((line, index) => (
+            <span class="code-line" key={`${props.title}-${index}`}>
+              <span aria-hidden="true" class="code-line-number">{index + 1}</span>
+              <span class="code-line-content">{renderCodeLine(line)}</span>
+            </span>
+          ))}
+        </code>
+      </pre>
+    </section>
+  );
+}
+
+function CopyButton(props: { text: string; title: string }): h.JSX.Element {
   const [copyStatus, setCopyStatus] = useState<CopyStatus>('idle');
   const resetCopyStatusTimerRef = useRef<number>();
   const copyFeedback = getCopyFeedback(copyStatus, props.title);
@@ -834,7 +956,7 @@ function CodeBlock(props: { code: string; title: string }): h.JSX.Element {
     }
 
     try {
-      await copyToClipboard(props.code);
+      await copyToClipboard(props.text);
       setCopyStatus('copied');
     } catch (_error) {
       setCopyStatus('error');
@@ -846,33 +968,20 @@ function CodeBlock(props: { code: string; title: string }): h.JSX.Element {
   }
 
   return (
-    <section class="code-section">
-      <div class="code-section-header">
-        <Text>{props.title}</Text>
-        <IconButton
-          aria-label={copyFeedback.ariaLabel}
-          onClick={() => {
-            void handleCopy();
-          }}
-          title={copyFeedback.ariaLabel}
-        >
-          {copyStatus === 'copied' ? <IconCheck24 /> : <IconCopySmall24 />}
-        </IconButton>
-        <span aria-atomic="true" aria-live="polite" class="visually-hidden" role="status">
-          {copyFeedback.message}
-        </span>
-      </div>
-      <pre class="code-block">
-        <code>
-          {lines.map((line, index) => (
-            <span class="code-line" key={`${props.title}-${index}`}>
-              <span class="code-line-number">{index + 1}</span>
-              <span class="code-line-content">{renderCodeLine(line)}</span>
-            </span>
-          ))}
-        </code>
-      </pre>
-    </section>
+    <Fragment>
+      <IconButton
+        aria-label={copyFeedback.ariaLabel}
+        onClick={() => {
+          void handleCopy();
+        }}
+        title={copyFeedback.ariaLabel}
+      >
+        {copyStatus === 'copied' ? <IconCheck24 /> : <IconCopySmall24 />}
+      </IconButton>
+      <span aria-atomic="true" aria-live="polite" class="visually-hidden" role="status">
+        {copyFeedback.message}
+      </span>
+    </Fragment>
   );
 }
 
@@ -930,11 +1039,11 @@ function getSyntaxClassName(token: string): string {
 
 function HowItWorksView(): h.JSX.Element {
   return (
-    <div class="help-page">
+    <main aria-labelledby="tashil-help-heading" class="help-page">
       <Container space="medium">
         <VerticalSpace space="medium" />
         <div class="section-heading">
-          <Text>Workflow</Text>
+          <h1 class="page-heading" id="tashil-help-heading" tabIndex={-1}>Workflow</h1>
           <Text>Use setup in Design mode, then copy generated code in Dev Mode.</Text>
         </div>
         <VerticalSpace space="medium" />
@@ -951,7 +1060,8 @@ function HowItWorksView(): h.JSX.Element {
             <ol class="help-list">
               <li>Select a main component, component set, or component instance in Figma.</li>
               <li>Open Plugins, Tashil Code, Connect component.</li>
-              <li>Fill Component name, Import path, Storybook URL, and Source path.</li>
+              <li>Fill Component name and Import path, then choose how children render.</li>
+              <li>Add optional Storybook and source references.</li>
               <li>Adjust Prop mappings JSON so Figma properties map to React props.</li>
               <li>Click Save. The data is stored on the selected main component as shared plugin data.</li>
             </ol>
@@ -961,23 +1071,25 @@ function HowItWorksView(): h.JSX.Element {
             <ol class="help-list">
               <li>Switch to Dev Mode and select a connected component instance.</li>
               <li>Open the Code section and choose Tashil UI.</li>
-              <li>Copy the generated TSX usage snippet and reference links.</li>
+              <li>Copy the generated TSX, open reference links, and copy the source path.</li>
             </ol>
           </HelpSection>
 
-          <HelpSection title="Required fields">
+          <HelpSection title="Connection fields">
             <div class="help-table">
               <HelpRow label="Component name" value="React component export, for example Button." />
               <HelpRow label="Import path" value="Package import path, for example tashil-ui." />
+              <HelpRow label="Children" value="Render text, a configured imported icon, or no children." />
               <HelpRow label="Storybook URL" value="The matching Storybook story or docs page." />
               <HelpRow label="Source path" value="The source file path for developer reference." />
+              <HelpRow label="Source URL" value="An optional browser link to the source file." />
               <HelpRow label="Prop mappings JSON" value="Maps Figma component properties to TSX props." />
             </div>
           </HelpSection>
         </Stack>
         <VerticalSpace space="medium" />
       </Container>
-    </div>
+    </main>
   );
 }
 
@@ -985,7 +1097,7 @@ function HelpSection(props: { children: h.JSX.Element | h.JSX.Element[]; title: 
   return (
     <section class="help-section">
       <Stack space="small">
-        <Text>{props.title}</Text>
+        <h2 class="help-section-heading">{props.title}</h2>
         {props.children}
       </Stack>
     </section>

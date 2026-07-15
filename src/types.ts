@@ -5,7 +5,8 @@
  * way and add a migration in the read path. Stored data written by older plugin
  * builds (without this field) is treated as version 1.
  */
-export const CURRENT_SCHEMA_VERSION = 2;
+export const CURRENT_SCHEMA_VERSION = 3;
+export const DEFAULT_CHILDREN_TEXT_PROPERTY = 'label';
 
 export const CONNECTION_NAMESPACE = 'tashil_storybook';
 export const CONNECTION_KEY = 'connection';
@@ -19,15 +20,46 @@ export type PropMapping = {
 /** The full Figma-property → React-prop mapping table stored on a component. */
 export type PropMappings = Record<string, Record<string, PropMapping>>;
 
+export type ChildrenMode = 'icon-only' | 'none' | 'text';
+
 export type ConnectionMetadata = {
-  schemaVersion?: number;
+  /** Runtime metadata is always normalized to the schema this build understands. */
+  schemaVersion: typeof CURRENT_SCHEMA_VERSION;
   componentName: string;
   importPath: string;
   storybookUrl?: string;
   sourcePath?: string;
+  sourceUrl?: string;
   updatedAt?: string;
-  defaultProps?: Record<string, string | number | boolean>;
+  /** How generated TSX renders children. Defaults to text. */
+  childrenMode?: ChildrenMode;
+  /** Figma string property used for text children or the icon aria-label. */
+  childrenTextProperty?: string;
+  /** Named component rendered as the icon child. Required in icon-only mode. */
+  iconComponentName?: string;
+  /** Module containing iconComponentName. Required in icon-only mode. */
+  iconImportPath?: string;
   propMappings?: Record<string, Record<string, PropMapping>>;
+};
+
+export type ConnectionIssueReason =
+  | 'future-schema-version'
+  | 'invalid-metadata'
+  | 'invalid-root'
+  | 'invalid-schema-version'
+  | 'malformed-json'
+  | 'unsupported-schema-version';
+
+export type ConnectionIssue = {
+  message: string;
+  reason: ConnectionIssueReason;
+};
+
+export type ConnectionReferences = {
+  storybookUrl?: string;
+  sourcePath?: string;
+  sourceUrl?: string;
+  updatedAt?: string;
 };
 
 export type UiSelectionState =
@@ -36,6 +68,7 @@ export type UiSelectionState =
       selectionToken: string;
       componentName: string;
       existingConnection?: ConnectionMetadata;
+      connectionIssue?: ConnectionIssue;
       message: string;
     }
   | {
@@ -43,14 +76,25 @@ export type UiSelectionState =
       selectionToken?: never;
       componentName?: never;
       existingConnection?: never;
+      connectionIssue?: never;
       message: string;
     };
 
 export type InspectCodeState = {
-  status: 'connected' | 'not-connected' | 'invalid-selection';
+  status: 'connected' | 'connection-issue' | 'not-connected' | 'invalid-selection';
   code?: string;
-  references?: string;
+  connectionIssue?: ConnectionIssue;
+  diagnostics?: string;
+  references?: ConnectionReferences;
   message?: string;
+};
+
+export type OpenExternalHandler = {
+  name: 'OPEN_EXTERNAL';
+  handler: (payload: {
+    target: 'source' | 'storybook';
+    url: string;
+  }) => void;
 };
 
 export type CodegenBlock = {
@@ -72,6 +116,7 @@ export type InspectCodeStateHandler = {
 export type SaveConnectionHandler = {
   name: 'SAVE_CONNECTION';
   handler: (payload: {
+    operationId: string;
     selectionToken: string;
     metadata: ConnectionMetadata;
   }) => void;
@@ -79,7 +124,7 @@ export type SaveConnectionHandler = {
 
 export type ClearConnectionHandler = {
   name: 'CLEAR_CONNECTION';
-  handler: (payload: { selectionToken: string }) => void;
+  handler: (payload: { operationId: string; selectionToken: string }) => void;
 };
 
 export type RefreshSelectionHandler = {
@@ -102,6 +147,7 @@ export type SaveResultHandler = {
   handler: (result: {
     message: string;
     ok: boolean;
+    operationId: string;
     operation: 'clear' | 'save';
     selectionToken: string;
   }) => void;
@@ -110,7 +156,7 @@ export type SaveResultHandler = {
 /** UI -> main: request a prop-mapping scaffold for the current selection. */
 export type ScaffoldPropMappingsHandler = {
   name: 'SCAFFOLD_PROP_MAPPINGS';
-  handler: (payload: { selectionToken: string }) => void;
+  handler: (payload: { operationId: string; selectionToken: string }) => void;
 };
 
 /** main -> UI: the scaffolded mappings (or a failure reason). */
@@ -120,6 +166,7 @@ export type ScaffoldResultHandler = {
     mappings?: PropMappings;
     message?: string;
     ok: boolean;
+    operationId: string;
     selectionToken: string;
   }) => void;
 };

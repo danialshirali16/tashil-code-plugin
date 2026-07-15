@@ -3,16 +3,21 @@ import * as ts from 'typescript';
 import {
   createMappedProps,
   createOpeningTag,
+  createSelfClosingTag,
   createUsageSnippet,
-  escapeJsxText,
+  formatMappingDiagnostics,
+  formatJsxChildren,
   formatPropAssignment,
   formatPropValue,
   isConnectionMetadata,
+  migratePersistedConnectionMetadata,
+  resolveChildrenText,
+  validatePersistedConnectionMetadata,
   validateConnectionMetadata,
   type CodeProp,
   type SelectionLike,
 } from './codegen';
-import type { ConnectionMetadata } from './types';
+import { CURRENT_SCHEMA_VERSION, type ConnectionMetadata } from './types';
 
 function expectValidTypeScript(source: string): void {
   const result = ts.transpileModule(source, {
@@ -32,23 +37,47 @@ function expectValidTypeScript(source: string): void {
 }
 
 function createValidUsageSnippet(metadata: ConnectionMetadata, selection: SelectionLike): string {
-  const snippet = createUsageSnippet(metadata, selection);
-  expectValidTypeScript(snippet);
-  return snippet;
+  const result = createUsageSnippet(metadata, selection);
+  expectValidTypeScript(result.code);
+  return result.code;
 }
 
-describe('escapeJsxText', () => {
-  it('escapes ampersands, angle brackets, and braces', () => {
-    expect(escapeJsxText('A & B < C > D {E} F'))
-      .toBe('A &amp; B &lt; C &gt; D &#123;E&#125; F');
+describe('formatJsxChildren', () => {
+  it('leaves plain text unchanged (bare JSX text)', () => {
+    expect(formatJsxChildren('Button')).toBe('Button');
   });
 
-  it('escapes & before other characters so output is not double-escaped', () => {
-    expect(escapeJsxText('Tom & Jerry')).toBe('Tom &amp; Jerry');
+  it('wraps labels with ampersands in a string expression', () => {
+    expect(formatJsxChildren('Tom & Jerry')).toBe('{"Tom & Jerry"}');
   });
 
-  it('leaves plain text unchanged', () => {
-    expect(escapeJsxText('Button')).toBe('Button');
+  it('wraps labels with angle brackets and braces in a string expression', () => {
+    expect(formatJsxChildren('A & B < C > D {E} F')).toBe('{"A & B < C > D {E} F"}');
+  });
+
+  it('safely serializes quotes and backslashes inside a triggered wrap', () => {
+    // `&` triggers the wrap; quotes and backslashes must be escaped in the
+    // resulting string expression.
+    expect(formatJsxChildren('A & "hi" \\done')).toBe('{"A & \\"hi\\" \\\\done"}');
+  });
+
+  it('leaves quote-only labels as bare text (quotes are valid JSX text)', () => {
+    expect(formatJsxChildren('say "hi"')).toBe('say "hi"');
+  });
+
+  it('keeps safe single-line text with internal spaces bare', () => {
+    expect(formatJsxChildren('Primary  action')).toBe('Primary  action');
+  });
+
+  it.each([
+    ['leading whitespace', ' Button', '{" Button"}'],
+    ['trailing whitespace', 'Button ', '{"Button "}'],
+    ['a line feed', 'First\nSecond', '{"First\\nSecond"}'],
+    ['a carriage return', 'First\rSecond', '{"First\\rSecond"}'],
+    ['an internal tab', 'First\tSecond', '{"First\\tSecond"}'],
+    ['an internal form feed', 'First\fSecond', '{"First\\fSecond"}'],
+  ])('wraps %s in an exact JSON-string expression', (_case, input, expected) => {
+    expect(formatJsxChildren(input)).toBe(expected);
   });
 });
 
@@ -107,44 +136,183 @@ describe('createOpeningTag', () => {
   });
 });
 
+describe('createSelfClosingTag', () => {
+  it('renders empty and inline self-closing tags', () => {
+    expect(createSelfClosingTag('Divider', [])).toBe('<Divider />');
+    expect(createSelfClosingTag('Divider', ['tone={"subtle"}']))
+      .toBe('<Divider tone={"subtle"} />');
+  });
+
+  it('renders multiline props with a valid self-closing terminator', () => {
+    expect(createSelfClosingTag('Divider', ['a={1}', 'b={2}', 'c={3}', 'd={4}']))
+      .toBe('<Divider\n  a={1}\n  b={2}\n  c={3}\n  d={4}\n/>');
+  });
+});
+
 describe('createMappedProps', () => {
-  const metadata = (overrides: Partial<ConnectionMetadata> = {}): ConnectionMetadata => ({
-    componentName: 'Button',
-    importPath: 'tashil-ui',
-    ...overrides,
-  });
-
-  it('emits default props when no component properties are set', () => {
-    const m = metadata({
-      defaultProps: { intent: 'primary', variant: 'solid', size: 'md' },
-    });
-    expect(createMappedProps(m, {})).toEqual(['intent={"primary"}', 'variant={"solid"}', 'size={"md"}']);
-  });
-
-  it('overrides defaults with mapped component properties', () => {
-    const m = metadata({
-      defaultProps: { intent: 'primary' },
-      propMappings: {
-        intent: { primary: { prop: 'intent', value: 'neutral' } },
-        style: { solid: { prop: 'variant', value: 'outline' } },
-      },
-    });
-    expect(createMappedProps(m, { intent: 'primary', style: 'solid' }))
+  it('maps component properties to prop assignments', () => {
+    const propMappings: ConnectionMetadata['propMappings'] = {
+      intent: { primary: { prop: 'intent', value: 'neutral' } },
+      style: { solid: { prop: 'variant', value: 'outline' } },
+    };
+    expect(createMappedProps(propMappings ?? {}, { intent: 'primary', style: 'solid' }).props)
       .toEqual(['intent={"neutral"}', 'variant={"outline"}']);
   });
 
   it('omits props whose mapped value is false', () => {
-    const m = metadata({
-      propMappings: { state: { disabled: { prop: 'disabled', value: false } } },
-    });
-    expect(createMappedProps(m, { state: 'disabled' })).toEqual([]);
+    const propMappings: ConnectionMetadata['propMappings'] = {
+      state: { disabled: { prop: 'disabled', value: false } },
+    };
+    expect(createMappedProps(propMappings ?? {}, { state: 'disabled' }).props).toEqual([]);
   });
 
   it('emits bare boolean props for true values', () => {
-    const m = metadata({
-      propMappings: { state: { loading: { prop: 'loading', value: true } } },
+    const propMappings: ConnectionMetadata['propMappings'] = {
+      state: { loading: { prop: 'loading', value: true } },
+    };
+    expect(createMappedProps(propMappings ?? {}, { state: 'loading' }).props).toEqual(['loading']);
+  });
+
+  it('reports an active value missing from an existing mapping group', () => {
+    const result = createMappedProps({
+      Size: { Small: { prop: 'size', value: 'sm' } },
+    }, { Size: 'Large' });
+
+    expect(result).toEqual({
+      diagnostics: [{
+        figmaProperty: 'Size',
+        figmaValue: 'Large',
+        kind: 'unmapped-value',
+      }],
+      props: [],
     });
-    expect(createMappedProps(m, { state: 'loading' })).toEqual(['loading']);
+  });
+
+  it('maps own magic group and option keys', () => {
+    const propMappings = JSON.parse([
+      '{',
+      '  "__proto__": {',
+      '    "constructor": { "prop": "tone", "value": "safe" }',
+      '  }',
+      '}',
+    ].join('\n')) as NonNullable<ConnectionMetadata['propMappings']>;
+    const componentProperties = JSON.parse(
+      '{ "__proto__": "constructor" }',
+    ) as Record<string, string | boolean>;
+
+    expect(createMappedProps(propMappings, componentProperties)).toEqual({
+      diagnostics: [],
+      props: ['tone={"safe"}'],
+    });
+  });
+
+  it.each(['__proto__', 'constructor', 'toString'])(
+    'reports an unmapped magic group named %s instead of reading the object prototype',
+    (figmaProperty) => {
+      const componentProperties = Object.fromEntries([
+        [figmaProperty, 'Active'],
+      ]) as Record<string, string | boolean>;
+
+      expect(createMappedProps({}, componentProperties)).toEqual({
+        diagnostics: [{
+          figmaProperty,
+          figmaValue: 'Active',
+          kind: 'unmapped-property',
+        }],
+        props: [],
+      });
+    },
+  );
+
+  it.each(['__proto__', 'constructor', 'toString'])(
+    'reports an unmapped magic option named %s instead of reading the group prototype',
+    (figmaValue) => {
+      expect(createMappedProps({ Mode: {} }, { Mode: figmaValue })).toEqual({
+        diagnostics: [{
+          figmaProperty: 'Mode',
+          figmaValue,
+          kind: 'unmapped-value',
+        }],
+        props: [],
+      });
+    },
+  );
+
+  it('ignores only the exact Figma property consumed as children', () => {
+    const result = createMappedProps(
+      {},
+      { Disabled: true, Label: 'Save', label: 'Other' },
+      { consumedFigmaProperty: 'Label' },
+    );
+
+    expect(result).toEqual({
+      diagnostics: [
+        {
+          figmaProperty: 'Disabled',
+          figmaValue: true,
+          kind: 'unmapped-property',
+        },
+        {
+          figmaProperty: 'label',
+          figmaValue: 'Other',
+          kind: 'unmapped-property',
+        },
+      ],
+      props: [],
+    });
+  });
+
+  it('omits duplicate React targets and reports every conflicting Figma source', () => {
+    const result = createMappedProps({
+      Appearance: { Solid: { prop: 'tone', value: 'strong' } },
+      Intent: { Primary: { prop: 'tone', value: 'brand' } },
+    }, { Appearance: 'Solid', Intent: 'Primary' });
+
+    expect(result).toEqual({
+      diagnostics: [{
+        kind: 'duplicate-target',
+        prop: 'tone',
+        sources: [
+          { figmaProperty: 'Appearance', figmaValue: 'Solid' },
+          { figmaProperty: 'Intent', figmaValue: 'Primary' },
+        ],
+      }],
+      props: [],
+    });
+  });
+
+  it('omits every active candidate for a reserved target and reports all sources', () => {
+    const result = createMappedProps({
+      Label: { Save: { prop: 'children', value: 'Mapped label' } },
+      Title: { Delete: { prop: 'children', value: 'Mapped title' } },
+    }, { Label: 'Save', Title: 'Delete' }, {
+      reservedReactProps: new Set(['children']),
+    });
+
+    expect(result).toEqual({
+      diagnostics: [{
+        kind: 'reserved-target',
+        prop: 'children',
+        sources: [
+          { figmaProperty: 'Label', figmaValue: 'Save' },
+          { figmaProperty: 'Title', figmaValue: 'Delete' },
+        ],
+      }],
+      props: [],
+    });
+  });
+});
+
+describe('formatMappingDiagnostics', () => {
+  it('explains why a reserved mapped prop was omitted', () => {
+    expect(formatMappingDiagnostics([{
+      kind: 'reserved-target',
+      prop: 'children',
+      sources: [{ figmaProperty: 'Label', figmaValue: 'Save' }],
+    }])).toBe([
+      'Active mappings target reserved React prop "children": "Label"="Save".',
+      'The mapped prop was omitted because the selected children mode owns this prop.',
+    ].join(' '));
   });
 });
 
@@ -155,25 +323,289 @@ describe('createUsageSnippet', () => {
     ...overrides,
   });
 
-  it('renders an import line plus a usage tag', () => {
+  // ---- Golden tests: exact TSX strings for the primary flows (item 1) ----
+
+  it('golden: bare component with no props', () => {
     const metadata: ConnectionMetadata = {
+      schemaVersion: CURRENT_SCHEMA_VERSION,
       componentName: 'Button',
       importPath: 'tashil-ui',
-      defaultProps: { intent: 'primary' },
     };
     expect(createValidUsageSnippet(metadata, selection())).toBe(
       [
         'import { Button } from "tashil-ui";',
         '',
-        '<Button intent={"primary"}>',
+        '<Button>',
         '  Button',
         '</Button>',
       ].join('\n'),
     );
   });
 
+  it('golden: button with mapped variant props rendered inline', () => {
+    const metadata: ConnectionMetadata = {
+      schemaVersion: CURRENT_SCHEMA_VERSION,
+      componentName: 'Button',
+      importPath: 'tashil-ui',
+      propMappings: {
+        intent: { primary: { prop: 'intent', value: 'primary' } },
+        size: { md: { prop: 'size', value: 'md' } },
+      },
+    };
+    expect(createValidUsageSnippet(metadata, selection({
+      componentProperties: { intent: 'primary', size: 'md', label: 'Submit' },
+    }))).toBe(
+      [
+        'import { Button } from "tashil-ui";',
+        '',
+        '<Button intent={"primary"} size={"md"}>',
+        '  Submit',
+        '</Button>',
+      ].join('\n'),
+    );
+  });
+
+  it('golden: multiline text children retain their exact whitespace', () => {
+    const metadata: ConnectionMetadata = {
+      schemaVersion: CURRENT_SCHEMA_VERSION,
+      componentName: 'Button',
+      importPath: 'tashil-ui',
+    };
+
+    expect(createValidUsageSnippet(metadata, selection({
+      componentProperties: { label: 'First line\nSecond line' },
+    }))).toBe(
+      [
+        'import { Button } from "tashil-ui";',
+        '',
+        '<Button>',
+        '  {"First line\\nSecond line"}',
+        '</Button>',
+      ].join('\n'),
+    );
+  });
+
+  it('golden: many props expand to one-per-line', () => {
+    const metadata: ConnectionMetadata = {
+      schemaVersion: CURRENT_SCHEMA_VERSION,
+      componentName: 'Button',
+      importPath: 'tashil-ui',
+      propMappings: {
+        a: { x: { prop: 'a', value: 1 } },
+        b: { x: { prop: 'b', value: 2 } },
+        c: { x: { prop: 'c', value: 3 } },
+        d: { x: { prop: 'd', value: 4 } },
+      },
+    };
+    expect(createValidUsageSnippet(metadata, selection({
+      componentProperties: { a: 'x', b: 'x', c: 'x', d: 'x' },
+    }))).toBe(
+      [
+        'import { Button } from "tashil-ui";',
+        '',
+        '<Button',
+        '  a={1}',
+        '  b={2}',
+        '  c={3}',
+        '  d={4}',
+        '>',
+        '  Button',
+        '</Button>',
+      ].join('\n'),
+    );
+  });
+
+  it('golden: icon-only component imports and renders its configured icon', () => {
+    const metadata: ConnectionMetadata = {
+      schemaVersion: CURRENT_SCHEMA_VERSION,
+      componentName: 'IconButton',
+      importPath: 'tashil-ui',
+      childrenMode: 'icon-only',
+      childrenTextProperty: 'label',
+      iconComponentName: 'TrashIcon',
+      iconImportPath: 'tashil-ui',
+    };
+    expect(createValidUsageSnippet(metadata, selection({
+      componentProperties: { label: 'Delete' },
+      displayText: 'IconButton',
+    }))).toBe(
+      [
+        'import { IconButton, TrashIcon } from "tashil-ui";',
+        '',
+        '<IconButton aria-label={"Delete"}>',
+        '  <TrashIcon />',
+        '</IconButton>',
+      ].join('\n'),
+    );
+  });
+
+  it('lets the generated icon aria-label override a mapped target', () => {
+    const result = createUsageSnippet({
+      schemaVersion: CURRENT_SCHEMA_VERSION,
+      componentName: 'IconButton',
+      importPath: 'tashil-ui',
+      childrenMode: 'icon-only',
+      childrenTextProperty: 'label',
+      iconComponentName: 'TrashIcon',
+      iconImportPath: 'tashil-ui',
+      propMappings: {
+        Accessibility: {
+          Enabled: { prop: 'aria-label', value: 'Mapped label' },
+        },
+      },
+    }, selection({
+      componentProperties: { Accessibility: 'Enabled', label: 'Generated label' },
+    }));
+
+    expect(result.code.match(/aria-label=/g)).toHaveLength(1);
+    expect(result.code).toContain('aria-label={"Generated label"}');
+    expect(result.code).not.toContain('Mapped label');
+    expect(result.diagnostics).toContainEqual({
+      kind: 'reserved-target',
+      prop: 'aria-label',
+      sources: [{ figmaProperty: 'Accessibility', figmaValue: 'Enabled' }],
+    });
+    expectValidTypeScript(result.code);
+  });
+
+  it('omits a mapped children prop when icon mode renders its icon child', () => {
+    const result = createUsageSnippet({
+      schemaVersion: CURRENT_SCHEMA_VERSION,
+      componentName: 'IconButton',
+      importPath: 'tashil-ui',
+      childrenMode: 'icon-only',
+      iconComponentName: 'TrashIcon',
+      iconImportPath: 'tashil-ui',
+      propMappings: {
+        Content: { Shown: { prop: 'children', value: 'Mapped child' } },
+      },
+    }, selection({
+      componentProperties: { Content: 'Shown', label: 'Delete' },
+    }));
+
+    expect(result.code).not.toContain('children=');
+    expect(result.code).toContain('  <TrashIcon />');
+    expect(result.diagnostics).toContainEqual({
+      kind: 'reserved-target',
+      prop: 'children',
+      sources: [{ figmaProperty: 'Content', figmaValue: 'Shown' }],
+    });
+    expectValidTypeScript(result.code);
+  });
+
+  it('emits a separate icon import without duplicating a coincident named import', () => {
+    const separateImport = createValidUsageSnippet({
+      schemaVersion: CURRENT_SCHEMA_VERSION,
+      componentName: 'IconButton',
+      importPath: 'tashil-ui',
+      childrenMode: 'icon-only',
+      iconComponentName: 'TrashIcon',
+      iconImportPath: 'tashil-icons',
+    }, selection({ componentProperties: { label: 'Delete' } }));
+    expect(separateImport).toContain([
+      'import { IconButton } from "tashil-ui";',
+      'import { TrashIcon } from "tashil-icons";',
+    ].join('\n'));
+
+    const coincidentImport = createValidUsageSnippet({
+      schemaVersion: CURRENT_SCHEMA_VERSION,
+      componentName: 'Glyph',
+      importPath: 'tashil-ui',
+      childrenMode: 'icon-only',
+      iconComponentName: 'Glyph',
+      iconImportPath: 'tashil-ui',
+    }, selection({ componentProperties: { label: 'Glyph' } }));
+    expect(coincidentImport.match(/import \{ Glyph \}/g)).toHaveLength(1);
+  });
+
+  it('golden: no-children mode emits self-closing JSX with multiline props', () => {
+    const metadata: ConnectionMetadata = {
+      schemaVersion: CURRENT_SCHEMA_VERSION,
+      componentName: 'Divider',
+      importPath: 'tashil-ui',
+      childrenMode: 'none',
+      propMappings: {
+        a: { x: { prop: 'a', value: 1 } },
+        b: { x: { prop: 'b', value: 2 } },
+        c: { x: { prop: 'c', value: 3 } },
+        d: { x: { prop: 'd', value: 4 } },
+      },
+    };
+    expect(createValidUsageSnippet(metadata, selection({
+      componentProperties: { a: 'x', b: 'x', c: 'x', d: 'x' },
+    }))).toBe([
+      'import { Divider } from "tashil-ui";',
+      '',
+      '<Divider',
+      '  a={1}',
+      '  b={2}',
+      '  c={3}',
+      '  d={4}',
+      '/>',
+    ].join('\n'));
+  });
+
+  it('emits inline self-closing JSX when no-children mode has a few props', () => {
+    const result = createUsageSnippet({
+      schemaVersion: CURRENT_SCHEMA_VERSION,
+      componentName: 'Divider',
+      importPath: 'tashil-ui',
+      childrenMode: 'none',
+      propMappings: {
+        tone: { subtle: { prop: 'tone', value: 'subtle' } },
+      },
+    }, selection({ componentProperties: { tone: 'subtle' } }));
+
+    expect(result.code).toContain('<Divider tone={"subtle"} />');
+    expectValidTypeScript(result.code);
+  });
+
+  it('omits a mapped children prop so no-children mode remains childless', () => {
+    const result = createUsageSnippet({
+      schemaVersion: CURRENT_SCHEMA_VERSION,
+      componentName: 'Divider',
+      importPath: 'tashil-ui',
+      childrenMode: 'none',
+      propMappings: {
+        Content: { Shown: { prop: 'children', value: 'Mapped child' } },
+      },
+    }, selection({ componentProperties: { Content: 'Shown' } }));
+
+    expect(result.code).toContain('<Divider />');
+    expect(result.code).not.toContain('children=');
+    expect(result.diagnostics).toContainEqual({
+      kind: 'reserved-target',
+      prop: 'children',
+      sources: [{ figmaProperty: 'Content', figmaValue: 'Shown' }],
+    });
+    expectValidTypeScript(result.code);
+  });
+
+  it('golden: label with special characters is wrapped as a string expression', () => {
+    const metadata: ConnectionMetadata = {
+      schemaVersion: CURRENT_SCHEMA_VERSION,
+      componentName: 'Tag',
+      importPath: 'tashil-ui',
+    };
+    expect(createValidUsageSnippet(metadata, selection({
+      componentProperties: { label: 'A & B < {x}' },
+      displayText: 'A & B < {x}',
+    }))).toBe(
+      [
+        'import { Tag } from "tashil-ui";',
+        '',
+        '<Tag>',
+        '  {"A & B < {x}"}',
+        '</Tag>',
+      ].join('\n'),
+    );
+  });
+
+  // ---- Behavioural coverage around the golden tests ----
+
   it('uses the componentProperties label when present, falling back to displayText', () => {
     const metadata: ConnectionMetadata = {
+      schemaVersion: CURRENT_SCHEMA_VERSION,
       componentName: 'Button',
       importPath: 'tashil-ui',
     };
@@ -181,76 +613,276 @@ describe('createUsageSnippet', () => {
       .toContain('  Submit');
   });
 
-  it('renders the iconOnly branch with aria-label and <Icon />', () => {
-    const metadata: ConnectionMetadata = {
-      componentName: 'IconButton',
+  it('omits a mapped children prop when text mode renders text children', () => {
+    const result = createUsageSnippet({
+      schemaVersion: CURRENT_SCHEMA_VERSION,
+      componentName: 'Button',
       importPath: 'tashil-ui',
-      propMappings: { isOnlyIcon: { true: { prop: 'iconOnly', value: true } } },
-    };
-    const snippet = createValidUsageSnippet(metadata, {
-      componentProperties: { isOnlyIcon: 'true', label: 'Delete' },
-      displayText: 'IconButton',
+      childrenMode: 'text',
+      propMappings: {
+        Content: { Shown: { prop: 'children', value: 'Mapped child' } },
+      },
+    }, selection({
+      componentProperties: { Content: 'Shown', label: 'Generated child' },
+    }));
+
+    expect(result.code).not.toContain('children=');
+    expect(result.code).toContain('  Generated child');
+    expect(result.diagnostics).toContainEqual({
+      kind: 'reserved-target',
+      prop: 'children',
+      sources: [{ figmaProperty: 'Content', figmaValue: 'Shown' }],
     });
-    expect(snippet).toContain('aria-label={"Delete"}');
-    expect(snippet).toContain('  <Icon />');
+    expectValidTypeScript(result.code);
   });
 
-  it('escapes special characters in the label text', () => {
+  it.each(['text', 'none'] as const)(
+    'keeps mapped aria-label valid in %s mode',
+    (childrenMode) => {
+      const metadata: ConnectionMetadata = {
+        schemaVersion: CURRENT_SCHEMA_VERSION,
+        componentName: 'Button',
+        importPath: 'tashil-ui',
+        childrenMode,
+        ...(childrenMode === 'text' ? { childrenTextProperty: 'label' } : {}),
+        propMappings: {
+          Accessibility: {
+            Enabled: { prop: 'aria-label', value: 'Mapped label' },
+          },
+        },
+      };
+      const result = createUsageSnippet(metadata, selection({
+        componentProperties: {
+          Accessibility: 'Enabled',
+          ...(childrenMode === 'text' ? { label: 'Button' } : {}),
+        },
+      }));
+
+      expect(result.code).toContain('aria-label={"Mapped label"}');
+      expect(result.diagnostics).not.toContainEqual(expect.objectContaining({
+        kind: 'reserved-target',
+        prop: 'aria-label',
+      }));
+      expectValidTypeScript(result.code);
+    },
+  );
+
+  it('uses a configurable text property with a case-insensitive fallback', () => {
     const metadata: ConnectionMetadata = {
-      componentName: 'Tag',
+      schemaVersion: CURRENT_SCHEMA_VERSION,
+      componentName: 'Button',
       importPath: 'tashil-ui',
+      childrenTextProperty: 'button text',
     };
-    const snippet = createValidUsageSnippet(metadata, { componentProperties: { label: 'A & B' }, displayText: 'A & B' });
-    expect(snippet).toContain('  A &amp; B');
+    const result = createUsageSnippet(metadata, selection({
+      componentProperties: { 'Button Text': 'Continue', label: 'Ignored' },
+    }));
+
+    expect(result.code).toContain('  Continue');
+    expect(result.diagnostics).toContainEqual({
+      figmaProperty: 'label',
+      figmaValue: 'Ignored',
+      kind: 'unmapped-property',
+    });
+    expect(result.diagnostics).not.toContainEqual(expect.objectContaining({
+      figmaProperty: 'Button Text',
+      kind: 'unmapped-property',
+    }));
+  });
+
+  it('falls back to displayText and emits a typed diagnostic when the source is absent', () => {
+    const result = createUsageSnippet({
+      schemaVersion: CURRENT_SCHEMA_VERSION,
+      componentName: 'Button',
+      importPath: 'tashil-ui',
+      childrenTextProperty: 'Button Text',
+    }, selection({ displayText: 'Fallback label' }));
+
+    expect(result.code).toContain('  Fallback label');
+    expect(result.diagnostics).toContainEqual({
+      figmaProperty: 'Button Text',
+      kind: 'missing-children-source',
+    });
+    expect(formatMappingDiagnostics(result.diagnostics)).toMatch(/selected layer text\/name/i);
+  });
+
+  it('resolves exact properties before case-insensitive alternatives', () => {
+    expect(resolveChildrenText(selection({
+      componentProperties: { Label: 'Case insensitive', label: 'Exact' },
+    }), 'label')).toEqual({ sourceProperty: 'label', text: 'Exact' });
+  });
+
+  it('case-insensitively resolves names that exist only on the object prototype', () => {
+    expect(resolveChildrenText(selection({
+      componentProperties: { TOSTRING: 'Own label' },
+    }), 'toString')).toEqual({ sourceProperty: 'TOSTRING', text: 'Own label' });
   });
 
   it('safely serializes quotes, backslashes, newlines, and import paths', () => {
     const importPath = 'tashil-"ui\\components\nbutton';
     const metadata: ConnectionMetadata = {
+      schemaVersion: CURRENT_SCHEMA_VERSION,
       componentName: 'Button',
       importPath,
-      defaultProps: { title: 'say "hi" \\done\nnext' },
+      propMappings: {
+        title: { quote: { prop: 'title', value: 'say "hi" \\done\nnext' } },
+      },
     };
-    const snippet = createValidUsageSnippet(metadata, selection());
+    const snippet = createValidUsageSnippet(metadata, selection({
+      componentProperties: { title: 'quote' },
+    }));
 
     expect(snippet).toContain(`from ${JSON.stringify(importPath)};`);
     expect(snippet).toContain('title={"say \\"hi\\" \\\\done\\nnext"}');
+  });
+
+  it('keeps TSX pastable while returning mapping diagnostics separately', () => {
+    const result = createUsageSnippet({
+      schemaVersion: CURRENT_SCHEMA_VERSION,
+      componentName: 'Button',
+      importPath: 'tashil-ui',
+      propMappings: {
+        Size: { Small: { prop: 'size', value: 'sm' } },
+      },
+    }, selection({ componentProperties: { Size: 'Large', label: 'Button' } }));
+
+    expect(result.diagnostics).toEqual([{
+      figmaProperty: 'Size',
+      figmaValue: 'Large',
+      kind: 'unmapped-value',
+    }]);
+    expect(result.code).not.toContain('No mapping');
+    expectValidTypeScript(result.code);
   });
 });
 
 describe('isConnectionMetadata', () => {
   it('accepts a minimal valid connection', () => {
-    expect(isConnectionMetadata({ componentName: 'Button', importPath: 'tashil-ui' })).toBe(true);
+    expect(isConnectionMetadata({
+      schemaVersion: CURRENT_SCHEMA_VERSION,
+      componentName: 'Button',
+      importPath: 'tashil-ui',
+    })).toBe(true);
+  });
+
+  it('accepts optional reference strings without treating them as codegen inputs', () => {
+    expect(isConnectionMetadata({
+      schemaVersion: CURRENT_SCHEMA_VERSION,
+      componentName: 'Button',
+      importPath: 'tashil-ui',
+      sourcePath: 'src/Button.tsx',
+      sourceUrl: 'https://github.example/Button.tsx',
+      storybookUrl: 'https://storybook.example/Button',
+    })).toBe(true);
+
+    // Read-time validation stays structural so an old unsafe reference cannot
+    // prevent otherwise valid TSX from being generated.
+    expect(validateConnectionMetadata({
+      schemaVersion: CURRENT_SCHEMA_VERSION,
+      componentName: 'Button',
+      importPath: 'tashil-ui',
+      storybookUrl: 'javascript:legacy-reference',
+    })).toEqual({ ok: true });
+  });
+
+  it('rejects non-string source URLs', () => {
+    expect(isConnectionMetadata({
+      schemaVersion: CURRENT_SCHEMA_VERSION,
+      componentName: 'Button',
+      importPath: 'tashil-ui',
+      sourceUrl: 42,
+    })).toBe(false);
   });
 
   it('rejects when componentName is missing or empty', () => {
-    expect(isConnectionMetadata({ importPath: 'tashil-ui' })).toBe(false);
-    expect(isConnectionMetadata({ componentName: '', importPath: 'tashil-ui' })).toBe(false);
+    expect(isConnectionMetadata({
+      schemaVersion: CURRENT_SCHEMA_VERSION,
+      importPath: 'tashil-ui',
+    })).toBe(false);
+    expect(isConnectionMetadata({
+      schemaVersion: CURRENT_SCHEMA_VERSION,
+      componentName: '',
+      importPath: 'tashil-ui',
+    })).toBe(false);
   });
 
   it('rejects invalid component and prop identifiers', () => {
-    expect(isConnectionMetadata({ componentName: 'Button;alert(1)', importPath: 'tashil-ui' }))
-      .toBe(false);
-    expect(isConnectionMetadata({ componentName: 'button', importPath: 'tashil-ui' }))
-      .toBe(false);
     expect(isConnectionMetadata({
-      componentName: 'Button',
+      schemaVersion: CURRENT_SCHEMA_VERSION,
+      componentName: 'Button;alert(1)',
       importPath: 'tashil-ui',
-      defaultProps: { 'intent onClick': 'primary' },
-    })).toBe(false);
+    }))
+      .toBe(false);
     expect(isConnectionMetadata({
+      schemaVersion: CURRENT_SCHEMA_VERSION,
+      componentName: 'button',
+      importPath: 'tashil-ui',
+    }))
+      .toBe(false);
+    expect(isConnectionMetadata({
+      schemaVersion: CURRENT_SCHEMA_VERSION,
       componentName: 'Button',
       importPath: 'tashil-ui',
       propMappings: { intent: { primary: { prop: 'intent={evil}', value: 'primary' } } },
     })).toBe(false);
   });
 
+  it('validates text, icon-only, and no-children configurations', () => {
+    expect(isConnectionMetadata({
+      schemaVersion: CURRENT_SCHEMA_VERSION,
+      componentName: 'Button',
+      importPath: 'tashil-ui',
+      childrenMode: 'icon-only',
+      iconComponentName: 'TrashIcon',
+      iconImportPath: 'tashil-icons',
+    })).toBe(true);
+    expect(isConnectionMetadata({
+      schemaVersion: CURRENT_SCHEMA_VERSION,
+      componentName: 'Divider',
+      importPath: 'tashil-ui',
+      childrenMode: 'none',
+    })).toBe(true);
+    expect(isConnectionMetadata({
+      schemaVersion: CURRENT_SCHEMA_VERSION,
+      componentName: 'Button',
+      importPath: 'tashil-ui',
+      childrenMode: 'icon',
+    })).toBe(false);
+  });
+
+  it('rejects missing or conflicting icon imports and empty text sources', () => {
+    expect(isConnectionMetadata({
+      schemaVersion: CURRENT_SCHEMA_VERSION,
+      componentName: 'IconButton',
+      importPath: 'tashil-ui',
+      childrenMode: 'icon-only',
+    })).toBe(false);
+    expect(isConnectionMetadata({
+      schemaVersion: CURRENT_SCHEMA_VERSION,
+      componentName: 'IconButton',
+      importPath: 'tashil-ui',
+      childrenMode: 'icon-only',
+      iconComponentName: 'IconButton',
+      iconImportPath: 'tashil-icons',
+    })).toBe(false);
+    expect(isConnectionMetadata({
+      schemaVersion: CURRENT_SCHEMA_VERSION,
+      componentName: 'Button',
+      importPath: 'tashil-ui',
+      childrenTextProperty: '   ',
+    })).toBe(false);
+  });
+
   it('rejects when importPath is missing', () => {
-    expect(isConnectionMetadata({ componentName: 'Button' })).toBe(false);
+    expect(isConnectionMetadata({
+      schemaVersion: CURRENT_SCHEMA_VERSION,
+      componentName: 'Button',
+    })).toBe(false);
   });
 
   it('rejects malformed propMappings', () => {
     expect(isConnectionMetadata({
+      schemaVersion: CURRENT_SCHEMA_VERSION,
       componentName: 'Button',
       importPath: 'tashil-ui',
       propMappings: { intent: { primary: { prop: 'intent' } } }, // missing value
@@ -262,17 +894,173 @@ describe('isConnectionMetadata', () => {
     expect(isConnectionMetadata('nope')).toBe(false);
     expect(isConnectionMetadata([])).toBe(false);
   });
+
+  it('rejects missing, legacy, malformed, and future runtime schema versions', () => {
+    const base = { componentName: 'Button', importPath: 'tashil-ui' };
+
+    expect(isConnectionMetadata(base)).toBe(false);
+    expect(isConnectionMetadata({ ...base, schemaVersion: 2 })).toBe(false);
+    expect(isConnectionMetadata({ ...base, schemaVersion: 3.5 })).toBe(false);
+    expect(isConnectionMetadata({ ...base, schemaVersion: 4 })).toBe(false);
+  });
 });
 
 describe('validateConnectionMetadata', () => {
   it('returns ok for valid metadata', () => {
-    expect(validateConnectionMetadata({ componentName: 'Button', importPath: 'tashil-ui' }))
+    expect(validateConnectionMetadata({
+      schemaVersion: CURRENT_SCHEMA_VERSION,
+      componentName: 'Button',
+      importPath: 'tashil-ui',
+    }))
       .toEqual({ ok: true });
   });
 
   it('returns a message for invalid metadata', () => {
-    const result = validateConnectionMetadata({ componentName: '', importPath: '' });
+    const result = validateConnectionMetadata({
+      schemaVersion: CURRENT_SCHEMA_VERSION,
+      componentName: '',
+      importPath: '',
+    });
     expect(result.ok).toBe(false);
     expect((result as { message: string }).message).toMatch(/component name/i);
+  });
+});
+
+describe('persisted connection metadata', () => {
+  const legacyBase = {
+    componentName: 'Button',
+    importPath: 'tashil-ui',
+    sourcePath: 'src/Button.tsx',
+  };
+
+  it.each([
+    ['missing version', legacyBase],
+    ['explicit v1', { ...legacyBase, schemaVersion: 1 }],
+  ])('maps %s to legacy v1 and migrates it to current text metadata', (_label, value) => {
+    const validation = validatePersistedConnectionMetadata(value);
+
+    expect(validation.ok).toBe(true);
+    if (!validation.ok) {
+      throw new Error(validation.issue.message);
+    }
+
+    expect(validation.metadata.schemaVersion).toBe(1);
+    expect(migratePersistedConnectionMetadata(validation.metadata)).toEqual({
+      ...value,
+      schemaVersion: CURRENT_SCHEMA_VERSION,
+      childrenMode: 'text',
+      childrenTextProperty: 'label',
+    });
+  });
+
+  it.each([
+    {
+      childrenMode: 'text',
+      expected: {
+        childrenMode: 'text',
+        childrenTextProperty: 'label',
+      },
+    },
+    {
+      childrenMode: 'icon-only',
+      expected: {
+        childrenMode: 'icon-only',
+        childrenTextProperty: 'label',
+        iconComponentName: 'Icon',
+        iconImportPath: 'tashil-ui',
+      },
+    },
+  ] as const)('migrates supported v2 $childrenMode metadata', ({ childrenMode, expected }) => {
+    const validation = validatePersistedConnectionMetadata({
+      ...legacyBase,
+      childrenMode,
+      schemaVersion: 2,
+    });
+
+    expect(validation.ok).toBe(true);
+    if (!validation.ok) {
+      throw new Error(validation.issue.message);
+    }
+
+    expect(migratePersistedConnectionMetadata(validation.metadata)).toEqual({
+      ...legacyBase,
+      ...expected,
+      schemaVersion: CURRENT_SCHEMA_VERSION,
+    });
+  });
+
+  it('passes valid current v3 metadata through without accepting it as legacy', () => {
+    const current: ConnectionMetadata = {
+      schemaVersion: CURRENT_SCHEMA_VERSION,
+      childrenMode: 'none',
+      componentName: 'Divider',
+      importPath: 'tashil-ui',
+    };
+    const validation = validatePersistedConnectionMetadata(current);
+
+    expect(validation.ok).toBe(true);
+    if (!validation.ok) {
+      throw new Error(validation.issue.message);
+    }
+
+    expect(validation.metadata.schemaVersion).toBe(CURRENT_SCHEMA_VERSION);
+    expect(migratePersistedConnectionMetadata(validation.metadata)).toBe(current);
+  });
+
+  it.each([
+    ['string', '3'],
+    ['zero', 0],
+    ['negative', -1],
+    ['fractional', 2.5],
+    ['NaN', Number.NaN],
+    ['Infinity', Number.POSITIVE_INFINITY],
+  ])('rejects a %s schema version as invalid', (_label, schemaVersion) => {
+    expect(validatePersistedConnectionMetadata({ ...legacyBase, schemaVersion })).toEqual(
+      expect.objectContaining({
+        issue: expect.objectContaining({ reason: 'invalid-schema-version' }),
+        ok: false,
+      }),
+    );
+  });
+
+  it('rejects a future integer version instead of treating it as current', () => {
+    expect(validatePersistedConnectionMetadata({
+      ...legacyBase,
+      schemaVersion: CURRENT_SCHEMA_VERSION + 1,
+    })).toEqual(expect.objectContaining({
+      issue: expect.objectContaining({
+        message: expect.stringMatching(/newer.*update the plugin/i),
+        reason: 'future-schema-version',
+      }),
+      ok: false,
+    }));
+  });
+
+  it.each([
+    ['v1 with a v2 field', { ...legacyBase, childrenMode: 'text', schemaVersion: 1 }],
+    ['v2 none mode', { ...legacyBase, childrenMode: 'none', schemaVersion: 2 }],
+    ['v2 with a v3 field', {
+      ...legacyBase,
+      childrenMode: 'text',
+      childrenTextProperty: 'label',
+      schemaVersion: 2,
+    }],
+    ['invalid v3 shape', {
+      schemaVersion: CURRENT_SCHEMA_VERSION,
+      componentName: 'button',
+      importPath: 'tashil-ui',
+    }],
+  ])('rejects $0 as version-specific invalid metadata', (_label, value) => {
+    expect(validatePersistedConnectionMetadata(value)).toEqual(expect.objectContaining({
+      issue: expect.objectContaining({ reason: 'invalid-metadata' }),
+      ok: false,
+    }));
+  });
+
+  it.each([null, [], 'metadata'])('rejects a non-object persisted root', (value) => {
+    expect(validatePersistedConnectionMetadata(value)).toEqual(expect.objectContaining({
+      issue: expect.objectContaining({ reason: 'invalid-root' }),
+      ok: false,
+    }));
   });
 });

@@ -1,9 +1,15 @@
 import { emit, on, showUI } from '@create-figma-plugin/utilities';
 import {
   createUsageSnippet,
-  isConnectionMetadata,
+  formatMappingDiagnostics,
+  isPropMappings,
+  isRecord,
+  migratePersistedConnectionMetadata,
+  validatePersistedConnectionMetadata,
   validateConnectionMetadata,
 } from './codegen';
+import { normalizeHttpUrl, normalizeOptionalHttpUrl } from './external-url';
+import { createReactPropIdentifier } from './prop-mappings';
 import {
   CONNECTION_KEY,
   CONNECTION_NAMESPACE,
@@ -11,9 +17,12 @@ import {
   type ClearConnectionHandler,
   type CloseHandler,
   type CodegenBlock,
+  type ConnectionIssue,
   type ConnectionMetadata,
+  type ConnectionReferences,
   type InspectCodeState,
   type InspectCodeStateHandler,
+  type OpenExternalHandler,
   type PropMapping,
   type PropMappings,
   type RefreshSelectionHandler,
@@ -36,13 +45,17 @@ type ResolvedSelection = {
 
 type ConnectionReadResult =
   | { ok: true; metadata: ConnectionMetadata }
-  | { ok: false; message: string };
+  | { issue?: ConnectionIssue; ok: false; message: string };
 
 type MutationSelectionResult =
   | { ok: true; selection: ResolvedSelection }
   | { ok: false; message: string };
 
 let latestSelectionRefreshRequestId = 0;
+
+function createDictionary<T>(): Record<string, T> {
+  return Object.create(null) as Record<string, T>;
+}
 
 export default function (): void {
   if (figma.mode !== 'default') {
@@ -52,19 +65,23 @@ export default function (): void {
   showUI({ width: 480, height: 589 });
 
   on<SaveConnectionHandler>('SAVE_CONNECTION', (payload) => {
-    void saveConnection(payload.metadata, payload.selectionToken);
+    void saveConnection(payload.metadata, payload.selectionToken, payload.operationId);
   });
 
   on<ClearConnectionHandler>('CLEAR_CONNECTION', (payload) => {
-    void clearConnection(payload.selectionToken);
+    void clearConnection(payload.selectionToken, payload.operationId);
   });
 
   on<RefreshSelectionHandler>('REFRESH_SELECTION', () => {
-    void sendSelectionState();
+    runBestEffort(sendSelectionState);
   });
 
   on<ScaffoldPropMappingsHandler>('SCAFFOLD_PROP_MAPPINGS', (payload) => {
-    void scaffoldPropMappings(payload.selectionToken);
+    void scaffoldPropMappings(payload.selectionToken, payload.operationId);
+  });
+
+  on<OpenExternalHandler>('OPEN_EXTERNAL', (payload) => {
+    openExternalReference(payload);
   });
 
   on<ResizeWindowHandler>('RESIZE_WINDOW', (size) => {
@@ -76,7 +93,7 @@ export default function (): void {
   });
 
   figma.on('selectionchange', () => {
-    void sendSelectionState();
+    runBestEffort(sendSelectionState);
   });
 }
 
@@ -104,13 +121,19 @@ figma.codegen.on('generate', async (event) => {
       ];
     }
 
+    const usage = createUsageSnippet(connection.metadata, selection);
     const blocks: CodegenBlock[] = [
       {
         title: connection.metadata.componentName,
         language: 'TYPESCRIPT',
-        code: createUsageSnippet(connection.metadata, selection),
+        code: usage.code,
       },
     ];
+    const diagnostics = formatMappingDiagnostics(usage.diagnostics);
+
+    if (diagnostics) {
+      blocks.push(createPlainTextBlock('Mapping diagnostics', diagnostics));
+    }
 
     const references = createReferenceText(connection.metadata);
 
@@ -132,135 +155,274 @@ figma.codegen.on('generate', async (event) => {
 async function saveConnection(
   metadata: ConnectionMetadata,
   selectionToken: string,
+  operationId: string,
 ): Promise<void> {
-  const result = await resolveCurrentSelection(selectionToken);
+  try {
+    const result = await resolveCurrentSelection(selectionToken);
 
-  if (!result.ok) {
+    if (!result.ok) {
+      emit<SaveResultHandler>('SAVE_RESULT', {
+        ok: false,
+        message: result.message,
+        operation: 'save',
+        operationId,
+        selectionToken,
+      });
+      return;
+    }
+
+    const { selection } = result;
+
+    const preflight = preflightStoredConnection(selection.mainComponent);
+
+    if (!preflight.ok) {
+      emit<SaveResultHandler>('SAVE_RESULT', {
+        ok: false,
+        message: preflight.message,
+        operation: 'save',
+        operationId,
+        selectionToken,
+      });
+      return;
+    }
+
+    const validation = validateConnectionMetadata(metadata);
+
+    if (!validation.ok) {
+      emit<SaveResultHandler>('SAVE_RESULT', {
+        ok: false,
+        message: validation.message,
+        operation: 'save',
+        operationId,
+        selectionToken,
+      });
+      return;
+    }
+
+    const referenceUrls = normalizeConnectionReferenceUrlsForSave(metadata);
+
+    if (!referenceUrls.ok) {
+      emit<SaveResultHandler>('SAVE_RESULT', {
+        ok: false,
+        message: referenceUrls.message,
+        operation: 'save',
+        operationId,
+        selectionToken,
+      });
+      return;
+    }
+
+    const connectionMetadata = {
+      ...metadata,
+      schemaVersion: CURRENT_SCHEMA_VERSION,
+      sourceUrl: referenceUrls.sourceUrl,
+      storybookUrl: referenceUrls.storybookUrl,
+      updatedAt: new Date().toISOString(),
+    };
+
+    selection.mainComponent.setSharedPluginData(
+      CONNECTION_NAMESPACE,
+      CONNECTION_KEY,
+      JSON.stringify(connectionMetadata),
+    );
+  } catch (error) {
     emit<SaveResultHandler>('SAVE_RESULT', {
       ok: false,
-      message: result.message,
+      message: createMutationFailureMessage('save the connection', error),
       operation: 'save',
+      operationId,
       selectionToken,
     });
     return;
   }
 
-  const { selection } = result;
-
-  const validation = validateConnectionMetadata(metadata);
-
-  if (!validation.ok) {
-    emit<SaveResultHandler>('SAVE_RESULT', {
-      ok: false,
-      message: validation.message,
-      operation: 'save',
-      selectionToken,
-    });
-    return;
-  }
-
-  const connectionMetadata = {
-    ...metadata,
-    schemaVersion: CURRENT_SCHEMA_VERSION,
-    updatedAt: new Date().toISOString(),
-  };
-
-  selection.mainComponent.setSharedPluginData(
-    CONNECTION_NAMESPACE,
-    CONNECTION_KEY,
-    JSON.stringify(connectionMetadata),
-  );
-
-  figma.notify(`${connectionMetadata.componentName} connected to Storybook`);
   emit<SaveResultHandler>('SAVE_RESULT', {
     ok: true,
     message: 'Connection saved.',
     operation: 'save',
+    operationId,
     selectionToken,
   });
-  await sendSelectionState();
+  runBestEffort(() => {
+    figma.notify(`${metadata.componentName} connected to Storybook`);
+  });
+  runBestEffort(sendSelectionState);
 }
 
-async function clearConnection(selectionToken: string): Promise<void> {
-  const result = await resolveCurrentSelection(selectionToken);
+async function clearConnection(selectionToken: string, operationId: string): Promise<void> {
+  try {
+    const result = await resolveCurrentSelection(selectionToken);
 
-  if (!result.ok) {
+    if (!result.ok) {
+      emit<SaveResultHandler>('SAVE_RESULT', {
+        ok: false,
+        message: result.message,
+        operation: 'clear',
+        operationId,
+        selectionToken,
+      });
+      return;
+    }
+
+    const { selection } = result;
+
+    const preflight = preflightStoredConnection(selection.mainComponent);
+
+    if (!preflight.ok) {
+      emit<SaveResultHandler>('SAVE_RESULT', {
+        ok: false,
+        message: preflight.message,
+        operation: 'clear',
+        operationId,
+        selectionToken,
+      });
+      return;
+    }
+
+    selection.mainComponent.setSharedPluginData(CONNECTION_NAMESPACE, CONNECTION_KEY, '');
+  } catch (error) {
     emit<SaveResultHandler>('SAVE_RESULT', {
       ok: false,
-      message: result.message,
+      message: createMutationFailureMessage('clear the connection', error),
       operation: 'clear',
+      operationId,
       selectionToken,
     });
     return;
   }
 
-  const { selection } = result;
-
-  selection.mainComponent.setSharedPluginData(CONNECTION_NAMESPACE, CONNECTION_KEY, '');
-  figma.notify('Storybook connection cleared');
   emit<SaveResultHandler>('SAVE_RESULT', {
     ok: true,
     message: 'Connection cleared.',
     operation: 'clear',
+    operationId,
     selectionToken,
   });
-  await sendSelectionState();
+  runBestEffort(() => {
+    figma.notify('Storybook connection cleared');
+  });
+  runBestEffort(sendSelectionState);
 }
 
 /**
  * Build a prop-mapping skeleton from the selected component's
  * `componentPropertyDefinitions`. Every VARIANT property becomes a mapping
- * group; each of its `variantOptions` maps to a React prop of the same name.
+ * group; each of its `variantOptions` maps to a normalized React prop name.
  * Non-variant properties are skipped (they need a human to decide the target).
  */
-async function scaffoldPropMappings(selectionToken: string): Promise<void> {
-  const result = await resolveCurrentSelection(selectionToken);
+async function scaffoldPropMappings(
+  selectionToken: string,
+  operationId: string,
+): Promise<void> {
+  try {
+    const result = await resolveCurrentSelection(selectionToken);
 
-  if (!result.ok) {
+    if (!result.ok) {
+      emit<ScaffoldResultHandler>('SCAFFOLD_RESULT', {
+        ok: false,
+        message: result.message,
+        operationId,
+        selectionToken,
+      });
+      return;
+    }
+
+    const { selection } = result;
+
+    const propertyDefinitions = selection.mainComponent.componentPropertyDefinitions;
+    const mappings = createDictionary<Record<string, PropMapping>>() as PropMappings;
+    const unsupportedProperties: string[] = [];
+
+    for (const [propertyName, definition] of Object.entries(propertyDefinitions)) {
+      if (definition.type !== 'VARIANT') {
+        continue;
+      }
+
+      const options = definition.variantOptions ?? [];
+      if (options.length === 0) {
+        continue;
+      }
+
+      const reactProp = createReactPropIdentifier(propertyName);
+      if (!reactProp) {
+        unsupportedProperties.push(propertyName);
+        continue;
+      }
+
+      const group = createDictionary<PropMapping>();
+
+      for (const option of options) {
+        group[option] = { prop: reactProp, value: option };
+      }
+
+      if (Object.keys(group).length > 0) {
+        mappings[propertyName] = group;
+      }
+    }
+
+    if (unsupportedProperties.length > 0) {
+      emit<ScaffoldResultHandler>('SCAFFOLD_RESULT', {
+        ok: false,
+        message: [
+          'Could not generate valid React prop names for Figma properties:',
+          unsupportedProperties.map((propertyName) => JSON.stringify(propertyName)).join(', '),
+          'Rename them using letters or numbers, or enter mappings manually.',
+        ].join(' '),
+        operationId,
+        selectionToken,
+      });
+      return;
+    }
+
+    if (Object.keys(mappings).length === 0) {
+      emit<ScaffoldResultHandler>('SCAFFOLD_RESULT', {
+        ok: false,
+        message: 'No variant properties found on this component to scaffold.',
+        operationId,
+        selectionToken,
+      });
+      return;
+    }
+
+    if (!isPropMappings(mappings)) {
+      emit<ScaffoldResultHandler>('SCAFFOLD_RESULT', {
+        ok: false,
+        message: 'Generated prop mappings were invalid. Rename the Figma variant properties or enter mappings manually.',
+        operationId,
+        selectionToken,
+      });
+      return;
+    }
+
     emit<ScaffoldResultHandler>('SCAFFOLD_RESULT', {
-      ok: false,
-      message: result.message,
+      ok: true,
+      mappings,
+      operationId,
       selectionToken,
     });
-    return;
-  }
-
-  const { selection } = result;
-
-  const propertyDefinitions = selection.mainComponent.componentPropertyDefinitions;
-  const mappings: PropMappings = {};
-
-  for (const [propertyName, definition] of Object.entries(propertyDefinitions)) {
-    if (definition.type !== 'VARIANT') {
-      continue;
-    }
-
-    const options = definition.variantOptions ?? [];
-    const group: Record<string, PropMapping> = {};
-
-    for (const option of options) {
-      group[option] = { prop: propertyName, value: option };
-    }
-
-    if (Object.keys(group).length > 0) {
-      mappings[propertyName] = group;
-    }
-  }
-
-  if (Object.keys(mappings).length === 0) {
+  } catch (error) {
     emit<ScaffoldResultHandler>('SCAFFOLD_RESULT', {
       ok: false,
-      message: 'No variant properties found on this component to scaffold.',
+      message: createMutationFailureMessage('generate prop mappings', error),
+      operationId,
       selectionToken,
     });
-    return;
   }
+}
 
-  emit<ScaffoldResultHandler>('SCAFFOLD_RESULT', {
-    ok: true,
-    mappings,
-    selectionToken,
-  });
+function createMutationFailureMessage(action: string, error: unknown): string {
+  const detail = error instanceof Error && error.message.trim() !== ''
+    ? ` ${error.message}`
+    : '';
+  return `Could not ${action}.${detail}`;
+}
+
+function runBestEffort(effect: () => void | Promise<void>): void {
+  try {
+    void Promise.resolve(effect()).catch(() => undefined);
+  } catch {
+    // Event entry points and post-mutation effects must not leak host failures.
+  }
 }
 
 async function resolveSelection(node: SceneNode): Promise<ResolvedSelection | null> {
@@ -339,24 +501,58 @@ async function resolveCurrentSelection(
 async function sendSelectionState(): Promise<void> {
   const requestId = ++latestSelectionRefreshRequestId;
   const selectedNodes = [...figma.currentPage.selection];
-  const selectedNode = selectedNodes.length === 1 ? selectedNodes[0] : null;
-  const selection = selectedNode ? await resolveSelection(selectedNode) : null;
 
-  if (
-    requestId !== latestSelectionRefreshRequestId
-    || !matchesCurrentSelection(selectedNodes)
-  ) {
-    return;
+  try {
+    const selectedNode = selectedNodes.length === 1 ? selectedNodes[0] : null;
+    const selection = selectedNode ? await resolveSelection(selectedNode) : null;
+
+    if (!isCurrentSelectionRefresh(requestId, selectedNodes)) {
+      return;
+    }
+
+    const connection = selection
+      ? readConnectionMetadata(selection.mainComponent)
+      : null;
+    const state = createSelectionState(selectedNodes, selection, connection);
+    const inspectState = createInspectCodeState(selectedNodes, selection, connection);
+
+    emit<SelectionStateHandler>('SELECTION_STATE', state);
+    emit<InspectCodeStateHandler>('INSPECT_CODE_STATE', inspectState);
+  } catch (error) {
+    if (!isCurrentSelectionRefresh(requestId, selectedNodes)) {
+      return;
+    }
+
+    const message = createSelectionRefreshFailureMessage(error);
+    emit<SelectionStateHandler>('SELECTION_STATE', {
+      status: 'empty',
+      message,
+    });
+    emit<InspectCodeStateHandler>('INSPECT_CODE_STATE', {
+      status: 'invalid-selection',
+      message,
+    });
   }
+}
 
-  const connection = selection
-    ? readConnectionMetadata(selection.mainComponent)
-    : null;
-  const state = createSelectionState(selectedNodes, selection, connection);
-  const inspectState = createInspectCodeState(selectedNodes, selection, connection);
+function isCurrentSelectionRefresh(
+  requestId: number,
+  selectedNodes: ReadonlyArray<SceneNode>,
+): boolean {
+  return requestId === latestSelectionRefreshRequestId
+    && matchesCurrentSelection(selectedNodes);
+}
 
-  emit<SelectionStateHandler>('SELECTION_STATE', state);
-  emit<InspectCodeStateHandler>('INSPECT_CODE_STATE', inspectState);
+function createSelectionRefreshFailureMessage(error: unknown): string {
+  const detail = error instanceof Error ? error.message.trim() : '';
+  const summary = detail === ''
+    ? 'Could not refresh the current selection.'
+    : `Could not refresh the current selection: ${detail}`;
+
+  return [
+    summary,
+    'Try changing the selection or reopening the plugin.',
+  ].join('\n');
 }
 
 function matchesCurrentSelection(selectedNodes: ReadonlyArray<SceneNode>): boolean {
@@ -398,13 +594,24 @@ function createInspectCodeState(
   }
 
   if (!connection || !connection.ok) {
+    if (connection?.issue) {
+      return {
+        status: 'connection-issue',
+        connectionIssue: connection.issue,
+        message: connection.message,
+      };
+    }
+
     return { status: 'not-connected' };
   }
 
+  const usage = createUsageSnippet(connection.metadata, selection);
+
   return {
     status: 'connected',
-    code: createUsageSnippet(connection.metadata, selection),
-    references: createReferenceText(connection.metadata),
+    code: usage.code,
+    diagnostics: formatMappingDiagnostics(usage.diagnostics),
+    references: createConnectionReferences(connection.metadata),
   };
 }
 
@@ -441,12 +648,19 @@ function createSelectionState(
     };
   }
 
+  const connectionIssue = connection && !connection.ok
+    ? connection.issue
+    : undefined;
+
   return {
     status: 'ready',
     selectionToken: selectedNodes[0].id,
     componentName: selection.mainComponent.name,
     existingConnection: connection?.ok ? connection.metadata : undefined,
-    message: connection?.ok
+    connectionIssue,
+    message: connectionIssue
+      ? connectionIssue.message
+      : connection?.ok
       ? 'This component already has a Storybook connection.'
       : 'This component is ready to connect.',
   };
@@ -457,11 +671,19 @@ function collectComponentProperties(
   mainComponent: ComponentNode,
   connectionTarget: ConnectableComponentNode,
 ): Record<string, string | boolean> {
-  return {
-    ...readComponentProperties(connectionTarget),
-    ...readComponentProperties(mainComponent),
-    ...readComponentProperties(selectedNode),
-  };
+  const properties = createDictionary<string | boolean>();
+
+  for (const source of [
+    readComponentProperties(connectionTarget),
+    readComponentProperties(mainComponent),
+    readComponentProperties(selectedNode),
+  ]) {
+    for (const [propertyName, value] of Object.entries(source)) {
+      properties[propertyName] = value;
+    }
+  }
+
+  return properties;
 }
 
 function getConnectionTarget(component: ComponentNode): ConnectableComponentNode {
@@ -475,7 +697,7 @@ function getConnectionTarget(component: ComponentNode): ConnectableComponentNode
 function readComponentProperties(
   node: InstanceNode | ComponentNode | ComponentSetNode,
 ): Record<string, string | boolean> {
-  const properties: Record<string, string | boolean> = {};
+  const properties = createDictionary<string | boolean>();
 
   if ('componentProperties' in node) {
     for (const [propertyName, property] of Object.entries(node.componentProperties)) {
@@ -520,54 +742,130 @@ function readConnectionMetadata(
     };
   }
 
-  try {
-    const parsedConnection: unknown = JSON.parse(rawConnection);
-
-    if (!isConnectionMetadata(parsedConnection)) {
-      return {
-        ok: false,
-        message: 'This component has invalid Storybook connection metadata.',
-      };
-    }
-
-    return {
-      ok: true,
-      metadata: migrateConnectionMetadata(parsedConnection),
-    };
-  } catch (_error) {
-    return {
-      ok: false,
-      message: 'This component has malformed Storybook connection metadata.',
-    };
-  }
+  return parsePersistedConnectionMetadata(rawConnection);
 }
 
-/**
- * Bring persisted connection metadata up to {@link CURRENT_SCHEMA_VERSION}.
- *
- * Data written by older plugin builds has no `schemaVersion` field — treat that
- * as version 1. Add a `case` for each future breaking change to the shape.
- */
-function migrateConnectionMetadata(metadata: ConnectionMetadata): ConnectionMetadata {
-  const version = metadata.schemaVersion ?? 1;
+function preflightStoredConnection(
+  mainComponent: ConnectableComponentNode,
+): { ok: true } | { message: string; ok: false } {
+  const rawConnection = mainComponent.getSharedPluginData(CONNECTION_NAMESPACE, CONNECTION_KEY);
 
-  if (version >= CURRENT_SCHEMA_VERSION) {
-    return metadata;
+  if (!rawConnection) {
+    return { ok: true };
   }
 
-  // v1 -> v2: no structural change; the version field is simply adopted.
-  // Future migrations go here, e.g.:
-  // if (version < 2) { metadata = reshapeV1ToV2(metadata); }
+  const connection = parsePersistedConnectionMetadata(rawConnection);
+  return connection.ok
+    ? { ok: true }
+    : { message: connection.message, ok: false };
+}
 
-  return { ...metadata, schemaVersion: CURRENT_SCHEMA_VERSION };
+function parsePersistedConnectionMetadata(rawConnection: string): ConnectionReadResult {
+  let parsedConnection: unknown;
+
+  try {
+    parsedConnection = JSON.parse(rawConnection);
+  } catch (_error) {
+    const issue: ConnectionIssue = {
+      reason: 'malformed-json',
+      message: [
+        'Stored Storybook connection data is malformed JSON.',
+        'The data was left unchanged; repair it with a compatible plugin version before saving or clearing.',
+      ].join(' '),
+    };
+    return { issue, message: issue.message, ok: false };
+  }
+
+  const validation = validatePersistedConnectionMetadata(parsedConnection);
+
+  if (!validation.ok) {
+    return {
+      issue: validation.issue,
+      message: validation.issue.message,
+      ok: false,
+    };
+  }
+
+  return {
+    metadata: migratePersistedConnectionMetadata(validation.metadata),
+    ok: true,
+  };
+}
+
+function createConnectionReferences(metadata: ConnectionMetadata): ConnectionReferences {
+  return {
+    storybookUrl: metadata.storybookUrl,
+    sourcePath: metadata.sourcePath,
+    sourceUrl: metadata.sourceUrl,
+    updatedAt: metadata.updatedAt,
+  };
 }
 
 function createReferenceText(metadata: ConnectionMetadata): string {
+  const references = createConnectionReferences(metadata);
+
   return [
-    metadata.storybookUrl ? `Storybook: ${metadata.storybookUrl}` : '',
-    metadata.sourcePath ? `Source: ${metadata.sourcePath}` : '',
-    metadata.updatedAt ? `Last updated: ${formatDateTime(metadata.updatedAt)}` : '',
+    references.storybookUrl ? `Storybook: ${references.storybookUrl}` : '',
+    references.sourcePath ? `Source path: ${references.sourcePath}` : '',
+    references.sourceUrl ? `Source URL: ${references.sourceUrl}` : '',
+    references.updatedAt ? `Last updated: ${formatDateTime(references.updatedAt)}` : '',
   ].filter(Boolean).join('\n');
+}
+
+function normalizeConnectionReferenceUrlsForSave(metadata: ConnectionMetadata):
+  | { ok: true; sourceUrl?: string; storybookUrl?: string }
+  | { ok: false; message: string } {
+  const storybookUrl = metadata.storybookUrl === undefined
+    ? undefined
+    : normalizeOptionalHttpUrl(metadata.storybookUrl);
+
+  if (metadata.storybookUrl !== undefined && storybookUrl === null) {
+    return {
+      ok: false,
+      message: 'Storybook URL must be a complete HTTP or HTTPS URL without credentials.',
+    };
+  }
+
+  const sourceUrl = metadata.sourceUrl === undefined
+    ? undefined
+    : normalizeOptionalHttpUrl(metadata.sourceUrl);
+
+  if (metadata.sourceUrl !== undefined && sourceUrl === null) {
+    return {
+      ok: false,
+      message: 'Source URL must be a complete HTTP or HTTPS URL without credentials.',
+    };
+  }
+
+  return {
+    ok: true,
+    sourceUrl: sourceUrl ?? undefined,
+    storybookUrl: storybookUrl ?? undefined,
+  };
+}
+
+function openExternalReference(payload: unknown): void {
+  if (
+    !isRecord(payload)
+    || (payload.target !== 'source' && payload.target !== 'storybook')
+    || typeof payload.url !== 'string'
+  ) {
+    figma.notify('Could not open the reference because its URL is invalid.');
+    return;
+  }
+
+  const url = normalizeHttpUrl(payload.url);
+
+  if (!url) {
+    figma.notify('Only complete HTTP or HTTPS reference URLs can be opened.');
+    return;
+  }
+
+  try {
+    figma.openExternal(url);
+  } catch (_error) {
+    figma.notify('Could not open the reference in your browser.');
+  }
 }
 
 function getDisplayText(node: SceneNode): string {

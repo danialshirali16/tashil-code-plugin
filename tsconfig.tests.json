@@ -1,15 +1,19 @@
 {
   "extends": "./tsconfig.base.json",
   "compilerOptions": {
+    "jsx": "react",
+    "jsxFactory": "h",
     "lib": ["es2020", "dom"],
     "types": []
   },
   "include": [
     "src/codegen.test.ts",
+    "src/external-url.test.ts",
     "src/prop-mappings.test.ts",
     "src/ui*.test.ts",
     "src/ui*.test.tsx",
     "src/form*.test.ts",
-    "src/form*.test.tsx"
+    "src/form*.test.tsx",
+    "vitest.config.ts"
   ]
 }

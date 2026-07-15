@@ -7,9 +7,9 @@ This guide explains how to connect a Figma component to Storybook using the **Ta
 After a component is connected, developers can select an instance in Figma Dev Mode and choose **Tashil UI** in the Code section. The plugin will show a production usage snippet, for example:
 
 ```tsx
-import { Button } from 'tashil-ui';
+import { Button } from "tashil-ui";
 
-<Button intent="primary" variant="solid" size="md">
+<Button intent={"primary"} variant={"solid"} size={"md"}>
   Button
 </Button>
 ```
@@ -34,42 +34,81 @@ Make sure:
 
 4. Fill the fields:
 
-   **Component name**
-   The React component name.
+   **Component name (required)**
+   The exported React component name.
 
    ```txt
    Button
    ```
 
-   **Import path**
+   **Import path (required)**
    The package or module import path.
 
    ```txt
    tashil-ui
    ```
 
-   **Storybook URL**
-   The matching Storybook story or docs URL.
+   **Storybook URL (optional)**
+   The matching Storybook story or docs URL. Use a complete `http://` or
+   `https://` address. When provided, it appears in generated reference
+   information and can be opened from **Inspect Code**.
 
    ```txt
    https://storybook.example.com/?path=/story/components-button--primary
    ```
 
-   **Source path**
-   The source file path in the codebase.
+   **Source path (optional)**
+   The source file path in the codebase. When provided, it appears in the
+   generated reference information.
 
    ```txt
    src/components/Button/Button.tsx
    ```
 
-   **Prop mappings JSON**
+   **Source URL (optional)**
+   A browser URL for the source file, kept separately from the repository path.
+   Use a complete `http://` or `https://` address. The URL can be opened from
+   **Inspect Code**, while the source path remains available to copy.
+
+   ```txt
+   https://github.com/example/tashil-ui/blob/main/src/components/Button/Button.tsx
+   ```
+
+   **Children**
+   Choose one of three modes:
+
+   - **Text** uses the configured Figma string property as JSX children. The
+     property defaults to `label`; matching is exact first and then
+     case-insensitive. If it is missing or empty, codegen falls back to the
+     selected layer's display text/name and reports a diagnostic.
+   - **Icon** requires an exported icon component name and its import path. The
+     generated TSX imports that component, renders it as the child, and uses the
+     configured Figma text property for the parent's accessible `aria-label`.
+   - **None** emits a self-closing component and does not render children.
+
+   Icon names use named-import syntax. For example, `TrashIcon` from
+   `tashil-ui/icons` produces:
+
+   ```tsx
+   import { IconButton } from "tashil-ui";
+   import { TrashIcon } from "tashil-ui/icons";
+
+   <IconButton aria-label={"Delete"}>
+     <TrashIcon />
+   </IconButton>
+   ```
+
+   **Prop mappings JSON (optional)**
    Maps Figma variant properties to React props.
 
-   You can write this JSON by hand, or click **Generate from component** to
+   Leave this field blank if the component does not need generated props. You
+   can write the JSON by hand, or click **Generate from component** to
    scaffold a mapping skeleton from the selected component's variant properties.
-   Each variant property becomes a mapping group; every option maps to a React
-   prop of the same name. Generated mappings are merged into the field, so any
-   keys you already wrote are preserved — edit the values afterwards as needed.
+   Each discovered variant property becomes a mapping group. Generated mappings
+   keep the exact Figma property name as the group key and normalize the target
+   React prop to lower camel case (for example, `Icon Position` becomes
+   `iconPosition`). They are merged into the field, so keys you already wrote
+   are preserved. Review the generated React prop names and values before saving.
 
    ```json
    {
@@ -97,6 +136,19 @@ Make sure:
    }
    ```
 
+   Each mapping entry needs a valid JSX attribute name in `prop` and a string,
+   number, or boolean `value`. An optional `"raw": true` flag emits a string
+   value as a TSX expression instead of a quoted string; use it only for valid
+   code expressions.
+
+   Dev Mode and **Inspect Code** show mapping diagnostics separately from the
+   pasteable TSX when an active Figma property or value has no mapping. They also
+   report when multiple active mappings target the same React prop; that
+   conflicting prop is omitted until the mappings use unique targets. The
+   selected children mode owns the React `children` prop, and Icon mode also
+   owns `aria-label`; mappings targeting those reserved props are omitted and
+   reported so generated TSX never supplies them twice.
+
 5. Click **Save**.
 
 The plugin stores the connection metadata on the selected Figma component using shared plugin data.
@@ -108,6 +160,10 @@ The plugin stores the connection metadata on the selected Figma component using 
 3. Open the Code section.
 4. Choose **Tashil UI**.
 5. Confirm that the generated snippet uses the correct component name, import path, and props.
+
+The native Dev Mode codegen result keeps references in a plaintext section.
+The plugin's **Inspect Code** tab presents valid Storybook and source URLs as
+browser actions and provides a separate copy action for the source path.
 
 ## How Prop Mapping Works
 
@@ -140,9 +196,9 @@ and the mapping is:
 then Dev Mode output becomes:
 
 ```tsx
-import { Button } from 'tashil-ui';
+import { Button } from "tashil-ui";
 
-<Button intent="primary" variant="solid" size="sm">
+<Button intent={"primary"} variant={"solid"} size={"sm"}>
   Button
 </Button>
 ```
@@ -151,7 +207,10 @@ import { Button } from 'tashil-ui';
 
 **The fields are disabled**
 
-The plugin could not find a selected component. Select a main component, component set, or instance, then click **Refresh**.
+The plugin could not find exactly one connectable selection. Select a main
+component, component set, or instance; the form refreshes automatically when the
+selection changes. If it does not update, reselect the layer or close and reopen
+**Connect component**.
 
 **Dev Mode says the component is not connected**
 
@@ -167,16 +226,26 @@ Run `npm run build`, re-import the plugin from `manifest.json`, then try again.
 
 ## Stored Metadata Shape
 
-The plugin stores this JSON shape internally:
+The plugin stores this JSON shape internally. `componentName` and `importPath`
+come from the only two required fields. `schemaVersion` and `updatedAt` are
+managed by the plugin. `storybookUrl`, `sourcePath`, and `sourceUrl` are omitted
+when their optional fields are blank. Reference URLs accept only absolute HTTP
+or HTTPS addresses without embedded credentials. `childrenMode` is `"text"`, `"icon-only"`, or
+`"none"`. Text and icon modes store `childrenTextProperty`; icon mode also
+stores its required named component and import path. The UI stores an empty
+`propMappings` object when no mappings are entered.
 
 ```json
 {
-  "schemaVersion": 2,
+  "schemaVersion": 3,
   "componentName": "Button",
   "importPath": "tashil-ui",
   "storybookUrl": "https://storybook.example.com/?path=/story/components-button--primary",
   "sourcePath": "src/components/Button/Button.tsx",
+  "sourceUrl": "https://github.com/example/tashil-ui/blob/main/src/components/Button/Button.tsx",
   "updatedAt": "2026-07-04T08:45:00.000Z",
+  "childrenMode": "text",
+  "childrenTextProperty": "label",
   "propMappings": {
     "intent": {
       "primary": { "prop": "intent", "value": "primary" }
@@ -187,3 +256,42 @@ The plugin stores this JSON shape internally:
   }
 }
 ```
+
+Icon mode stores the additional required import fields:
+
+```json
+{
+  "childrenMode": "icon-only",
+  "childrenTextProperty": "label",
+  "iconComponentName": "TrashIcon",
+  "iconImportPath": "tashil-ui/icons"
+}
+```
+
+No-children mode stores `"childrenMode": "none"` and omits the text/icon
+configuration fields.
+
+Within each prop-mapping entry, `prop` and `value` are required. `raw` is an
+optional boolean and defaults to `false` when omitted.
+
+Runtime metadata must explicitly use schema version 3. At the persisted-data
+boundary only, an absent version is treated as legacy version 1. Versions 1 and
+2 are validated against their own historical shapes and migrated in memory;
+version 3 passes through unchanged. Version 2 supports text and `"icon-only"`
+children (the `"none"` mode starts in version 3). A legacy `"icon-only"`
+connection becomes an explicit named `Icon` import from the component's
+existing `importPath`, which preserves the old intent without an undefined JSX
+identifier. Reopen **Connect component** and verify or replace that migrated
+icon name/path with the real export used by your library.
+
+Reading legacy metadata never rewrites the Figma component. A supported legacy
+connection upgrades to version 3 only after an explicit, valid save. Malformed
+data, invalid version values, unsupported historical shapes, and future schema
+versions are shown as stored-connection issues in Connect, Inspect, and Dev
+Mode. Saving and clearing are refused in that state so the original shared
+plugin data cannot be overwritten, downgraded, or deleted; update the plugin or
+repair the data with a compatible version first.
+
+Older structurally valid connections remain readable if they contain a URL that
+does not meet the current HTTP(S) rule. Code generation still works, but the URL
+is shown as non-actionable until it is corrected and saved again.

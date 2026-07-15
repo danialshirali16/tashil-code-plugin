@@ -7,3 +7,4 @@ build/
 
 # Local tooling worktrees (editor/agent scratch space, not project source)
 .kilo/
+.zcode/

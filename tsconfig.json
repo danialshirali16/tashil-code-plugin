@@ -4,5 +4,10 @@
     "lib": ["es2020"],
     "types": ["@figma/plugin-typings"]
   },
-  "include": ["src/main.ts", "src/codegen.ts", "src/types.ts"]
+  "include": [
+    "src/main.ts",
+    "src/codegen.ts",
+    "src/external-url.ts",
+    "src/types.ts"
+  ]
 }
