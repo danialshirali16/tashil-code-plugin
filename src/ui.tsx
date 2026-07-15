@@ -22,6 +22,7 @@ import { mergePropMappingsJson } from './prop-mappings';
 import { copyToClipboard } from './ui-clipboard';
 import {
   FORM_FIELD_IDS,
+  clearFormDraft,
   createFormDraft,
   createFormValues,
   getClearAction,
@@ -99,10 +100,6 @@ function Plugin(): h.JSX.Element {
   const formValuesRef = useRef(initialFormValues);
   const draftsRef = useRef<DraftStore>(new Map());
   const activeSelectionTokenRef = useRef<string>();
-  const selectionStateRef = useRef<UiSelectionState>({
-    status: 'empty',
-    message: 'Select a component instance or main component.',
-  });
   const pendingSaveValuesRef = useRef(new Map<string, ConnectionFormValues>());
   const clearCancelButtonRef = useRef<HTMLButtonElement>(null);
   const [isDirty, setIsDirty] = useState(false);
@@ -196,7 +193,6 @@ function Plugin(): h.JSX.Element {
 
   function applySelectionState(state: UiSelectionState): void {
     const previousToken = activeSelectionTokenRef.current;
-    selectionStateRef.current = state;
     setSelectionState(state);
     setErrorMessage('');
     setFieldErrors({});
@@ -240,19 +236,11 @@ function Plugin(): h.JSX.Element {
         }
       }
     } else if (result.ok) {
-      const nextDrafts = new Map(draftsRef.current);
-      nextDrafts.delete(result.selectionToken);
-      draftsRef.current = nextDrafts;
+      const cleared = clearFormDraft(draftsRef.current, result.selectionToken);
+      draftsRef.current = cleared.drafts;
 
       if (isActiveSelection) {
-        const currentState = selectionStateRef.current;
-        const fallbackComponentName = currentState.status === 'ready'
-          ? currentState.componentName
-          : undefined;
-        const clearedDraft = createFormDraft(createFormValues(undefined, fallbackComponentName));
-        nextDrafts.set(result.selectionToken, clearedDraft);
-        draftsRef.current = nextDrafts;
-        displayFormDraft(clearedDraft);
+        displayFormDraft(cleared.draft);
       }
     }
 

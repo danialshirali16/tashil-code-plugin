@@ -302,13 +302,20 @@ describe('connection persistence', () => {
       );
     });
 
-    expect(notify).toHaveBeenCalledWith('Storybook connection cleared');
-    expect(emittedPayloads('SAVE_RESULT')).toContainEqual({
-      message: 'Connection cleared.',
-      ok: true,
-      operation: 'clear',
-      selectionToken: component.id,
+    await vi.waitFor(() => {
+      expect(emittedPayloads('SAVE_RESULT')).toContainEqual({
+        message: 'Connection cleared.',
+        ok: true,
+        operation: 'clear',
+        selectionToken: component.id,
+      });
     });
+
+    expect(notify).toHaveBeenCalledWith('Storybook connection cleared');
+    const eventNames = utilityMocks.emit.mock.calls.map(([name]) => name);
+    const selectionStateIndex = eventNames.indexOf('SELECTION_STATE');
+    expect(selectionStateIndex).toBeGreaterThanOrEqual(0);
+    expect(eventNames.indexOf('SAVE_RESULT')).toBeGreaterThan(selectionStateIndex);
   });
 });
 
