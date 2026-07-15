@@ -1,15 +1,8 @@
 {
+  "extends": "./tsconfig.base.json",
   "compilerOptions": {
-    "target": "es2020",
-    "lib": ["es2020", "dom"],
-    "jsx": "react",
-    "jsxFactory": "h",
-    "module": "esnext",
-    "moduleResolution": "bundler",
-    "strict": true,
-    "typeRoots": [
-      "./node_modules/@figma"
-    ]
+    "lib": ["es2020"],
+    "types": ["@figma/plugin-typings"]
   },
-  "exclude": ["**/*.test.ts", "**/*.test.tsx"]
+  "include": ["src/main.ts", "src/codegen.ts", "src/types.ts"]
 }

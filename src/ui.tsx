@@ -16,12 +16,30 @@ import {
 } from '@create-figma-plugin/ui';
 import { emit, on } from '@create-figma-plugin/utilities';
 import { Fragment, h } from 'preact';
-import { useCallback, useEffect, useState } from 'preact/hooks';
+import { useCallback, useEffect, useRef, useState } from 'preact/hooks';
 import '!./ui.css';
+import { mergePropMappingsJson } from './prop-mappings';
+import { copyToClipboard } from './ui-clipboard';
 import {
-  CURRENT_SCHEMA_VERSION,
+  FORM_FIELD_IDS,
+  createFormDraft,
+  createFormValues,
+  getClearAction,
+  getCopyFeedback,
+  getFirstInvalidField,
+  markFormDraftSaved,
+  selectFormDraft,
+  updateFormDraft,
+  validateConnectionForm,
+  type ConnectionFormValues,
+  type CopyStatus,
+  type DraftStore,
+  type FormDraft,
+  type FormErrors,
+  type FormField,
+} from './ui-state';
+import {
   type ClearConnectionHandler,
-  type ConnectionMetadata,
   type InspectCodeState,
   type InspectCodeStateHandler,
   type PropMappings,
@@ -76,12 +94,22 @@ function Plugin(): h.JSX.Element {
     status: 'empty',
     message: 'Select a component instance or main component.',
   });
-  const [componentName, setComponentName] = useState('');
-  const [importPath, setImportPath] = useState('');
-  const [storybookUrl, setStorybookUrl] = useState('');
-  const [sourcePath, setSourcePath] = useState('');
-  const [propMappings, setPropMappings] = useState('');
+  const initialFormValues = createFormValues();
+  const [formValues, setFormValuesState] = useState(initialFormValues);
+  const formValuesRef = useRef(initialFormValues);
+  const draftsRef = useRef<DraftStore>(new Map());
+  const activeSelectionTokenRef = useRef<string>();
+  const selectionStateRef = useRef<UiSelectionState>({
+    status: 'empty',
+    message: 'Select a component instance or main component.',
+  });
+  const pendingSaveValuesRef = useRef(new Map<string, ConnectionFormValues>());
+  const clearCancelButtonRef = useRef<HTMLButtonElement>(null);
+  const [isDirty, setIsDirty] = useState(false);
+  const [fieldErrors, setFieldErrors] = useState<FormErrors>({});
   const [errorMessage, setErrorMessage] = useState('');
+  const [statusMessage, setStatusMessage] = useState('');
+  const [isClearConfirmationOpen, setIsClearConfirmationOpen] = useState(false);
   const [inspectCodeState, setInspectCodeState] = useState<InspectCodeState>({
     status: 'invalid-selection',
   });
@@ -96,6 +124,12 @@ function Plugin(): h.JSX.Element {
     minWidth: 360,
     resizeDirection: 'both',
   });
+
+  useEffect(() => {
+    if (isClearConfirmationOpen) {
+      clearCancelButtonRef.current?.focus();
+    }
+  }, [isClearConfirmationOpen]);
 
   // WAI-ARIA tabs pattern: Arrow keys move between tabs, Home/End jump to the ends.
   function handleTabKeyDown(event: h.JSX.TargetedKeyboardEvent<HTMLDivElement>): void {
@@ -127,13 +161,11 @@ function Plugin(): h.JSX.Element {
 
   useEffect(() => {
     const offSelectionState = on<SelectionStateHandler>('SELECTION_STATE', (state) => {
-      setSelectionState(state);
-      setErrorMessage('');
-      fillForm(state.existingConnection, state.componentName);
+      applySelectionState(state);
     });
 
     const offSaveResult = on<SaveResultHandler>('SAVE_RESULT', (result) => {
-      setErrorMessage(result.ok ? '' : result.message);
+      handleSaveResult(result);
     });
 
     const offInspectCodeState = on<InspectCodeStateHandler>('INSPECT_CODE_STATE', (state) => {
@@ -142,12 +174,14 @@ function Plugin(): h.JSX.Element {
 
     const offScaffoldResult = on<ScaffoldResultHandler>('SCAFFOLD_RESULT', (result) => {
       if (!result.ok) {
-        setErrorMessage(result.message || 'Could not scaffold prop mappings.');
+        if (activeSelectionTokenRef.current === result.selectionToken) {
+          setStatusMessage('');
+          setErrorMessage(result.message || 'Could not scaffold prop mappings.');
+        }
         return;
       }
 
-      setErrorMessage('');
-      mergePropMappings(result.mappings ?? {});
+      mergePropMappings(result.selectionToken, result.mappings ?? {});
     });
 
     emit<RefreshSelectionHandler>('REFRESH_SELECTION');
@@ -160,60 +194,200 @@ function Plugin(): h.JSX.Element {
     };
   }, []);
 
-  /**
-   * Merge scaffolded mappings into the textarea, preserving any manually
-   * authored keys. Existing keys win; only new keys are added.
-   */
-  function mergePropMappings(incoming: PropMappings): void {
-    let existing: PropMappings = {};
-    try {
-      existing = propMappings.trim() === ''
-        ? {}
-        : JSON.parse(propMappings) as PropMappings;
-    } catch (_error) {
-      setErrorMessage('Fix the existing prop mappings JSON before scaffolding.');
+  function applySelectionState(state: UiSelectionState): void {
+    const previousToken = activeSelectionTokenRef.current;
+    selectionStateRef.current = state;
+    setSelectionState(state);
+    setErrorMessage('');
+    setFieldErrors({});
+
+    if (state.status !== 'ready') {
+      activeSelectionTokenRef.current = undefined;
+      displayFormDraft(createFormDraft(createFormValues()));
+      setStatusMessage('');
+      setIsClearConfirmationOpen(false);
       return;
     }
 
-    const merged: PropMappings = {
-      ...incoming,
-      ...existing,
-    };
+    const result = selectFormDraft(draftsRef.current, state);
+    draftsRef.current = result.drafts;
+    activeSelectionTokenRef.current = state.selectionToken;
+    displayFormDraft(result.draft!);
 
-    setPropMappings(JSON.stringify(merged, null, 2));
-  }
-
-  function fillForm(connection?: ConnectionMetadata, fallbackComponentName?: string): void {
-    setComponentName(connection?.componentName || fallbackComponentName || '');
-    setImportPath(connection?.importPath || '');
-    setStorybookUrl(connection?.storybookUrl || '');
-    setSourcePath(connection?.sourcePath || '');
-    setPropMappings(connection?.propMappings
-      ? JSON.stringify(connection.propMappings, null, 2)
-      : '');
-  }
-
-  function handleSave(): void {
-    try {
-      const parsedPropMappings = propMappings.trim() === ''
-        ? {}
-        : JSON.parse(propMappings) as ConnectionMetadata['propMappings'];
-
-      emit<SaveConnectionHandler>('SAVE_CONNECTION', {
-        schemaVersion: CURRENT_SCHEMA_VERSION,
-        componentName: componentName.trim(),
-        importPath: importPath.trim(),
-        storybookUrl: storybookUrl.trim() || undefined,
-        sourcePath: sourcePath.trim() || undefined,
-        propMappings: parsedPropMappings,
-      });
-    } catch (_error) {
-      setErrorMessage('Prop mappings must be valid JSON.');
+    if (previousToken !== state.selectionToken) {
+      setStatusMessage(result.restored
+        ? 'Restored your unsaved changes for this component.'
+        : '');
+      setIsClearConfirmationOpen(false);
     }
   }
 
+  function handleSaveResult(result: Parameters<SaveResultHandler['handler']>[0]): void {
+    const isActiveSelection = activeSelectionTokenRef.current === result.selectionToken;
+
+    if (result.operation === 'save') {
+      const submittedValues = pendingSaveValuesRef.current.get(result.selectionToken);
+      pendingSaveValuesRef.current.delete(result.selectionToken);
+      const draft = draftsRef.current.get(result.selectionToken);
+
+      if (result.ok && submittedValues && draft) {
+        const savedDraft = markFormDraftSaved(draft, submittedValues);
+        const nextDrafts = new Map(draftsRef.current);
+        nextDrafts.set(result.selectionToken, savedDraft);
+        draftsRef.current = nextDrafts;
+        if (isActiveSelection) {
+          displayFormDraft(savedDraft);
+        }
+      }
+    } else if (result.ok) {
+      const nextDrafts = new Map(draftsRef.current);
+      nextDrafts.delete(result.selectionToken);
+      draftsRef.current = nextDrafts;
+
+      if (isActiveSelection) {
+        const currentState = selectionStateRef.current;
+        const fallbackComponentName = currentState.status === 'ready'
+          ? currentState.componentName
+          : undefined;
+        const clearedDraft = createFormDraft(createFormValues(undefined, fallbackComponentName));
+        nextDrafts.set(result.selectionToken, clearedDraft);
+        draftsRef.current = nextDrafts;
+        displayFormDraft(clearedDraft);
+      }
+    }
+
+    if (isActiveSelection) {
+      setErrorMessage(result.ok ? '' : result.message);
+      setStatusMessage(result.ok ? result.message : '');
+      setIsClearConfirmationOpen(false);
+    }
+  }
+
+  function mergePropMappings(selectionToken: string, incoming: PropMappings): void {
+    const draft = draftsRef.current.get(selectionToken);
+    if (!draft) {
+      return;
+    }
+
+    const result = mergePropMappingsJson(draft.values.propMappings, incoming);
+
+    if (!result.ok) {
+      if (activeSelectionTokenRef.current === selectionToken) {
+        setStatusMessage('');
+        setErrorMessage(result.message);
+      }
+      return;
+    }
+
+    const updatedDraft = updateFormDraft(draft, 'propMappings', result.value);
+    const nextDrafts = new Map(draftsRef.current);
+    nextDrafts.set(selectionToken, updatedDraft);
+    draftsRef.current = nextDrafts;
+
+    if (activeSelectionTokenRef.current === selectionToken) {
+      displayFormDraft(updatedDraft);
+      setFieldErrors((current) => ({ ...current, propMappings: undefined }));
+      setErrorMessage('');
+      setStatusMessage('Generated prop mappings from the selected component.');
+    }
+  }
+
+  function displayFormDraft(draft: FormDraft): void {
+    formValuesRef.current = draft.values;
+    setFormValuesState(draft.values);
+    setIsDirty(draft.isDirty);
+  }
+
+  function setFormField(field: FormField, value: string): void {
+    const selectionToken = activeSelectionTokenRef.current;
+    if (!selectionToken) {
+      return;
+    }
+
+    const draft = draftsRef.current.get(selectionToken)
+      ?? createFormDraft(formValuesRef.current);
+    const updatedDraft = updateFormDraft(draft, field, value);
+    const nextDrafts = new Map(draftsRef.current);
+    nextDrafts.set(selectionToken, updatedDraft);
+    draftsRef.current = nextDrafts;
+    displayFormDraft(updatedDraft);
+    setFieldErrors((current) => ({ ...current, [field]: undefined }));
+    setErrorMessage('');
+    setStatusMessage('');
+    setIsClearConfirmationOpen(false);
+  }
+
+  function handleSave(): void {
+    if (
+      selectionState.status !== 'ready'
+      || activeSelectionTokenRef.current !== selectionState.selectionToken
+    ) {
+      setErrorMessage('Selection changed. Select one component and try again.');
+      return;
+    }
+
+    const validation = validateConnectionForm(formValuesRef.current);
+    if (!validation.ok) {
+      setFieldErrors(validation.errors);
+      setStatusMessage('');
+      setErrorMessage(validation.message);
+      const firstInvalidField = getFirstInvalidField(validation.errors);
+      if (firstInvalidField) {
+        window.setTimeout(() => {
+          document.getElementById(FORM_FIELD_IDS[firstInvalidField])?.focus();
+        }, 0);
+      }
+      return;
+    }
+
+    setFieldErrors({});
+    setErrorMessage('');
+    setStatusMessage('Saving connection…');
+    pendingSaveValuesRef.current.set(
+      selectionState.selectionToken,
+      { ...formValuesRef.current },
+    );
+    emit<SaveConnectionHandler>('SAVE_CONNECTION', {
+      selectionToken: selectionState.selectionToken,
+      metadata: validation.metadata,
+    });
+  }
+
   function handleScaffold(): void {
-    emit<ScaffoldPropMappingsHandler>('SCAFFOLD_PROP_MAPPINGS');
+    if (selectionState.status !== 'ready') {
+      setErrorMessage('Selection changed. Select one component and try again.');
+      return;
+    }
+
+    emit<ScaffoldPropMappingsHandler>('SCAFFOLD_PROP_MAPPINGS', {
+      selectionToken: selectionState.selectionToken,
+    });
+  }
+
+  function handleClear(): void {
+    if (selectionState.status !== 'ready') {
+      setErrorMessage('Selection changed. Select one component and try again.');
+      return;
+    }
+
+    if (getClearAction(isClearConfirmationOpen) === 'request-confirmation') {
+      setIsClearConfirmationOpen(true);
+      return;
+    }
+
+    setIsClearConfirmationOpen(false);
+    setErrorMessage('');
+    setStatusMessage('Clearing connection…');
+    emit<ClearConnectionHandler>('CLEAR_CONNECTION', {
+      selectionToken: selectionState.selectionToken,
+    });
+  }
+
+  function handleCancelClear(): void {
+    setIsClearConfirmationOpen(false);
+    window.setTimeout(() => {
+      document.getElementById('tashil-clear-button')?.focus();
+    }, 0);
   }
 
   const hasFooter = view === 'connect' && workflowTab === 'connect' && isReady;
@@ -282,21 +456,30 @@ function Plugin(): h.JSX.Element {
           role="tabpanel"
         >
           <ConnectComponentView
-            componentName={componentName}
+            componentName={formValues.componentName}
+            clearCancelButtonRef={(element) => {
+              clearCancelButtonRef.current = element;
+            }}
             errorMessage={errorMessage}
+            fieldErrors={fieldErrors}
+            handleCancelClear={handleCancelClear}
+            handleClear={handleClear}
             handleSave={handleSave}
             handleScaffold={handleScaffold}
-            importPath={importPath}
+            importPath={formValues.importPath}
+            isClearConfirmationOpen={isClearConfirmationOpen}
+            isDirty={isDirty}
             isReady={isReady}
-            propMappings={propMappings}
+            propMappings={formValues.propMappings}
             selectionState={selectionState}
-            setComponentName={setComponentName}
-            setImportPath={setImportPath}
-            setPropMappings={setPropMappings}
-            setSourcePath={setSourcePath}
-            setStorybookUrl={setStorybookUrl}
-            sourcePath={sourcePath}
-            storybookUrl={storybookUrl}
+            setComponentName={(value) => setFormField('componentName', value)}
+            setImportPath={(value) => setFormField('importPath', value)}
+            setPropMappings={(value) => setFormField('propMappings', value)}
+            setSourcePath={(value) => setFormField('sourcePath', value)}
+            setStorybookUrl={(value) => setFormField('storybookUrl', value)}
+            sourcePath={formValues.sourcePath}
+            statusMessage={statusMessage}
+            storybookUrl={formValues.storybookUrl}
           />
         </div>
       ) : null}
@@ -322,11 +505,17 @@ function Plugin(): h.JSX.Element {
 }
 
 function ConnectComponentView(props: {
+  clearCancelButtonRef: (element: HTMLButtonElement | null) => void;
   componentName: string;
   errorMessage: string;
+  fieldErrors: FormErrors;
+  handleCancelClear: () => void;
+  handleClear: () => void;
   handleSave: () => void;
   handleScaffold: () => void;
   importPath: string;
+  isClearConfirmationOpen: boolean;
+  isDirty: boolean;
   isReady: boolean;
   propMappings: string;
   selectionState: UiSelectionState;
@@ -336,6 +525,7 @@ function ConnectComponentView(props: {
   setSourcePath: (value: string) => void;
   setStorybookUrl: (value: string) => void;
   sourcePath: string;
+  statusMessage: string;
   storybookUrl: string;
 }): h.JSX.Element {
   if (!props.isReady) {
@@ -350,36 +540,54 @@ function ConnectComponentView(props: {
         <Container space="medium">
           <VerticalSpace space="medium" />
           <div class="form-stack">
-            <Field label="Component name">
+            <Field
+              error={props.fieldErrors.componentName}
+              id={FORM_FIELD_IDS.componentName}
+              label="Component name"
+            >
               <Textbox
+                aria-describedby={getFieldErrorId('componentName', props.fieldErrors)}
+                aria-invalid={Boolean(props.fieldErrors.componentName)}
+                aria-required="true"
                 disabled={!props.isReady}
+                id={FORM_FIELD_IDS.componentName}
                 onValueInput={props.setComponentName}
                 placeholder="e.g., Button"
                 value={props.componentName}
               />
             </Field>
 
-            <Field label="Import path">
+            <Field
+              error={props.fieldErrors.importPath}
+              id={FORM_FIELD_IDS.importPath}
+              label="Import path"
+            >
               <Textbox
+                aria-describedby={getFieldErrorId('importPath', props.fieldErrors)}
+                aria-invalid={Boolean(props.fieldErrors.importPath)}
+                aria-required="true"
                 disabled={!props.isReady}
+                id={FORM_FIELD_IDS.importPath}
                 onValueInput={props.setImportPath}
                 placeholder="e.g., tashil-ui"
                 value={props.importPath}
               />
             </Field>
 
-            <Field label="Storybook URL">
+            <Field id={FORM_FIELD_IDS.storybookUrl} label="Storybook URL">
               <Textbox
                 disabled={!props.isReady}
+                id={FORM_FIELD_IDS.storybookUrl}
                 onValueInput={props.setStorybookUrl}
                 placeholder="e.g., https://storybook.example.com/?path=/story/..."
                 value={props.storybookUrl}
               />
             </Field>
 
-            <Field label="Source path">
+            <Field id={FORM_FIELD_IDS.sourcePath} label="Source path">
               <Textbox
                 disabled={!props.isReady}
+                id={FORM_FIELD_IDS.sourcePath}
                 onValueInput={props.setSourcePath}
                 placeholder="e.g., src/components/Button/Button.tsx"
                 value={props.sourcePath}
@@ -388,7 +596,9 @@ function ConnectComponentView(props: {
 
             <div class="field">
               <div class="field-label-row">
-                <Text>Prop mappings JSON</Text>
+                <label class="field-label" htmlFor={FORM_FIELD_IDS.propMappings}>
+                  Prop mappings JSON
+                </label>
                 <Button
                   disabled={!props.isReady}
                   onClick={props.handleScaffold}
@@ -398,21 +608,39 @@ function ConnectComponentView(props: {
                 </Button>
               </div>
               <TextboxMultiline
+                aria-describedby={getFieldErrorId('propMappings', props.fieldErrors)}
+                aria-invalid={Boolean(props.fieldErrors.propMappings)}
                 disabled={!props.isReady}
                 grow
+                id={FORM_FIELD_IDS.propMappings}
                 onValueInput={props.setPropMappings}
                 rows={9}
                 spellCheck={false}
                 value={props.propMappings}
                 placeholder={PROP_MAPPINGS_PLACEHOLDER}
               />
+              {props.fieldErrors.propMappings ? (
+                <div class="field-error" id={`${FORM_FIELD_IDS.propMappings}-error`}>
+                  {props.fieldErrors.propMappings}
+                </div>
+              ) : null}
             </div>
           </div>
           {props.errorMessage ? (
             <Fragment>
               <VerticalSpace space="small" />
-              <Text>{props.errorMessage}</Text>
+              <div class="form-error" role="alert">
+                {props.errorMessage}
+              </div>
             </Fragment>
+          ) : null}
+          <div aria-atomic="true" aria-live="polite" class="form-status" role="status">
+            {props.statusMessage}
+          </div>
+          {props.isDirty ? (
+            <div aria-live="polite" class="dirty-indicator" role="status">
+              Unsaved changes for this component
+            </div>
           ) : null}
           <VerticalSpace space="medium" />
         </Container>
@@ -420,15 +648,44 @@ function ConnectComponentView(props: {
 
       <div class="footer">
         <div class="actions">
-          <div class="spacer" />
-          <div class="primary-actions">
-            <Button disabled={!props.isReady} onClick={() => emit<ClearConnectionHandler>('CLEAR_CONNECTION')} secondary>
-              Clear
-            </Button>
-            <Button disabled={!props.isReady} onClick={props.handleSave}>
-              Save
-            </Button>
-          </div>
+          {props.isClearConfirmationOpen ? (
+            <Fragment>
+              <div
+                aria-atomic="true"
+                aria-live="assertive"
+                class="footer-confirmation-copy"
+                role="alert"
+              >
+                <div class="clear-confirmation-title">Clear connection?</div>
+                <div>Deletes shared Storybook metadata.</div>
+              </div>
+              <div class="clear-confirmation-actions">
+                <Button onClick={props.handleCancelClear} ref={props.clearCancelButtonRef} secondary>
+                  Cancel
+                </Button>
+                <Button onClick={props.handleClear}>
+                  Clear connection
+                </Button>
+              </div>
+            </Fragment>
+          ) : (
+            <Fragment>
+              <div class="spacer" />
+              <div class="primary-actions">
+                <Button
+                  disabled={!props.isReady}
+                  id="tashil-clear-button"
+                  onClick={props.handleClear}
+                  secondary
+                >
+                  Clear
+                </Button>
+                <Button disabled={!props.isReady} onClick={props.handleSave}>
+                  Save
+                </Button>
+              </div>
+            </Fragment>
+          )}
         </div>
       </div>
     </Fragment>
@@ -561,12 +818,31 @@ function IconDetach48(): h.JSX.Element {
 
 function CodeBlock(props: { code: string; title: string }): h.JSX.Element {
   const lines = props.code.length > 0 ? props.code.split('\n') : [''];
-  const [copied, setCopied] = useState(false);
+  const [copyStatus, setCopyStatus] = useState<CopyStatus>('idle');
+  const resetCopyStatusTimerRef = useRef<number>();
+  const copyFeedback = getCopyFeedback(copyStatus, props.title);
+
+  useEffect(() => () => {
+    if (resetCopyStatusTimerRef.current !== undefined) {
+      window.clearTimeout(resetCopyStatusTimerRef.current);
+    }
+  }, []);
 
   async function handleCopy(): Promise<void> {
-    await copyToClipboard(props.code);
-    setCopied(true);
-    window.setTimeout(() => setCopied(false), 3000);
+    if (resetCopyStatusTimerRef.current !== undefined) {
+      window.clearTimeout(resetCopyStatusTimerRef.current);
+    }
+
+    try {
+      await copyToClipboard(props.code);
+      setCopyStatus('copied');
+    } catch (_error) {
+      setCopyStatus('error');
+    }
+
+    resetCopyStatusTimerRef.current = window.setTimeout(() => {
+      setCopyStatus('idle');
+    }, 3000);
   }
 
   return (
@@ -574,14 +850,17 @@ function CodeBlock(props: { code: string; title: string }): h.JSX.Element {
       <div class="code-section-header">
         <Text>{props.title}</Text>
         <IconButton
-          aria-label={`Copy ${props.title}`}
+          aria-label={copyFeedback.ariaLabel}
           onClick={() => {
             void handleCopy();
           }}
-          title={copied ? 'Copied' : `Copy ${props.title}`}
+          title={copyFeedback.ariaLabel}
         >
-          {copied ? <IconCheck24 /> : <IconCopySmall24 />}
+          {copyStatus === 'copied' ? <IconCheck24 /> : <IconCopySmall24 />}
         </IconButton>
+        <span aria-atomic="true" aria-live="polite" class="visually-hidden" role="status">
+          {copyFeedback.message}
+        </span>
       </div>
       <pre class="code-block">
         <code>
@@ -647,23 +926,6 @@ function getSyntaxClassName(token: string): string {
     return 'syntax-expression';
   }
   return 'syntax-punctuation';
-}
-
-async function copyToClipboard(value: string): Promise<void> {
-  if (navigator.clipboard) {
-    await navigator.clipboard.writeText(value);
-    return;
-  }
-
-  const textarea = document.createElement('textarea');
-
-  textarea.value = value;
-  textarea.style.position = 'fixed';
-  textarea.style.opacity = '0';
-  document.body.append(textarea);
-  textarea.select();
-  document.execCommand('copy');
-  textarea.remove();
 }
 
 function HowItWorksView(): h.JSX.Element {
@@ -739,13 +1001,29 @@ function HelpRow(props: { label: string; value: string }): h.JSX.Element {
   );
 }
 
-function Field(props: { children: h.JSX.Element; label: string }): h.JSX.Element {
+function Field(props: {
+  children: h.JSX.Element;
+  error?: string;
+  id: string;
+  label: string;
+}): h.JSX.Element {
   return (
-    <label class="field">
-      <Text>{props.label}</Text>
+    <div class="field">
+      <label class="field-label" htmlFor={props.id}>
+        {props.label}
+      </label>
       {props.children}
-    </label>
+      {props.error ? (
+        <div class="field-error" id={`${props.id}-error`}>
+          {props.error}
+        </div>
+      ) : null}
+    </div>
   );
+}
+
+function getFieldErrorId(field: FormField, errors: FormErrors): string | undefined {
+  return errors[field] ? `${FORM_FIELD_IDS[field]}-error` : undefined;
 }
 
 export default render(Plugin);

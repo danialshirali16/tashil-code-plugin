@@ -1,6 +1,8 @@
 declare const styles: {
   readonly "actions": string;
   readonly "button-content": string;
+  readonly "clear-confirmation-actions": string;
+  readonly "clear-confirmation-title": string;
   readonly "code-block": string;
   readonly "code-line": string;
   readonly "code-line-content": string;
@@ -8,10 +10,17 @@ declare const styles: {
   readonly "code-section": string;
   readonly "code-section-header": string;
   readonly "connect-empty": string;
+  readonly "dirty-indicator": string;
   readonly "field": string;
+  readonly "field-error": string;
+  readonly "field-label": string;
+  readonly "field-label-row": string;
   readonly "fields": string;
   readonly "footer": string;
+  readonly "footer-confirmation-copy": string;
+  readonly "form-error": string;
   readonly "form-stack": string;
+  readonly "form-status": string;
   readonly "header": string;
   readonly "help-list": string;
   readonly "help-page": string;
@@ -37,7 +46,9 @@ declare const styles: {
   readonly "syntax-punctuation": string;
   readonly "syntax-string": string;
   readonly "syntax-tag": string;
+  readonly "tabpanel": string;
   readonly "top-bar": string;
+  readonly "visually-hidden": string;
 };
 export = styles;
 

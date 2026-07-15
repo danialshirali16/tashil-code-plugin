@@ -3,12 +3,13 @@
   "version": "1.0.0",
   "description": "Figma Dev Mode codegen plugin for Tashil UI components",
   "scripts": {
-    "build": "build-figma-plugin --typecheck --minify",
+    "build": "npm run typecheck && build-figma-plugin --minify",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
     "test": "vitest run",
     "test:watch": "vitest",
-    "watch": "build-figma-plugin --typecheck --watch"
+    "typecheck": "tsc -p tsconfig.json && tsc -p tsconfig.ui.json && tsc -p tsconfig.tests.json && tsc -p tsconfig.plugin-tests.json",
+    "watch": "npm run typecheck && build-figma-plugin --typecheck --watch"
   },
   "figma-plugin": {
     "id": "1654920127584180700",

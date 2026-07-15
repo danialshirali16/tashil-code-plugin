@@ -1,0 +1,15 @@
+{
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "jsx": "react",
+    "jsxFactory": "h",
+    "lib": ["es2020", "dom"],
+    "types": []
+  },
+  "include": [
+    "src/ui.tsx",
+    "src/ui.css.d.ts",
+    "src/prop-mappings.ts",
+    "src/types.ts"
+  ]
+}
