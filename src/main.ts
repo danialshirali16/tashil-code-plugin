@@ -198,13 +198,13 @@ async function clearConnection(selectionToken: string): Promise<void> {
 
   selection.mainComponent.setSharedPluginData(CONNECTION_NAMESPACE, CONNECTION_KEY, '');
   figma.notify('Storybook connection cleared');
+  await sendSelectionState();
   emit<SaveResultHandler>('SAVE_RESULT', {
     ok: true,
     message: 'Connection cleared.',
     operation: 'clear',
     selectionToken,
   });
-  await sendSelectionState();
 }
 
 /**
