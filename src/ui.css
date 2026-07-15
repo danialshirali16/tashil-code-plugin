@@ -76,6 +76,11 @@
   font-weight: 600;
 }
 
+.reference-tab:focus-visible {
+  outline: 2px solid var(--figma-color-border-brand-strong, currentColor);
+  outline-offset: 1px;
+}
+
 .fields {
   grid-row: 2;
   min-height: 0;
@@ -104,10 +109,66 @@
   gap: 8px;
 }
 
+.field-label,
 .field > *:first-child {
   font-size: 11px;
   line-height: 16px;
   margin: 0;
+}
+
+.field-label {
+  color: var(--figma-color-text);
+}
+
+.field-error,
+.form-error {
+  color: var(--figma-color-text-danger, #b42318);
+  font-size: 11px;
+  line-height: 16px;
+}
+
+.form-error {
+  border-left: 2px solid var(--figma-color-border-danger-strong, #b42318);
+  padding-left: 8px;
+}
+
+.form-status:empty {
+  display: none;
+}
+
+.form-status,
+.dirty-indicator {
+  font-size: 11px;
+  line-height: 16px;
+  margin-top: 8px;
+}
+
+.form-status {
+  color: var(--figma-color-text-success, var(--figma-color-text-secondary));
+}
+
+.dirty-indicator {
+  color: var(--figma-color-text-secondary);
+}
+
+.footer-confirmation-copy {
+  color: var(--figma-color-text-secondary);
+  display: grid;
+  font-size: 11px;
+  line-height: 16px;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.clear-confirmation-title {
+  color: var(--figma-color-text);
+  font-weight: 600;
+}
+
+.clear-confirmation-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
 }
 
 .form-stack {
@@ -139,7 +200,8 @@
 .actions {
   align-items: center;
   display: grid;
-  grid-template-columns: 1fr 93px;
+  gap: 8px;
+  grid-template-columns: 1fr auto;
   height: 48px;
   padding: 0 8px;
 }
@@ -201,6 +263,18 @@
   display: grid;
   grid-template-columns: 1fr auto;
   height: 24px;
+}
+
+.visually-hidden {
+  border: 0;
+  clip: rect(0, 0, 0, 0);
+  height: 1px;
+  margin: -1px;
+  overflow: hidden;
+  padding: 0;
+  position: absolute;
+  white-space: nowrap;
+  width: 1px;
 }
 
 .code-section-header > *:first-child {
@@ -370,6 +444,11 @@
   border-radius: 6px;
   font-size: 11px;
   min-height: 24px;
+}
+
+.fields input[aria-invalid='true'],
+.fields textarea[aria-invalid='true'] {
+  border-color: var(--figma-color-border-danger-strong, #b42318);
 }
 
 .fields textarea {

@@ -19,21 +19,30 @@ export type SelectionLike = {
   displayText: string;
 };
 
+const COMPONENT_IDENTIFIER_PATTERN = /^[A-Z_$][A-Za-z0-9_$]*$/;
+const JSX_ATTRIBUTE_NAME_PATTERN = /^[A-Za-z_$][A-Za-z0-9_$]*(?:-[A-Za-z0-9_$]+)*$/;
+
 export function createUsageSnippet(metadata: ConnectionMetadata, selection: SelectionLike): string {
+  const validation = validateConnectionMetadata(metadata);
+
+  if (!validation.ok) {
+    throw new TypeError(validation.message);
+  }
+
   const props = createMappedProps(metadata, selection.componentProperties);
   const label = getComponentLabel(selection);
   const isIconOnly = props.includes('iconOnly');
   const openTag = createOpeningTag(metadata.componentName, props);
 
   const lines = [
-    `import { ${metadata.componentName} } from '${metadata.importPath}';`,
+    `import { ${metadata.componentName} } from ${JSON.stringify(metadata.importPath)};`,
     '',
   ];
 
   if (isIconOnly) {
     const iconOnlyOpenTag = createOpeningTag(metadata.componentName, [
       ...props,
-      `aria-label="${escapeAttributeValue(label)}"`,
+      `aria-label=${formatPropValue(label)}`,
     ]);
 
     lines.push(iconOnlyOpenTag);
@@ -91,6 +100,8 @@ export function getMappedPropValues(
 }
 
 export function formatPropAssignment(prop: string, propValue: CodeProp): string | null {
+  assertValidPropIdentifier(prop);
+
   if (propValue.value === false) {
     return null;
   }
@@ -108,13 +119,15 @@ export function formatPropAssignment(prop: string, propValue: CodeProp): string 
 
 export function formatPropValue(value: string | number | boolean): string {
   if (typeof value === 'string') {
-    return `"${escapeAttributeValue(value)}"`;
+    return `{${JSON.stringify(value)}}`;
   }
 
   return `{${String(value)}}`;
 }
 
 export function createOpeningTag(componentName: string, props: string[]): string {
+  assertValidComponentIdentifier(componentName);
+
   if (props.length === 0) {
     return `<${componentName}>`;
   }
@@ -142,10 +155,6 @@ export function getComponentLabel(selection: SelectionLike): string {
   return selection.displayText;
 }
 
-export function escapeAttributeValue(value: string): string {
-  return value.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
-}
-
 export function escapeJsxText(value: string): string {
   return value
     .replace(/&/g, '&amp;')
@@ -162,7 +171,7 @@ export function isConnectionMetadata(value: unknown): value is ConnectionMetadat
     return false;
   }
 
-  if (typeof value.componentName !== 'string' || value.componentName.length === 0) {
+  if (typeof value.componentName !== 'string' || !isComponentIdentifier(value.componentName)) {
     return false;
   }
 
@@ -216,7 +225,7 @@ export function isPropMappings(value: unknown): value is Record<string, Record<s
 
       return (
         typeof mapping.prop === 'string'
-        && mapping.prop.length > 0
+        && isPropIdentifier(mapping.prop)
         && (
           typeof mappingValue === 'string'
           || typeof mappingValue === 'number'
@@ -236,11 +245,14 @@ export function isDefaultProps(value: unknown): value is Record<string, string |
     return false;
   }
 
-  return Object.values(value).every((propValue) => {
+  return Object.entries(value).every(([prop, propValue]) => {
     return (
-      typeof propValue === 'string'
-      || typeof propValue === 'number'
-      || typeof propValue === 'boolean'
+      isPropIdentifier(prop)
+      && (
+        typeof propValue === 'string'
+        || typeof propValue === 'number'
+        || typeof propValue === 'boolean'
+      )
     );
   });
 }
@@ -251,7 +263,7 @@ export function validateConnectionMetadata(
   if (!isConnectionMetadata(metadata)) {
     return {
       ok: false,
-      message: 'Connection metadata is missing a valid component name, import path, or prop mappings value.',
+      message: 'Connection metadata is missing a valid component name identifier, import path, prop identifier, or prop mappings value.',
     };
   }
 
@@ -260,4 +272,24 @@ export function validateConnectionMetadata(
 
 export function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function isComponentIdentifier(value: string): boolean {
+  return COMPONENT_IDENTIFIER_PATTERN.test(value);
+}
+
+function isPropIdentifier(value: string): boolean {
+  return JSX_ATTRIBUTE_NAME_PATTERN.test(value);
+}
+
+function assertValidComponentIdentifier(value: string): void {
+  if (!isComponentIdentifier(value)) {
+    throw new TypeError(`Invalid component identifier: ${JSON.stringify(value)}`);
+  }
+}
+
+function assertValidPropIdentifier(value: string): void {
+  if (!isPropIdentifier(value)) {
+    throw new TypeError(`Invalid JSX prop identifier: ${JSON.stringify(value)}`);
+  }
 }

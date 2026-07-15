@@ -30,12 +30,21 @@ export type ConnectionMetadata = {
   propMappings?: Record<string, Record<string, PropMapping>>;
 };
 
-export type UiSelectionState = {
-  status: 'ready' | 'empty';
-  componentName?: string;
-  existingConnection?: ConnectionMetadata;
-  message: string;
-};
+export type UiSelectionState =
+  | {
+      status: 'ready';
+      selectionToken: string;
+      componentName: string;
+      existingConnection?: ConnectionMetadata;
+      message: string;
+    }
+  | {
+      status: 'empty';
+      selectionToken?: never;
+      componentName?: never;
+      existingConnection?: never;
+      message: string;
+    };
 
 export type InspectCodeState = {
   status: 'connected' | 'not-connected' | 'invalid-selection';
@@ -62,12 +71,15 @@ export type InspectCodeStateHandler = {
 
 export type SaveConnectionHandler = {
   name: 'SAVE_CONNECTION';
-  handler: (metadata: ConnectionMetadata) => void;
+  handler: (payload: {
+    selectionToken: string;
+    metadata: ConnectionMetadata;
+  }) => void;
 };
 
 export type ClearConnectionHandler = {
   name: 'CLEAR_CONNECTION';
-  handler: () => void;
+  handler: (payload: { selectionToken: string }) => void;
 };
 
 export type RefreshSelectionHandler = {
@@ -87,17 +99,27 @@ export type CloseHandler = {
 
 export type SaveResultHandler = {
   name: 'SAVE_RESULT';
-  handler: (result: { ok: boolean; message: string }) => void;
+  handler: (result: {
+    message: string;
+    ok: boolean;
+    operation: 'clear' | 'save';
+    selectionToken: string;
+  }) => void;
 };
 
 /** UI -> main: request a prop-mapping scaffold for the current selection. */
 export type ScaffoldPropMappingsHandler = {
   name: 'SCAFFOLD_PROP_MAPPINGS';
-  handler: () => void;
+  handler: (payload: { selectionToken: string }) => void;
 };
 
 /** main -> UI: the scaffolded mappings (or a failure reason). */
 export type ScaffoldResultHandler = {
   name: 'SCAFFOLD_RESULT';
-  handler: (result: { ok: boolean; mappings?: PropMappings; message?: string }) => void;
+  handler: (result: {
+    mappings?: PropMappings;
+    message?: string;
+    ok: boolean;
+    selectionToken: string;
+  }) => void;
 };

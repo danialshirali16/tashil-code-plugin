@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest';
+import * as ts from 'typescript';
 import {
   createMappedProps,
   createOpeningTag,
   createUsageSnippet,
-  escapeAttributeValue,
   escapeJsxText,
   formatPropAssignment,
   formatPropValue,
@@ -13,6 +13,29 @@ import {
   type SelectionLike,
 } from './codegen';
 import type { ConnectionMetadata } from './types';
+
+function expectValidTypeScript(source: string): void {
+  const result = ts.transpileModule(source, {
+    compilerOptions: {
+      jsx: ts.JsxEmit.Preserve,
+      module: ts.ModuleKind.ESNext,
+      target: ts.ScriptTarget.ES2020,
+    },
+    fileName: 'generated-snippet.tsx',
+    reportDiagnostics: true,
+  });
+  const errors = (result.diagnostics ?? [])
+    .filter((diagnostic) => diagnostic.category === ts.DiagnosticCategory.Error)
+    .map((diagnostic) => ts.flattenDiagnosticMessageText(diagnostic.messageText, '\n'));
+
+  expect(errors).toEqual([]);
+}
+
+function createValidUsageSnippet(metadata: ConnectionMetadata, selection: SelectionLike): string {
+  const snippet = createUsageSnippet(metadata, selection);
+  expectValidTypeScript(snippet);
+  return snippet;
+}
 
 describe('escapeJsxText', () => {
   it('escapes ampersands, angle brackets, and braces', () => {
@@ -29,15 +52,10 @@ describe('escapeJsxText', () => {
   });
 });
 
-describe('escapeAttributeValue', () => {
-  it('escapes backslashes and double quotes', () => {
-    expect(escapeAttributeValue('say "hi" \\done')).toBe('say \\"hi\\" \\\\done');
-  });
-});
-
 describe('formatPropValue', () => {
-  it('wraps strings in double quotes', () => {
-    expect(formatPropValue('primary')).toBe('"primary"');
+  it('serializes strings as JSX expressions', () => {
+    expect(formatPropValue('primary')).toBe('{"primary"}');
+    expect(formatPropValue('say "hi" \\done\nnext')).toBe('{"say \\"hi\\" \\\\done\\nnext"}');
   });
 
   it('wraps numbers and booleans in braces', () => {
@@ -55,8 +73,8 @@ describe('formatPropAssignment', () => {
     expect(formatPropAssignment('loading', { value: true })).toBe('loading');
   });
 
-  it('returns a quoted attribute for strings', () => {
-    expect(formatPropAssignment('intent', { value: 'primary' })).toBe('intent="primary"');
+  it('serializes string attributes as JSX expressions', () => {
+    expect(formatPropAssignment('intent', { value: 'primary' })).toBe('intent={"primary"}');
   });
 
   it('returns a brace expression for raw strings', () => {
@@ -66,6 +84,11 @@ describe('formatPropAssignment', () => {
 
   it('returns a brace expression for numbers', () => {
     expect(formatPropAssignment('count', { value: 3 })).toBe('count={3}');
+  });
+
+  it('rejects prop names that could break generated JSX', () => {
+    expect(() => formatPropAssignment('intent onClick', { value: 'primary' }))
+      .toThrow(/prop identifier/i);
   });
 });
 
@@ -95,7 +118,7 @@ describe('createMappedProps', () => {
     const m = metadata({
       defaultProps: { intent: 'primary', variant: 'solid', size: 'md' },
     });
-    expect(createMappedProps(m, {})).toEqual(['intent="primary"', 'variant="solid"', 'size="md"']);
+    expect(createMappedProps(m, {})).toEqual(['intent={"primary"}', 'variant={"solid"}', 'size={"md"}']);
   });
 
   it('overrides defaults with mapped component properties', () => {
@@ -107,7 +130,7 @@ describe('createMappedProps', () => {
       },
     });
     expect(createMappedProps(m, { intent: 'primary', style: 'solid' }))
-      .toEqual(['intent="neutral"', 'variant="outline"']);
+      .toEqual(['intent={"neutral"}', 'variant={"outline"}']);
   });
 
   it('omits props whose mapped value is false', () => {
@@ -138,11 +161,11 @@ describe('createUsageSnippet', () => {
       importPath: 'tashil-ui',
       defaultProps: { intent: 'primary' },
     };
-    expect(createUsageSnippet(metadata, selection())).toBe(
+    expect(createValidUsageSnippet(metadata, selection())).toBe(
       [
-        "import { Button } from 'tashil-ui';",
+        'import { Button } from "tashil-ui";',
         '',
-        '<Button intent="primary">',
+        '<Button intent={"primary"}>',
         '  Button',
         '</Button>',
       ].join('\n'),
@@ -154,7 +177,7 @@ describe('createUsageSnippet', () => {
       componentName: 'Button',
       importPath: 'tashil-ui',
     };
-    expect(createUsageSnippet(metadata, selection({ componentProperties: { label: 'Submit' } })))
+    expect(createValidUsageSnippet(metadata, selection({ componentProperties: { label: 'Submit' } })))
       .toContain('  Submit');
   });
 
@@ -164,11 +187,11 @@ describe('createUsageSnippet', () => {
       importPath: 'tashil-ui',
       propMappings: { isOnlyIcon: { true: { prop: 'iconOnly', value: true } } },
     };
-    const snippet = createUsageSnippet(metadata, {
+    const snippet = createValidUsageSnippet(metadata, {
       componentProperties: { isOnlyIcon: 'true', label: 'Delete' },
       displayText: 'IconButton',
     });
-    expect(snippet).toContain('aria-label="Delete"');
+    expect(snippet).toContain('aria-label={"Delete"}');
     expect(snippet).toContain('  <Icon />');
   });
 
@@ -177,8 +200,21 @@ describe('createUsageSnippet', () => {
       componentName: 'Tag',
       importPath: 'tashil-ui',
     };
-    const snippet = createUsageSnippet(metadata, { componentProperties: { label: 'A & B' }, displayText: 'A & B' });
+    const snippet = createValidUsageSnippet(metadata, { componentProperties: { label: 'A & B' }, displayText: 'A & B' });
     expect(snippet).toContain('  A &amp; B');
+  });
+
+  it('safely serializes quotes, backslashes, newlines, and import paths', () => {
+    const importPath = 'tashil-"ui\\components\nbutton';
+    const metadata: ConnectionMetadata = {
+      componentName: 'Button',
+      importPath,
+      defaultProps: { title: 'say "hi" \\done\nnext' },
+    };
+    const snippet = createValidUsageSnippet(metadata, selection());
+
+    expect(snippet).toContain(`from ${JSON.stringify(importPath)};`);
+    expect(snippet).toContain('title={"say \\"hi\\" \\\\done\\nnext"}');
   });
 });
 
@@ -190,6 +226,23 @@ describe('isConnectionMetadata', () => {
   it('rejects when componentName is missing or empty', () => {
     expect(isConnectionMetadata({ importPath: 'tashil-ui' })).toBe(false);
     expect(isConnectionMetadata({ componentName: '', importPath: 'tashil-ui' })).toBe(false);
+  });
+
+  it('rejects invalid component and prop identifiers', () => {
+    expect(isConnectionMetadata({ componentName: 'Button;alert(1)', importPath: 'tashil-ui' }))
+      .toBe(false);
+    expect(isConnectionMetadata({ componentName: 'button', importPath: 'tashil-ui' }))
+      .toBe(false);
+    expect(isConnectionMetadata({
+      componentName: 'Button',
+      importPath: 'tashil-ui',
+      defaultProps: { 'intent onClick': 'primary' },
+    })).toBe(false);
+    expect(isConnectionMetadata({
+      componentName: 'Button',
+      importPath: 'tashil-ui',
+      propMappings: { intent: { primary: { prop: 'intent={evil}', value: 'primary' } } },
+    })).toBe(false);
   });
 
   it('rejects when importPath is missing', () => {
