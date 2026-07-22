@@ -5,7 +5,7 @@
  * way and add a migration in the read path. Stored data written by older plugin
  * builds (without this field) is treated as version 1.
  */
-export const CURRENT_SCHEMA_VERSION = 3;
+export const CURRENT_SCHEMA_VERSION = 4;
 export const DEFAULT_CHILDREN_TEXT_PROPERTY = 'label';
 
 export const CONNECTION_NAMESPACE = 'tashil_storybook';
@@ -19,6 +19,75 @@ export type PropMapping = {
 
 /** The full Figma-property → React-prop mapping table stored on a component. */
 export type PropMappings = Record<string, Record<string, PropMapping>>;
+
+export type SourcePropValue = string | number | boolean;
+
+export type SourcePropRole =
+  | 'advanced'
+  | 'children'
+  | 'event'
+  | 'standard'
+  | 'unsupported';
+
+export type SourcePropDescriptor = {
+  defaultValue?: SourcePropValue;
+  name: string;
+  required: boolean;
+  role: SourcePropRole;
+  typeName: string;
+  values?: SourcePropValue[];
+};
+
+export type SourceComponentSnapshot = {
+  componentName: string;
+  contentHash: string;
+  fileName: string;
+  props: SourcePropDescriptor[];
+};
+
+export type FigmaPropertyType = 'BOOLEAN' | 'INSTANCE_SWAP' | 'TEXT' | 'VARIANT';
+
+export type FigmaPropertyDescriptor = {
+  defaultValue?: string | boolean;
+  id: string;
+  name: string;
+  options: string[];
+  rawKey: string;
+  type: FigmaPropertyType;
+};
+
+export type FigmaComponentSnapshot = {
+  componentId: string;
+  componentName: string;
+  properties: FigmaPropertyDescriptor[];
+};
+
+export type PropertyValueMapping = {
+  figmaValue: string;
+  sourceValue: SourcePropValue;
+};
+
+export type PropertyMappingKind = 'children' | 'instance-swap' | 'property';
+
+export type PropertyMapping = {
+  figmaPropertyId: string;
+  figmaPropertyName: string;
+  /** Omitted by early v4 documents; omission means a standard property mapping. */
+  kind?: PropertyMappingKind;
+  sourceProp: string;
+  values: PropertyValueMapping[];
+};
+
+/** Authoring state used to maintain and reconcile a connection over time. */
+export type MappingDocument = {
+  figmaSnapshot: FigmaComponentSnapshot;
+  lastValidatedAt?: string;
+  /** Prop-mapping groups owned by the visual editor, including recently unmapped slots. */
+  managedFigmaProperties?: string[];
+  mappings: PropertyMapping[];
+  revision: number;
+  sourceSnapshot?: SourceComponentSnapshot;
+};
 
 export type ChildrenMode = 'icon-only' | 'none' | 'text';
 
@@ -40,6 +109,8 @@ export type ConnectionMetadata = {
   /** Module containing iconComponentName. Required in icon-only mode. */
   iconImportPath?: string;
   propMappings?: PropMappings;
+  /** Optional authoring state; codegen continues to consume propMappings. */
+  mappingDocument?: MappingDocument;
 };
 
 export type ConnectionIssueReason =
@@ -67,6 +138,7 @@ export type UiSelectionState =
       status: 'ready';
       selectionToken: string;
       componentName: string;
+      figmaSnapshot?: FigmaComponentSnapshot;
       existingConnection?: ConnectionMetadata;
       connectionIssue?: ConnectionIssue;
       message: string;

@@ -10,7 +10,9 @@ The plugin has two workflows:
 - **Tashil UI codegen**: used by developers in Dev Mode to see a React/TSX usage snippet for the selected component.
 
 Only **Component name** and **Import path** are required when creating a connection.
-**Storybook URL**, **Source path**, **Source URL**, and **Prop mappings JSON** are optional.
+**Storybook URL**, **Source path**, and **Source URL** are optional. TypeScript source
+can be uploaded locally to build visual code-prop-to-Figma mappings; source contents
+are not persisted.
 Generated components use a configurable Figma text property (`label` by default),
 an explicitly imported icon child, or no children with self-closing JSX. See the
 [connection guide](docs/connect-component.md) for the exact behavior and stored

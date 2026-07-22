@@ -7,14 +7,19 @@ import {
 } from './types';
 import { isPropMappings, isRecord } from './codegen';
 import { normalizeOptionalHttpUrl } from './external-url';
+import { compileMappingDocument, isMappingDocument } from './mapping-document';
+import { extractAdvancedPropMappings } from './mapping-editor';
+import { findMappingConflicts } from './connection-health';
 
 export type ConnectionFormValues = {
   childrenMode: ChildrenMode;
   childrenTextProperty: string;
   componentName: string;
+  customPropMappings: string;
   iconComponentName: string;
   iconImportPath: string;
   importPath: string;
+  mappingDocument: string;
   propMappings: string;
   sourcePath: string;
   sourceUrl: string;
@@ -80,9 +85,11 @@ export const FORM_FIELD_IDS: Record<FormField, string> = {
   childrenMode: 'tashil-children-mode',
   childrenTextProperty: 'tashil-children-text-property',
   componentName: 'tashil-component-name',
+  customPropMappings: 'tashil-custom-prop-mappings',
   iconComponentName: 'tashil-icon-component-name',
   iconImportPath: 'tashil-icon-import-path',
   importPath: 'tashil-import-path',
+  mappingDocument: 'tashil-mapping-document',
   propMappings: 'tashil-prop-mappings',
   sourcePath: 'tashil-source-path',
   sourceUrl: 'tashil-source-url',
@@ -219,9 +226,19 @@ export function createFormValues(
     childrenTextProperty: connection?.childrenTextProperty
       || DEFAULT_CHILDREN_TEXT_PROPERTY,
     componentName: connection?.componentName || fallbackComponentName || '',
+    customPropMappings: connection?.mappingDocument && connection.propMappings
+      ? JSON.stringify(
+          extractAdvancedPropMappings(connection.propMappings, connection.mappingDocument),
+          null,
+          2,
+        )
+      : '',
     iconComponentName: connection?.iconComponentName || '',
     iconImportPath: connection?.iconImportPath || '',
     importPath: connection?.importPath || '',
+    mappingDocument: connection?.mappingDocument
+      ? JSON.stringify(connection.mappingDocument, null, 2)
+      : '',
     propMappings: connection?.propMappings
       ? JSON.stringify(connection.propMappings, null, 2)
       : '',
@@ -300,11 +317,13 @@ export function areFormValuesEqual(
   second: ConnectionFormValues,
 ): boolean {
   return first.componentName === second.componentName
+    && first.customPropMappings === second.customPropMappings
     && first.childrenMode === second.childrenMode
     && first.childrenTextProperty === second.childrenTextProperty
     && first.iconComponentName === second.iconComponentName
     && first.iconImportPath === second.iconImportPath
     && first.importPath === second.importPath
+    && first.mappingDocument === second.mappingDocument
     && first.propMappings === second.propMappings
     && first.sourcePath === second.sourcePath
     && first.sourceUrl === second.sourceUrl
@@ -316,11 +335,13 @@ export function areFormValuesEqual(
 // This satisfies check fails tsc until every field is listed here.
 void ({
   componentName: true,
+  customPropMappings: true,
   childrenMode: true,
   childrenTextProperty: true,
   iconComponentName: true,
   iconImportPath: true,
   importPath: true,
+  mappingDocument: true,
   propMappings: true,
   sourcePath: true,
   sourceUrl: true,
@@ -391,6 +412,42 @@ export function validateConnectionForm(
     }
   }
 
+  let mappingDocument: ConnectionMetadata['mappingDocument'];
+  if (values.mappingDocument.trim() !== '') {
+    let customMappings: ConnectionMetadata['propMappings'] = {};
+    if (values.customPropMappings.trim() !== '') {
+      try {
+        const parsedCustom = JSON.parse(values.customPropMappings) as unknown;
+        if (!isRecord(parsedCustom) || !isPropMappings(parsedCustom)) {
+          errors.customPropMappings = 'Custom mappings must use the same valid prop-mapping JSON format.';
+        } else {
+          customMappings = parsedCustom;
+        }
+      } catch (_error) {
+        errors.customPropMappings = 'Custom mappings must be valid JSON.';
+      }
+    }
+
+    try {
+      const parsed = JSON.parse(values.mappingDocument) as unknown;
+      if (!isMappingDocument(parsed)) {
+        errors.mappingDocument = 'The visual mapping document is invalid. Upload the source files again.';
+      } else {
+        mappingDocument = parsed;
+        const conflicts = findMappingConflicts(mappingDocument);
+        if (conflicts.length > 0) {
+          errors.mappingDocument = conflicts[0].message;
+        }
+        propMappings = compileMappingDocument(
+          mappingDocument,
+          customMappings,
+        );
+      }
+    } catch (_error) {
+      errors.mappingDocument = 'The visual mapping document is invalid. Upload the source files again.';
+    }
+  }
+
   if (Object.keys(errors).length > 0) {
     return {
       errors,
@@ -413,6 +470,7 @@ export function validateConnectionForm(
         ? { iconComponentName, iconImportPath }
         : {}),
       propMappings,
+      ...(mappingDocument ? { mappingDocument } : {}),
     },
     ok: true,
   };
@@ -428,6 +486,8 @@ export function getFirstInvalidField(errors: FormErrors): FormField | undefined 
     'childrenTextProperty',
     'iconComponentName',
     'iconImportPath',
+    'customPropMappings',
+    'mappingDocument',
     'propMappings',
   ];
   return fieldOrder.find((field) => Boolean(errors[field]));

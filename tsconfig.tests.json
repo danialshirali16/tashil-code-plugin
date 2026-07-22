@@ -8,8 +8,12 @@
   },
   "include": [
     "src/codegen.test.ts",
+    "src/connection-health.test.ts",
     "src/external-url.test.ts",
     "src/prop-mappings.test.ts",
+    "src/mapping-document.test.ts",
+    "src/mapping-editor.test.ts",
+    "src/source-schema.test.ts",
     "src/ui*.test.ts",
     "src/ui*.test.tsx",
     "vitest.config.ts"

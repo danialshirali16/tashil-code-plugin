@@ -21,6 +21,7 @@ export default defineConfig({
     },
   ],
   test: {
+    include: ['src/**/*.test.{ts,tsx}'],
     server: {
       deps: {
         inline: [/@create-figma-plugin\/ui/],

@@ -21,6 +21,8 @@ import {
   type ConnectionIssue,
   type ConnectionMetadata,
   type ConnectionReferences,
+  type FigmaComponentSnapshot,
+  type FigmaPropertyDescriptor,
   type InspectCodeState,
   type InspectCodeStateHandler,
   type OpenExternalHandler,
@@ -214,12 +216,21 @@ async function saveConnection(
       return;
     }
 
+    const savedAt = new Date().toISOString();
     const connectionMetadata = {
       ...metadata,
       schemaVersion: CURRENT_SCHEMA_VERSION,
       sourceUrl: referenceUrls.sourceUrl,
       storybookUrl: referenceUrls.storybookUrl,
-      updatedAt: new Date().toISOString(),
+      updatedAt: savedAt,
+      ...(metadata.mappingDocument ? {
+        mappingDocument: {
+          ...metadata.mappingDocument,
+          figmaSnapshot: createFigmaComponentSnapshot(selection.mainComponent),
+          lastValidatedAt: savedAt,
+          revision: metadata.mappingDocument.revision + 1,
+        },
+      } : {}),
     };
 
     selection.mainComponent.setSharedPluginData(
@@ -751,6 +762,7 @@ function createSelectionState(
     status: 'ready',
     selectionToken: selectedNodes[0].id,
     componentName: selection.mainComponent.name,
+    figmaSnapshot: createFigmaComponentSnapshot(selection.mainComponent),
     existingConnection: connection?.ok ? connection.metadata : undefined,
     connectionIssue,
     message: connectionIssue
@@ -758,6 +770,45 @@ function createSelectionState(
       : connection?.ok
       ? 'This component already has a Storybook connection.'
       : 'This component is ready to connect.',
+  };
+}
+
+function createFigmaComponentSnapshot(
+  component: ConnectableComponentNode,
+): FigmaComponentSnapshot {
+  const properties: FigmaPropertyDescriptor[] = [];
+
+  for (const [rawKey, definition] of Object.entries(
+    component.componentPropertyDefinitions,
+  )) {
+    if (definition.type === 'SLOT') {
+      continue;
+    }
+
+    const name = normalizeComponentPropertyName(rawKey);
+    const hashIndex = rawKey.lastIndexOf('#');
+    const id = hashIndex >= 0 ? rawKey.slice(hashIndex + 1) : rawKey;
+    const options = definition.type === 'VARIANT'
+      ? [...(definition.variantOptions ?? [])]
+      : definition.type === 'BOOLEAN' ? ['False', 'True'] : [];
+
+    properties.push({
+      id,
+      name,
+      options,
+      rawKey,
+      type: definition.type,
+      ...(typeof definition.defaultValue === 'string'
+        || typeof definition.defaultValue === 'boolean'
+        ? { defaultValue: definition.defaultValue }
+        : {}),
+    });
+  }
+
+  return {
+    componentId: component.id,
+    componentName: component.name,
+    properties,
   };
 }
 

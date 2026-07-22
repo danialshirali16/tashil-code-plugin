@@ -7,11 +7,9 @@ import {
   IconCopySmall24,
   IconHelp16,
   render,
-  SegmentedControl,
   Stack,
   Text,
   Textbox,
-  TextboxMultiline,
   useWindowResize,
   VerticalSpace,
 } from '@create-figma-plugin/ui';
@@ -19,7 +17,9 @@ import { emit } from '@create-figma-plugin/utilities';
 import { Fragment, h } from 'preact';
 import { useCallback, useEffect, useRef, useState } from 'preact/hooks';
 import '!./ui.css';
+import type { ConnectionHealth } from './connection-health';
 import { normalizeHttpUrl } from './external-url';
+import { MappingEditorView } from './mapping-editor-view';
 import { copyToClipboard } from './ui-clipboard';
 import { useConnectionController } from './ui-controller';
 import {
@@ -33,7 +33,6 @@ import {
   type PendingMutation,
 } from './ui-state';
 import {
-  type ChildrenMode,
   type ConnectionIssue,
   type ConnectionReferences,
   type InspectCodeState,
@@ -41,43 +40,6 @@ import {
   type ResizeWindowHandler,
   type UiSelectionState,
 } from './types';
-
-const CHILDREN_MODE_OPTIONS = [
-  { children: 'Text', value: 'text' },
-  { children: 'Icon', value: 'icon-only' },
-  { children: 'None', value: 'none' },
-];
-
-const PROP_MAPPINGS_PLACEHOLDER = `e.g.,
-{
-  "intent": {
-    "primary": { "prop": "intent", "value": "primary" },
-    "neutral": { "prop": "intent", "value": "neutral" },
-    "positive": { "prop": "intent", "value": "success" },
-    "negative": { "prop": "intent", "value": "error" }
-  },
-  "style": {
-    "solid": { "prop": "variant", "value": "solid" },
-    "tonal": { "prop": "variant", "value": "tonal" },
-    "outline": { "prop": "variant", "value": "outline" },
-    "ghost": { "prop": "variant", "value": "ghost" },
-    "link": { "prop": "variant", "value": "link" }
-  },
-  "state": {
-    "loading": { "prop": "loading", "value": true },
-    "disabled": { "prop": "disabled", "value": true }
-  },
-  "size": {
-    "md": { "prop": "size", "value": "md" },
-    "sm": { "prop": "size", "value": "sm" }
-  },
-  "leadingIcon": {
-    "*": { "prop": "renderRightIcon", "value": "$instanceSwap" }
-  },
-  "trailingIcon": {
-    "*": { "prop": "renderLeftIcon", "value": "$instanceSwap" }
-  }
-}`;
 
 export function Plugin(): h.JSX.Element {
   const [view, setView] = useState<'connect' | 'help'>('connect');
@@ -94,13 +56,20 @@ export function Plugin(): h.JSX.Element {
     isClearConfirmationOpen,
     isDirty,
     isReady,
+    isSourceUploading,
+    connectionHealth,
+    reconcileFigma,
+    removeStaleMapping,
     save: handleSave,
     scaffold: handleScaffold,
     selectionState,
     selectionStatusAnnouncement,
-    setChildrenMode,
+    setCustomPropMappings,
     setFormField,
+    setMappedProperty,
+    setMappedValue,
     statusMessage,
+    uploadSourceFiles,
   } = useConnectionController();
 
   useEffect(() => {
@@ -239,9 +208,9 @@ export function Plugin(): h.JSX.Element {
           role="tabpanel"
         >
           <ConnectComponentView
-            childrenMode={formValues.childrenMode}
-            childrenTextProperty={formValues.childrenTextProperty}
             componentName={formValues.componentName}
+            connectionHealth={connectionHealth}
+            customPropMappings={formValues.customPropMappings}
             clearCancelButtonRef={(element) => {
               clearCancelButtonRef.current = element;
             }}
@@ -251,21 +220,22 @@ export function Plugin(): h.JSX.Element {
             handleClear={handleClear}
             handleSave={handleSave}
             handleScaffold={handleScaffold}
-            iconComponentName={formValues.iconComponentName}
-            iconImportPath={formValues.iconImportPath}
             importPath={formValues.importPath}
             isClearConfirmationOpen={isClearConfirmationOpen}
             isDirty={isDirty}
             isReady={isReady}
+            isSourceUploading={isSourceUploading}
             pendingOperation={activePendingOperation}
+            mappingDocument={formValues.mappingDocument}
             propMappings={formValues.propMappings}
             selectionState={selectionState}
-            setChildrenMode={setChildrenMode}
-            setChildrenTextProperty={(value) => setFormField('childrenTextProperty', value)}
+            setCustomPropMappings={setCustomPropMappings}
             setComponentName={(value) => setFormField('componentName', value)}
-            setIconComponentName={(value) => setFormField('iconComponentName', value)}
-            setIconImportPath={(value) => setFormField('iconImportPath', value)}
             setImportPath={(value) => setFormField('importPath', value)}
+            setMappedProperty={setMappedProperty}
+            setMappedValue={setMappedValue}
+            reconcileFigma={reconcileFigma}
+            removeStaleMapping={removeStaleMapping}
             setPropMappings={(value) => setFormField('propMappings', value)}
             setSourcePath={(value) => setFormField('sourcePath', value)}
             setSourceUrl={(value) => setFormField('sourceUrl', value)}
@@ -274,6 +244,7 @@ export function Plugin(): h.JSX.Element {
             sourceUrl={formValues.sourceUrl}
             statusMessage={statusMessage}
             storybookUrl={formValues.storybookUrl}
+            uploadSourceFiles={uploadSourceFiles}
           />
         </div>
       ) : null}
@@ -299,31 +270,36 @@ export function Plugin(): h.JSX.Element {
 }
 
 function ConnectComponentView(props: {
-  childrenMode: ChildrenMode;
-  childrenTextProperty: string;
   clearCancelButtonRef: (element: HTMLButtonElement | null) => void;
   componentName: string;
+  connectionHealth?: ConnectionHealth;
+  customPropMappings: string;
   errorMessage: string;
   fieldErrors: FormErrors;
   handleCancelClear: () => void;
   handleClear: () => void;
   handleSave: () => void;
   handleScaffold: () => void;
-  iconComponentName: string;
-  iconImportPath: string;
   importPath: string;
   isClearConfirmationOpen: boolean;
   isDirty: boolean;
   isReady: boolean;
+  isSourceUploading: boolean;
+  mappingDocument: string;
   pendingOperation?: PendingMutation['operation'];
   propMappings: string;
   selectionState: UiSelectionState;
-  setChildrenMode: (value: ChildrenMode) => void;
-  setChildrenTextProperty: (value: string) => void;
+  setCustomPropMappings: (value: string) => void;
   setComponentName: (value: string) => void;
-  setIconComponentName: (value: string) => void;
-  setIconImportPath: (value: string) => void;
   setImportPath: (value: string) => void;
+  setMappedProperty: (sourcePropName: string, figmaPropertyId: string) => void;
+  setMappedValue: (
+    sourcePropName: string,
+    sourceValue: string | number | boolean,
+    figmaValue: string,
+  ) => void;
+  reconcileFigma: () => void;
+  removeStaleMapping: (sourcePropName: string) => void;
   setPropMappings: (value: string) => void;
   setSourcePath: (value: string) => void;
   setSourceUrl: (value: string) => void;
@@ -332,6 +308,7 @@ function ConnectComponentView(props: {
   sourceUrl: string;
   statusMessage: string;
   storybookUrl: string;
+  uploadSourceFiles: (files: readonly File[]) => Promise<void>;
 }): h.JSX.Element {
   if (!props.isReady) {
     return (
@@ -439,117 +416,26 @@ function ConnectComponentView(props: {
               />
             </Field>
 
-            <fieldset class="children-mode-fieldset">
-              <legend class="field-label">Children</legend>
-              <SegmentedControl
-                disabled={!props.isReady}
-                onValueChange={(value) => {
-                  if (value === 'text' || value === 'icon-only' || value === 'none') {
-                    props.setChildrenMode(value);
-                  }
-                }}
-                options={CHILDREN_MODE_OPTIONS}
-                value={props.childrenMode}
-              />
-            </fieldset>
-
-            {props.childrenMode !== 'none' ? (
-              <Field
-                error={props.fieldErrors.childrenTextProperty}
-                id={FORM_FIELD_IDS.childrenTextProperty}
-                label={props.childrenMode === 'icon-only'
-                  ? 'Accessible label property'
-                  : 'Figma text property'}
-              >
-                <Textbox
-                  aria-describedby={getFieldErrorId(
-                    'childrenTextProperty',
-                    props.fieldErrors,
-                  )}
-                  aria-invalid={Boolean(props.fieldErrors.childrenTextProperty)}
-                  aria-required="true"
-                  disabled={!props.isReady}
-                  id={FORM_FIELD_IDS.childrenTextProperty}
-                  onValueInput={props.setChildrenTextProperty}
-                  placeholder="e.g., label or Button Text"
-                  value={props.childrenTextProperty}
-                />
-              </Field>
-            ) : null}
-
-            {props.childrenMode === 'icon-only' ? (
-              <Fragment>
-                <Field
-                  error={props.fieldErrors.iconComponentName}
-                  id={FORM_FIELD_IDS.iconComponentName}
-                  label="Icon component"
-                >
-                  <Textbox
-                    aria-describedby={getFieldErrorId(
-                      'iconComponentName',
-                      props.fieldErrors,
-                    )}
-                    aria-invalid={Boolean(props.fieldErrors.iconComponentName)}
-                    aria-required="true"
-                    disabled={!props.isReady}
-                    id={FORM_FIELD_IDS.iconComponentName}
-                    onValueInput={props.setIconComponentName}
-                    placeholder="e.g., TrashIcon"
-                    value={props.iconComponentName}
-                  />
-                </Field>
-                <Field
-                  error={props.fieldErrors.iconImportPath}
-                  id={FORM_FIELD_IDS.iconImportPath}
-                  label="Icon import path"
-                >
-                  <Textbox
-                    aria-describedby={getFieldErrorId('iconImportPath', props.fieldErrors)}
-                    aria-invalid={Boolean(props.fieldErrors.iconImportPath)}
-                    aria-required="true"
-                    disabled={!props.isReady}
-                    id={FORM_FIELD_IDS.iconImportPath}
-                    onValueInput={props.setIconImportPath}
-                    placeholder="e.g., tashil-ui/icons"
-                    value={props.iconImportPath}
-                  />
-                </Field>
-              </Fragment>
-            ) : null}
-
-            <div class="field">
-              <div class="field-label-row">
-                <label class="field-label" htmlFor={FORM_FIELD_IDS.propMappings}>
-                  Prop mappings JSON
-                </label>
-                <Button
-                  disabled={!props.isReady || props.pendingOperation !== undefined}
-                  onClick={props.handleScaffold}
-                  secondary
-                >
-                  {props.pendingOperation === 'scaffold'
-                    ? 'Generating…'
-                    : 'Generate from component'}
-                </Button>
-              </div>
-              <TextboxMultiline
-                aria-describedby={getFieldErrorId('propMappings', props.fieldErrors)}
-                aria-invalid={Boolean(props.fieldErrors.propMappings)}
-                disabled={!props.isReady}
-                grow
-                id={FORM_FIELD_IDS.propMappings}
-                onValueInput={props.setPropMappings}
-                rows={9}
-                spellCheck={false}
-                value={props.propMappings}
-                placeholder={PROP_MAPPINGS_PLACEHOLDER}
-              />
-              {props.fieldErrors.propMappings ? (
-                <div class="field-error" id={`${FORM_FIELD_IDS.propMappings}-error`}>
-                  {props.fieldErrors.propMappings}
-                </div>
-              ) : null}
-            </div>
+            <MappingEditorView
+              disabled={!props.isReady || props.pendingOperation !== undefined}
+              connectionHealth={props.connectionHealth}
+              customPropMappings={props.customPropMappings}
+              customPropMappingsError={props.fieldErrors.customPropMappings}
+              mappingDocument={props.mappingDocument}
+              mappingDocumentError={props.fieldErrors.mappingDocument}
+              onCustomJsonInput={props.setCustomPropMappings}
+              onFilesSelected={(files) => { void props.uploadSourceFiles(files); }}
+              onLegacyJsonInput={props.setPropMappings}
+              onPropertyChange={props.setMappedProperty}
+              onReconcileFigma={props.reconcileFigma}
+              onRemoveStaleMapping={props.removeStaleMapping}
+              onScaffold={props.handleScaffold}
+              onValueChange={props.setMappedValue}
+              propMappings={props.propMappings}
+              propMappingsError={props.fieldErrors.propMappings}
+              scaffoldPending={props.pendingOperation === 'scaffold'}
+              sourceUploading={props.isSourceUploading}
+            />
           </div>
           {props.errorMessage ? (
             <Fragment>
@@ -614,6 +500,7 @@ function ConnectComponentView(props: {
                   disabled={
                     !props.isReady
                     || !props.isDirty
+                    || props.connectionHealth?.status === 'broken'
                     || connectionIssue !== undefined
                     || props.pendingOperation !== undefined
                   }
@@ -1065,9 +952,10 @@ function HowItWorksView(): h.JSX.Element {
             <ol class="help-list">
               <li>Select a main component, component set, or component instance in Figma.</li>
               <li>Open Plugins, Tashil Code, Connect component.</li>
-              <li>Fill Component name and Import path, then choose how children render.</li>
+              <li>Fill Component name and Import path.</li>
               <li>Add optional Storybook and source references.</li>
-              <li>Adjust Prop mappings JSON so Figma properties map to React props.</li>
+              <li>Upload the component's .ts/.tsx source files.</li>
+              <li>Connect each code prop and value to its matching Figma property and variant.</li>
               <li>Click Save. The data is stored on the selected main component as shared plugin data.</li>
             </ol>
           </HelpSection>
@@ -1084,12 +972,22 @@ function HowItWorksView(): h.JSX.Element {
             <div class="help-table">
               <HelpRow label="Component name" value="React component export, for example Button." />
               <HelpRow label="Import path" value="Package import path, for example tashil-ui." />
-              <HelpRow label="Children" value="Render text, a configured imported icon, or no children." />
               <HelpRow label="Storybook URL" value="The matching Storybook story or docs page." />
               <HelpRow label="Source path" value="The source file path for developer reference." />
               <HelpRow label="Source URL" value="An optional browser link to the source file." />
-              <HelpRow label="Prop mappings JSON" value="Maps Figma component properties to TSX props." />
+              <HelpRow label="Source & prop mappings" value="Upload TypeScript and visually connect code props to Figma properties." />
+              <HelpRow label="Connection health" value="Re-upload source and review Figma changes before confirming updates." />
+              <HelpRow label="Custom mappings" value="Optional wildcard/raw JSON for cases the visual rows cannot represent." />
             </div>
+          </HelpSection>
+
+          <HelpSection title="Keep a connection up to date">
+            <Text>
+              The plugin compares the current Figma component with the saved snapshot. Re-upload
+              source after code changes. Review additions, renames, removals, and type changes;
+              stale mappings remain visible until you explicitly remove them and save. Healthy,
+              Needs review, Broken, and Source refresh required describe the current state.
+            </Text>
           </HelpSection>
         </Stack>
         <VerticalSpace space="medium" />

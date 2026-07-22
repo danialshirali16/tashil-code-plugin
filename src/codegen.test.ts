@@ -281,6 +281,26 @@ describe('createMappedProps', () => {
     expect(result).toEqual({ diagnostics: [], props: [] });
   });
 
+  it('matches icon visibility guards regardless of Figma property casing', () => {
+    const result = createMappedProps({
+      LeadingIcon: {
+        '*': { prop: 'renderRightIcon', value: '$instanceSwap' },
+      },
+    }, {
+      HasLeadingIcon: false,
+      LeadingIcon: 'icon-id',
+    }, {
+      instanceSwaps: {
+        LeadingIcon: {
+          componentId: 'icon-id',
+          componentName: 'Shield',
+        },
+      },
+    });
+
+    expect(result).toEqual({ diagnostics: [], props: [] });
+  });
+
   it('does not infer an instance-swap target from an ambiguous mapping group', () => {
     const result = createMappedProps({
       Icon: {
@@ -1135,7 +1155,10 @@ describe('isConnectionMetadata', () => {
     expect(isConnectionMetadata(base)).toBe(false);
     expect(isConnectionMetadata({ ...base, schemaVersion: 2 })).toBe(false);
     expect(isConnectionMetadata({ ...base, schemaVersion: 3.5 })).toBe(false);
-    expect(isConnectionMetadata({ ...base, schemaVersion: 4 })).toBe(false);
+    expect(isConnectionMetadata({
+      ...base,
+      schemaVersion: CURRENT_SCHEMA_VERSION + 1,
+    })).toBe(false);
   });
 });
 
@@ -1223,7 +1246,7 @@ describe('persisted connection metadata', () => {
     });
   });
 
-  it('passes valid current v3 metadata through without accepting it as legacy', () => {
+  it('passes valid current metadata through without accepting it as legacy', () => {
     const current: ConnectionMetadata = {
       schemaVersion: CURRENT_SCHEMA_VERSION,
       childrenMode: 'none',
@@ -1239,6 +1262,31 @@ describe('persisted connection metadata', () => {
 
     expect(validation.metadata.schemaVersion).toBe(CURRENT_SCHEMA_VERSION);
     expect(migratePersistedConnectionMetadata(validation.metadata)).toBe(current);
+  });
+
+  it('migrates valid schema v3 metadata without changing its codegen fields', () => {
+    const version3 = {
+      schemaVersion: 3,
+      childrenMode: 'none',
+      componentName: 'Divider',
+      importPath: 'tashil-ui',
+      propMappings: {
+        Style: {
+          Solid: { prop: 'variant', value: 'solid' },
+        },
+      },
+    };
+    const validation = validatePersistedConnectionMetadata(version3);
+
+    expect(validation.ok).toBe(true);
+    if (!validation.ok) {
+      throw new Error(validation.issue.message);
+    }
+
+    expect(migratePersistedConnectionMetadata(validation.metadata)).toEqual({
+      ...version3,
+      schemaVersion: CURRENT_SCHEMA_VERSION,
+    });
   });
 
   it.each([

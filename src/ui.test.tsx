@@ -15,6 +15,7 @@ import {
   CURRENT_SCHEMA_VERSION,
   type ConnectionMetadata,
   type InspectCodeState,
+  type MappingDocument,
   type UiSelectionState,
 } from './types';
 
@@ -198,6 +199,155 @@ describe('Plugin rendered interactions', () => {
     });
     expect((screen.getByRole('button', { name: 'Save' }) as HTMLButtonElement).disabled)
       .toBe(true);
+  });
+
+  it('renders content and RTL icon-slot mappings as first-class rows', () => {
+    const mappingDocument: MappingDocument = {
+      figmaSnapshot: {
+        componentId: 'button-set',
+        componentName: 'Button',
+        properties: [
+          { id: 'label-id', name: 'label', options: [], rawKey: 'label#label-id', type: 'TEXT' },
+          { id: 'leading-id', name: 'LeadingIcon', options: [], rawKey: 'LeadingIcon#leading-id', type: 'INSTANCE_SWAP' },
+          { id: 'trailing-id', name: 'TrailingIcon', options: [], rawKey: 'TrailingIcon#trailing-id', type: 'INSTANCE_SWAP' },
+          { id: 'has-leading-id', name: 'HasLeadingIcon', options: ['False', 'True'], rawKey: 'HasLeadingIcon#has-leading-id', type: 'BOOLEAN' },
+          { id: 'has-trailing-id', name: 'HasTrailingIcon', options: ['False', 'True'], rawKey: 'HasTrailingIcon#has-trailing-id', type: 'BOOLEAN' },
+        ],
+      },
+      mappings: [
+        { figmaPropertyId: 'label-id', figmaPropertyName: 'label', kind: 'children', sourceProp: 'children', values: [] },
+        { figmaPropertyId: 'leading-id', figmaPropertyName: 'LeadingIcon', kind: 'instance-swap', sourceProp: 'renderRightIcon', values: [] },
+        { figmaPropertyId: 'trailing-id', figmaPropertyName: 'TrailingIcon', kind: 'instance-swap', sourceProp: 'renderLeftIcon', values: [] },
+      ],
+      revision: 1,
+      sourceSnapshot: {
+        componentName: 'Button',
+        contentHash: 'fnv1a-12345678',
+        fileName: 'types.ts',
+        props: [
+          { name: 'children', required: false, role: 'children', typeName: 'ReactNode' },
+          { name: 'renderRightIcon', required: false, role: 'advanced', typeName: 'ReactNode' },
+          { name: 'renderLeftIcon', required: false, role: 'advanced', typeName: 'ReactNode' },
+        ],
+      },
+    };
+    renderPlugin();
+    receive('SELECTION_STATE', readySelection(existingConnection({
+      childrenTextProperty: 'label',
+      mappingDocument,
+      propMappings: {
+        LeadingIcon: { '*': { prop: 'renderRightIcon', value: '$instanceSwap' } },
+        TrailingIcon: { '*': { prop: 'renderLeftIcon', value: '$instanceSwap' } },
+      },
+    })));
+
+    expect(screen.getByText('Content')).toBeTruthy();
+    expect(screen.getByText('Slots')).toBeTruthy();
+    expect((screen.getByLabelText('Figma property for children') as HTMLSelectElement).value)
+      .toBe('label-id');
+    expect((screen.getByLabelText('Figma property for renderRightIcon') as HTMLSelectElement).value)
+      .toBe('leading-id');
+    expect((screen.getByLabelText('Figma property for renderLeftIcon') as HTMLSelectElement).value)
+      .toBe('trailing-id');
+    expect(screen.getByText('Visibility: HasLeadingIcon')).toBeTruthy();
+    expect(screen.getByText('Visibility: HasTrailingIcon')).toBeTruthy();
+
+    fireEvent.input(screen.getByLabelText('Figma property for children'), {
+      target: { value: '' },
+    });
+    expect((screen.getByLabelText('Figma property for children') as HTMLSelectElement).value)
+      .toBe('');
+    fireEvent.input(screen.getByLabelText('Figma property for children'), {
+      target: { value: 'label-id' },
+    });
+    expect((screen.getByLabelText('Figma property for children') as HTMLSelectElement).value)
+      .toBe('label-id');
+
+    fireEvent.input(screen.getByLabelText('Figma property for renderRightIcon'), {
+      target: { value: '' },
+    });
+    expect((screen.getByLabelText('Figma property for renderRightIcon') as HTMLSelectElement).value)
+      .toBe('');
+    expect(screen.getByText('Property mapping updated.')).toBeTruthy();
+    const mappings = JSON.parse(
+      screen.getByLabelText('Generated prop mappings JSON').textContent ?? '{}',
+    ) as Record<string, unknown>;
+    expect(mappings).not.toHaveProperty('LeadingIcon');
+    expect(mappings).toHaveProperty('TrailingIcon');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+    const saveRequests = emittedPayloads<{
+      metadata: ConnectionMetadata;
+      operationId: string;
+      selectionToken: string;
+    }>('SAVE_CONNECTION');
+    const firstSave = saveRequests[saveRequests.length - 1]!;
+    expect(firstSave.metadata.mappingDocument?.revision).toBe(1);
+    receive('SAVE_RESULT', {
+      message: 'Connection saved.',
+      ok: true,
+      operation: 'save',
+      operationId: firstSave.operationId,
+      selectionToken: firstSave.selectionToken,
+    });
+
+    fireEvent.input(screen.getByLabelText('Figma property for renderRightIcon'), {
+      target: { value: 'leading-id' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+    const secondSaveRequests = emittedPayloads<{ metadata: ConnectionMetadata }>('SAVE_CONNECTION');
+    const secondSave = secondSaveRequests[secondSaveRequests.length - 1]!;
+    expect(secondSave.metadata.mappingDocument?.revision).toBe(2);
+  });
+
+  it('uploads source through the file input and replaces it by drag and drop', async () => {
+    renderPlugin();
+    receive('SELECTION_STATE', {
+      ...readySelection(),
+      figmaSnapshot: {
+        componentId: 'button-set',
+        componentName: 'Button',
+        properties: [{
+          id: 'style-id',
+          name: 'Style',
+          options: ['Primary', 'Secondary'],
+          rawKey: 'Style#style-id',
+          type: 'VARIANT',
+        }],
+      },
+    });
+
+    const firstFile = new File([], 'Button.types.ts', { type: 'text/typescript' });
+    Object.defineProperty(firstFile, 'text', {
+      value: vi.fn().mockResolvedValue([
+        "export type ButtonVariant = 'primary' | 'secondary';",
+        'export interface ButtonProps { variant?: ButtonVariant; }',
+      ].join('\n')),
+    });
+    fireEvent.input(screen.getByLabelText('Upload source'), {
+      target: { files: [firstFile] },
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText('Button.types.ts')).toBeTruthy();
+      expect(screen.getByText('Healthy')).toBeTruthy();
+    });
+    expect(screen.getByLabelText('Figma property for variant')).toBeTruthy();
+
+    const replacement = new File([], 'Button.next.tsx', { type: 'text/typescript' });
+    Object.defineProperty(replacement, 'text', {
+      value: vi.fn().mockResolvedValue([
+        "export type ButtonVariant = 'primary' | 'secondary';",
+        'export interface ButtonProps { variant?: ButtonVariant; }',
+      ].join('\n')),
+    });
+    const dropZone = screen.getByText('Source & prop mappings').closest('section');
+    expect(dropZone).not.toBeNull();
+    fireEvent.drop(dropZone!, { dataTransfer: { files: [replacement] } });
+
+    await waitFor(() => {
+      expect(screen.getByText('Button.next.tsx')).toBeTruthy();
+    });
   });
 
   it('keeps a save pending through stale results, then accepts exact success and failure', () => {

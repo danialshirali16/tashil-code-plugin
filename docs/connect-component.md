@@ -74,41 +74,29 @@ Make sure:
    https://github.com/example/tashil-ui/blob/main/src/components/Button/Button.tsx
    ```
 
-   **Children**
-   Choose one of three modes:
+   **Content and icon slots**
 
-   - **Text** uses the configured Figma string property as JSX children. The
-     property defaults to `label`; matching is exact first and then
-     case-insensitive. If it is missing or empty, codegen falls back to the
-     selected layer's display text/name and reports a diagnostic.
-   - **Icon** requires an exported icon component name and its import path. The
-     generated TSX imports that component, renders it as the child, and uses the
-     configured Figma text property for the parent's accessible `aria-label`.
-   - **None** emits a self-closing component and does not render children.
+   There is currently no separate Children input. When the source exposes
+   `children`, connect it directly to the matching Figma text property in
+   **Source & prop mappings**. Leading and trailing React icon props appear as
+   slot rows and connect to Figma instance-swap properties in the same editor.
 
-   Icon names use named-import syntax. For example, `TrashIcon` from
-   `tashil-ui/icons` produces:
+   **Source & prop mappings (optional)**
 
-   ```tsx
-   import { IconButton } from "tashil-ui";
-   import { TrashIcon } from "tashil-ui/icons";
+   Upload or drop the component's `.ts`/`.tsx` props file. When types and the
+   implementation are split, select both files together. Parsing happens locally;
+   only the extracted prop names, types, values, defaults, file name, and content
+   hash are persisted. The original source text is not stored.
 
-   <IconButton aria-label={"Delete"}>
-     <TrashIcon />
-   </IconButton>
-   ```
+   The editor groups `children`, leading/trailing icon slots, and standard variant
+   props. Connect each code prop to a compatible Figma property, then map its
+   source values to Figma variant values. Suggestions use names and values but
+   remain editable. **Generate from component** remains available when source is
+   not available.
 
-   **Prop mappings JSON (optional)**
-   Maps Figma variant properties to React props.
-
-   Leave this field blank if the component does not need generated props. You
-   can write the JSON by hand, or click **Generate from component** to
-   scaffold a mapping skeleton from the selected component's variant properties.
-   Each discovered variant property becomes a mapping group. Generated mappings
-   keep the exact Figma property name as the group key and normalize the target
-   React prop to lower camel case (for example, `Icon Position` becomes
-   `iconPosition`). They are merged into the field, so keys you already wrote
-   are preserved. Review the generated React prop names and values before saving.
+   **Custom wildcard & raw mappings** is only for cases the visual rows cannot
+   represent. These mappings are preserved while standard rows are edited.
+   **Generated JSON preview** is read-only and shows the combined runtime mapping.
 
    ```json
    {
@@ -184,7 +172,21 @@ Make sure:
    owns `aria-label`; mappings targeting those reserved props are omitted and
    reported so generated TSX never supplies them twice.
 
-5. Click **Save**.
+5. Review connection health:
+
+   - **Healthy** means no known drift or incomplete mapping remains.
+   - **Needs review** means source/Figma additions, renames, or incomplete values
+     need attention.
+   - **Broken** means a removed or incompatible item is still used by a mapping.
+   - **Source refresh required** means the saved source snapshot cannot be checked
+     until the local source files are uploaded again.
+
+   Use **Review Figma changes** to load the current property schema. Removed source
+   or Figma mappings are retained as stale mappings until you explicitly remove
+   them. This prevents reconciliation from silently deleting code-generation data.
+
+6. Click **Save**. The revision and validation timestamp advance only after the
+   save succeeds.
 
 The plugin stores the connection metadata on the selected Figma component using shared plugin data.
 
@@ -253,7 +255,9 @@ The selected instance may point to a different main component or component set. 
 
 **Generated props are missing**
 
-Check that the Figma property names and values exactly match the JSON keys. For example, `Primary` and `primary` are different.
+Open **Source & prop mappings** and confirm that every required code prop/value is
+connected. Review any Broken or Needs review messages. Custom JSON remains
+case-sensitive; for example, `Primary` and `primary` are different.
 
 **Codegen times out**
 
@@ -268,11 +272,13 @@ when their optional fields are blank. Reference URLs accept only absolute HTTP
 or HTTPS addresses without embedded credentials. `childrenMode` is `"text"`, `"icon-only"`, or
 `"none"`. Text and icon modes store `childrenTextProperty`; icon mode also
 stores its required named component and import path. The UI stores an empty
-`propMappings` object when no mappings are entered.
+`propMappings` object when no mappings are entered. Schema version 4 can also
+store a `mappingDocument` containing source/Figma snapshots, visual mappings,
+revision, and validation time. Codegen continues to consume `propMappings`.
 
 ```json
 {
-  "schemaVersion": 3,
+  "schemaVersion": 4,
   "componentName": "Button",
   "importPath": "tashil-ui",
   "storybookUrl": "https://storybook.example.com/?path=/story/components-button--primary",
@@ -309,10 +315,11 @@ configuration fields.
 Within each prop-mapping entry, `prop` and `value` are required. `raw` is an
 optional boolean and defaults to `false` when omitted.
 
-Runtime metadata must explicitly use schema version 3. At the persisted-data
+Runtime metadata must explicitly use schema version 4. At the persisted-data
 boundary only, an absent version is treated as legacy version 1. Versions 1 and
 2 are validated against their own historical shapes and migrated in memory;
-version 3 passes through unchanged. Version 2 supports text and `"icon-only"`
+version 3 is migrated in memory and version 4 passes through unchanged. Version
+2 supports text and `"icon-only"`
 children (the `"none"` mode starts in version 3). A legacy `"icon-only"`
 connection becomes an explicit named `Icon` import from the component's
 existing `importPath`, which preserves the old intent without an undefined JSX
@@ -320,7 +327,7 @@ identifier. Reopen **Connect component** and verify or replace that migrated
 icon name/path with the real export used by your library.
 
 Reading legacy metadata never rewrites the Figma component. A supported legacy
-connection upgrades to version 3 only after an explicit, valid save. Malformed
+connection upgrades to version 4 only after an explicit, valid save. Malformed
 data, invalid version values, unsupported historical shapes, and future schema
 versions are shown as stored-connection issues in Connect, Inspect, and Dev
 Mode. Saving and clearing are refused in that state so the original shared

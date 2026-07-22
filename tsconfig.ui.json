@@ -10,8 +10,13 @@
     "src/ui.tsx",
     "src/ui-controller.ts",
     "src/ui.css.d.ts",
+    "src/connection-health.ts",
     "src/external-url.ts",
     "src/prop-mappings.ts",
+    "src/mapping-document.ts",
+    "src/mapping-editor.ts",
+    "src/mapping-editor-view.tsx",
+    "src/source-schema.ts",
     "src/types.ts"
   ]
 }

@@ -26,9 +26,11 @@ const EMPTY_FORM: ConnectionFormValues = {
   childrenMode: 'text',
   childrenTextProperty: 'label',
   componentName: '',
+  customPropMappings: '',
   iconComponentName: '',
   iconImportPath: '',
   importPath: '',
+  mappingDocument: '',
   propMappings: '',
   sourcePath: '',
   sourceUrl: '',
@@ -69,7 +71,7 @@ describe('connection form validation', () => {
     expect(result).toEqual({
       ok: true,
       metadata: {
-        schemaVersion: 3,
+        schemaVersion: CURRENT_SCHEMA_VERSION,
         componentName: 'Button',
         importPath: 'tashil-ui',
         propMappings: {
@@ -80,6 +82,65 @@ describe('connection form validation', () => {
         storybookUrl: 'https://storybook.test/button',
         childrenMode: 'text',
         childrenTextProperty: 'Button Text',
+      },
+    });
+  });
+
+  it('persists visual authoring state and compiles it with advanced mappings', () => {
+    const mappingDocument = {
+      figmaSnapshot: {
+        componentId: '1:2',
+        componentName: 'Button',
+        properties: [{
+          id: 'style-id',
+          name: 'Style',
+          options: ['Primary'],
+          rawKey: 'Style#style-id',
+          type: 'VARIANT' as const,
+        }],
+      },
+      mappings: [{
+        figmaPropertyId: 'style-id',
+        figmaPropertyName: 'Style',
+        sourceProp: 'variant',
+        values: [{ figmaValue: 'Primary', sourceValue: 'primary' }],
+      }],
+      revision: 1,
+      sourceSnapshot: {
+        componentName: 'Button',
+        contentHash: 'fnv1a-12345678',
+        fileName: 'types.ts',
+        props: [{
+          name: 'variant',
+          required: false,
+          role: 'standard' as const,
+          typeName: 'ButtonVariant',
+          values: ['primary'],
+        }],
+      },
+    };
+    const result = validateConnectionForm({
+      ...EMPTY_FORM,
+      componentName: 'Button',
+      customPropMappings: JSON.stringify({
+        Icon: { '*': { prop: 'renderLeftIcon', value: '$instanceSwap' } },
+      }),
+      importPath: 'tashil-ui',
+      mappingDocument: JSON.stringify(mappingDocument),
+      propMappings: JSON.stringify({
+        Icon: { '*': { prop: 'renderLeftIcon', value: '$instanceSwap' } },
+        Obsolete: { Value: { prop: 'oldProp', value: 'old' } },
+      }),
+    });
+
+    expect(result).toMatchObject({
+      ok: true,
+      metadata: {
+        mappingDocument,
+        propMappings: {
+          Icon: { '*': { prop: 'renderLeftIcon', value: '$instanceSwap' } },
+          Style: { Primary: { prop: 'variant', value: 'primary' } },
+        },
       },
     });
   });
@@ -132,7 +193,7 @@ describe('connection form validation', () => {
     expect(noChildren).toEqual({
       ok: true,
       metadata: {
-        schemaVersion: 3,
+        schemaVersion: CURRENT_SCHEMA_VERSION,
         childrenMode: 'none',
         componentName: 'Divider',
         importPath: 'tashil-ui',

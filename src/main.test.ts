@@ -6,6 +6,7 @@ import {
   type CodegenBlock,
   type ConnectionMetadata,
   type InspectCodeState,
+  type MappingDocument,
   type ScaffoldResultHandler,
   type UiSelectionState,
 } from './types';
@@ -161,6 +162,55 @@ afterEach(() => {
 });
 
 describe('selection synchronization', () => {
+  it('publishes stable Figma property descriptors with the ready selection', async () => {
+    const propertyDefinitions = {
+      'Style#style-id': {
+        defaultValue: 'Solid',
+        type: 'VARIANT',
+        variantOptions: ['Solid', 'Outline'],
+      },
+      'Disabled#disabled-id': {
+        defaultValue: false,
+        type: 'BOOLEAN',
+      },
+    } as ComponentNode['componentPropertyDefinitions'];
+    const { selection } = await startPlugin();
+    const component = createComponent('component-a', 'Button', { propertyDefinitions });
+    selection.push(component);
+
+    utilityMocks.handlers.get('REFRESH_SELECTION')?.(undefined);
+
+    await vi.waitFor(() => {
+      expect(emittedPayloads<UiSelectionState>('SELECTION_STATE')).toContainEqual(
+        expect.objectContaining({
+          figmaSnapshot: {
+            componentId: 'component-a',
+            componentName: 'Button',
+            properties: [
+              {
+                defaultValue: 'Solid',
+                id: 'style-id',
+                name: 'Style',
+                options: ['Solid', 'Outline'],
+                rawKey: 'Style#style-id',
+                type: 'VARIANT',
+              },
+              {
+                defaultValue: false,
+                id: 'disabled-id',
+                name: 'Disabled',
+                options: ['False', 'True'],
+                rawKey: 'Disabled#disabled-id',
+                type: 'BOOLEAN',
+              },
+            ],
+          },
+          status: 'ready',
+        }),
+      );
+    });
+  });
+
   it('publishes actionable unavailable states when current selection resolution rejects', async () => {
     const { selection } = await startPlugin();
     const instance = createInstance(
@@ -392,6 +442,56 @@ describe('connection persistence', () => {
     }]);
   });
 
+  it('increments the mapping revision and refreshes the Figma snapshot only after save', async () => {
+    const propertyDefinitions = {
+      'Style#style-id': {
+        defaultValue: 'Primary',
+        type: 'VARIANT',
+        variantOptions: ['Primary', 'Secondary'],
+      },
+    } as ComponentNode['componentPropertyDefinitions'];
+    const { selection } = await startPlugin();
+    const component = createComponent('component-a', 'Button', { propertyDefinitions });
+    const mappingDocument: MappingDocument = {
+      figmaSnapshot: {
+        componentId: 'old-component',
+        componentName: 'Old Button',
+        properties: [],
+      },
+      mappings: [],
+      revision: 3,
+    };
+    selection.push(component);
+
+    utilityMocks.handlers.get('SAVE_CONNECTION')?.({
+      metadata: {
+        schemaVersion: CURRENT_SCHEMA_VERSION,
+        componentName: 'Button',
+        importPath: 'tashil-ui',
+        mappingDocument,
+      },
+      operationId: 'save-mapping-revision',
+      selectionToken: component.id,
+    });
+
+    await vi.waitFor(() => {
+      expect(component.setSharedPluginData).toHaveBeenCalledOnce();
+    });
+    const persisted = JSON.parse(
+      component.setSharedPluginData.mock.calls[0]?.[2] as string,
+    ) as ConnectionMetadata;
+    expect(mappingDocument.revision).toBe(3);
+    expect(persisted.mappingDocument).toMatchObject({
+      figmaSnapshot: {
+        componentId: 'component-a',
+        componentName: 'Button',
+        properties: [expect.objectContaining({ id: 'style-id', name: 'Style' })],
+      },
+      lastValidatedAt: expect.any(String),
+      revision: 4,
+    });
+  });
+
   it('clears the persisted connection for the selected component', async () => {
     const { notify, selection } = await startPlugin();
     const component = createComponent('component-a', 'Button');
@@ -488,7 +588,7 @@ describe('connection persistence', () => {
     await vi.waitFor(() => {
       expect(emittedPayloads('SAVE_RESULT')).toEqual([
         expect.objectContaining({
-          message: expect.stringMatching(/schema version 3/i),
+          message: expect.stringMatching(new RegExp(`schema version ${CURRENT_SCHEMA_VERSION}`, 'i')),
           ok: false,
           operation: 'save',
           operationId: 'save-missing-schema',

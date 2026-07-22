@@ -5,6 +5,7 @@ import {
   type ConnectionMetadata,
   type PropMapping,
 } from './types';
+import { isMappingDocument } from './mapping-document';
 
 /**
  * Pure, Figma-agnostic codegen + validation helpers. Kept separate from
@@ -314,11 +315,11 @@ function isConsumedIconVisibilityGuard(
   componentProperties: Readonly<Record<string, string | boolean>>,
 ): boolean {
   const pair = ICON_VISIBILITY_GUARDS.find(({ guardProperty }) => {
-    return guardProperty === figmaProperty;
+    return guardProperty.toLowerCase() === figmaProperty.toLowerCase();
   });
 
   return pair !== undefined
-    && getOwnEntry(componentProperties, pair.swapProperty) !== undefined;
+    && findComponentPropertyName(componentProperties, pair.swapProperty) !== undefined;
 }
 
 function isHiddenInstanceSwap(
@@ -326,11 +327,15 @@ function isHiddenInstanceSwap(
   componentProperties: Readonly<Record<string, string | boolean>>,
 ): boolean {
   const pair = ICON_VISIBILITY_GUARDS.find(({ swapProperty }) => {
-    return swapProperty === figmaProperty;
+    return swapProperty.toLowerCase() === figmaProperty.toLowerCase();
   });
 
-  return pair !== undefined
-    && getOwnEntry(componentProperties, pair.guardProperty) === false;
+  const guardProperty = pair
+    ? findComponentPropertyName(componentProperties, pair.guardProperty)
+    : undefined;
+
+  return guardProperty !== undefined
+    && getOwnEntry(componentProperties, guardProperty) === false;
 }
 
 type ResolvedPropMapping = PropMapping & {
@@ -614,7 +619,7 @@ export function formatJsxChildren(value: string): string {
 
 export type PersistedConnectionMetadata = {
   metadata: Record<string, unknown>;
-  schemaVersion: 1 | 2 | typeof CURRENT_SCHEMA_VERSION;
+  schemaVersion: 1 | 2 | 3 | typeof CURRENT_SCHEMA_VERSION;
 };
 
 export type PersistedConnectionValidationResult =
@@ -667,6 +672,11 @@ export function validatePersistedConnectionMetadata(
         return invalidPersistedMetadata(schemaVersion);
       }
       return { metadata: { metadata: value, schemaVersion }, ok: true };
+    case 3:
+      if (!isVersion3ConnectionMetadata(value)) {
+        return invalidPersistedMetadata(schemaVersion);
+      }
+      return { metadata: { metadata: value, schemaVersion }, ok: true };
     case CURRENT_SCHEMA_VERSION:
       if (!isConnectionMetadata(value)) {
         return invalidPersistedMetadata(schemaVersion);
@@ -687,7 +697,7 @@ export function validatePersistedConnectionMetadata(
         'unsupported-schema-version',
         [
           `Stored Storybook connection data uses unsupported schema version ${schemaVersion}.`,
-          `This plugin supports versions 1, 2, and ${CURRENT_SCHEMA_VERSION}; the data was left unchanged.`,
+          `This plugin supports versions 1, 2, 3, and ${CURRENT_SCHEMA_VERSION}; the data was left unchanged.`,
         ].join(' '),
       );
   }
@@ -706,90 +716,17 @@ export function migratePersistedConnectionMetadata(
         : 'text';
       return migrateLegacyConnectionMetadata(persisted.metadata, childrenMode);
     }
+    case 3:
+      return migrateVersion3ConnectionMetadata(persisted.metadata);
     case CURRENT_SCHEMA_VERSION:
       return persisted.metadata as ConnectionMetadata;
   }
 }
 
 export function isConnectionMetadata(value: unknown): value is ConnectionMetadata {
-  if (!isRecord(value)) {
-    return false;
-  }
-
-  if (typeof value.componentName !== 'string' || !isComponentIdentifier(value.componentName)) {
-    return false;
-  }
-
-  if (typeof value.importPath !== 'string' || value.importPath.length === 0) {
-    return false;
-  }
-
-  if (value.schemaVersion !== CURRENT_SCHEMA_VERSION) {
-    return false;
-  }
-
-  if (value.storybookUrl !== undefined && typeof value.storybookUrl !== 'string') {
-    return false;
-  }
-
-  if (value.sourcePath !== undefined && typeof value.sourcePath !== 'string') {
-    return false;
-  }
-
-  if (value.sourceUrl !== undefined && typeof value.sourceUrl !== 'string') {
-    return false;
-  }
-
-  if (value.updatedAt !== undefined && typeof value.updatedAt !== 'string') {
-    return false;
-  }
-
-  if (
-    value.childrenMode !== undefined
-    && value.childrenMode !== 'text'
-    && value.childrenMode !== 'icon-only'
-    && value.childrenMode !== 'none'
-  ) {
-    return false;
-  }
-
-  if (
-    value.childrenTextProperty !== undefined
-    && (
-      typeof value.childrenTextProperty !== 'string'
-      || value.childrenTextProperty.trim().length === 0
-    )
-  ) {
-    return false;
-  }
-
-  const childrenMode = value.childrenMode ?? 'text';
-
-  if (childrenMode === 'icon-only') {
-    if (
-      typeof value.iconComponentName !== 'string'
-      || !isComponentIdentifier(value.iconComponentName)
-      || typeof value.iconImportPath !== 'string'
-      || value.iconImportPath.trim().length === 0
-    ) {
-      return false;
-    }
-
-    if (
-      value.iconComponentName === value.componentName
-      && value.iconImportPath !== value.importPath
-    ) {
-      return false;
-    }
-  } else if (value.iconComponentName !== undefined || value.iconImportPath !== undefined) {
-    return false;
-  }
-
-  if (value.propMappings !== undefined && !isPropMappings(value.propMappings)) {
-    return false;
-  }
-
-  return true;
+  return isRecord(value)
+    && value.schemaVersion === CURRENT_SCHEMA_VERSION
+    && hasValidConnectionMetadataShape(value, true);
 }
 
 export function isPropMappings(value: unknown): value is Record<string, Record<string, PropMapping>> {
@@ -864,6 +801,68 @@ function isLegacyConnectionMetadata(
     || value.childrenMode === 'icon-only';
 }
 
+function isVersion3ConnectionMetadata(value: Record<string, unknown>): boolean {
+  return value.schemaVersion === 3
+    && value.mappingDocument === undefined
+    && hasValidConnectionMetadataShape(value, false);
+}
+
+function hasValidConnectionMetadataShape(
+  value: Record<string, unknown>,
+  allowMappingDocument: boolean,
+): boolean {
+  if (!hasValidCommonConnectionFields(value)) {
+    return false;
+  }
+
+  if (
+    value.childrenMode !== undefined
+    && value.childrenMode !== 'text'
+    && value.childrenMode !== 'icon-only'
+    && value.childrenMode !== 'none'
+  ) {
+    return false;
+  }
+
+  if (
+    value.childrenTextProperty !== undefined
+    && (
+      typeof value.childrenTextProperty !== 'string'
+      || value.childrenTextProperty.trim().length === 0
+    )
+  ) {
+    return false;
+  }
+
+  const childrenMode = value.childrenMode ?? 'text';
+
+  if (childrenMode === 'icon-only') {
+    if (
+      typeof value.iconComponentName !== 'string'
+      || !isComponentIdentifier(value.iconComponentName)
+      || typeof value.iconImportPath !== 'string'
+      || value.iconImportPath.trim().length === 0
+    ) {
+      return false;
+    }
+
+    if (
+      value.iconComponentName === value.componentName
+      && value.iconImportPath !== value.importPath
+    ) {
+      return false;
+    }
+  } else if (value.iconComponentName !== undefined || value.iconImportPath !== undefined) {
+    return false;
+  }
+
+  if (value.mappingDocument !== undefined) {
+    return allowMappingDocument && isMappingDocument(value.mappingDocument);
+  }
+
+  return true;
+}
+
 function hasValidCommonConnectionFields(value: Record<string, unknown>): boolean {
   return (
     typeof value.componentName === 'string'
@@ -903,6 +902,21 @@ function migrateLegacyConnectionMetadata(
 
   if (!isConnectionMetadata(migrated)) {
     throw new TypeError('Validated legacy connection metadata could not be migrated.');
+  }
+
+  return migrated;
+}
+
+function migrateVersion3ConnectionMetadata(
+  metadata: Record<string, unknown>,
+): ConnectionMetadata {
+  const migrated = {
+    ...metadata,
+    schemaVersion: CURRENT_SCHEMA_VERSION,
+  };
+
+  if (!isConnectionMetadata(migrated)) {
+    throw new TypeError('Validated schema version 3 connection metadata could not be migrated.');
   }
 
   return migrated;
