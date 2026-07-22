@@ -49,7 +49,7 @@
 - [x] Add drift and direct file-input integration tests (parser, compiler, migration, and UI coverage exists).
 - [x] Verify existing instance-swap and children behavior.
 - [x] Run source lint, typecheck, 273 tests, and production build.
-- [x] Exclude or separately lint the standalone `previews/` prototype in the root lint command.
+- [x] Remove the standalone `previews/` prototype after implementation review.
 - [x] Update the connection guide and in-plugin help.
 
 ## Deferred
