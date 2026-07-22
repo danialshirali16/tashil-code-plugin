@@ -188,6 +188,124 @@ describe('createMappedProps', () => {
     });
   });
 
+  it('resolves a newly selected icon swap to an Icon element', () => {
+    const result = createMappedProps({
+      leadingIcon: {
+        '*': { prop: 'renderRightIcon', value: '$instanceSwap' },
+      },
+      hasLeadingIcon: {
+        true: { prop: 'hasLeadingIcon', value: true },
+      },
+    }, {
+      hasLeadingIcon: true,
+      leadingIcon: 'new-icon-id',
+    }, {
+      instanceSwaps: {
+        leadingIcon: {
+          componentId: 'new-icon-id',
+          componentName: 'Shield',
+        },
+      },
+    });
+
+    expect(result).toEqual({
+      diagnostics: [],
+      namedImports: ['Icon'],
+      props: ['renderRightIcon={<Icon name="shield" />}'],
+    });
+  });
+
+  it('renders the current mapped icon ID from the live instance swap', () => {
+    const result = createMappedProps({
+      trailingIcon: {
+        'contract-check-id': {
+          prop: 'renderLeftIcon',
+          value: 'ContractCheck',
+        },
+      },
+    }, {
+      trailingIcon: 'contract-check-id',
+    }, {
+      instanceSwaps: {
+        trailingIcon: {
+          componentId: 'contract-check-id',
+          componentName: 'ContractCheck',
+        },
+      },
+    });
+
+    expect(result).toEqual({
+      diagnostics: [],
+      namedImports: ['Icon'],
+      props: ['renderLeftIcon={<Icon name="contract-check" />}'],
+    });
+  });
+
+  it('prefers an RTL wildcard target over a stale icon-ID target', () => {
+    const result = createMappedProps({
+      leadingIcon: {
+        '*': { prop: 'renderRightIcon', value: '$instanceSwap' },
+        'shield-id': { prop: 'renderLeftIcon', value: 'Shield' },
+      },
+    }, {
+      leadingIcon: 'shield-id',
+    }, {
+      instanceSwaps: {
+        leadingIcon: {
+          componentId: 'shield-id',
+          componentName: 'Shield',
+        },
+      },
+    });
+
+    expect(result).toEqual({
+      diagnostics: [],
+      namedImports: ['Icon'],
+      props: ['renderRightIcon={<Icon name="shield" />}'],
+    });
+  });
+
+  it('uses icon visibility properties as guards without emitting React props', () => {
+    const result = createMappedProps({
+      leadingIcon: {
+        'icon-id': { prop: 'renderLeftIcon', value: 'Shield' },
+      },
+      hasLeadingIcon: {
+        false: { prop: 'hasLeadingIcon', value: false },
+      },
+    }, {
+      hasLeadingIcon: false,
+      leadingIcon: 'icon-id',
+    });
+
+    expect(result).toEqual({ diagnostics: [], props: [] });
+  });
+
+  it('does not infer an instance-swap target from an ambiguous mapping group', () => {
+    const result = createMappedProps({
+      Icon: {
+        first: { prop: 'leadingIcon', value: 'First' },
+        second: { prop: 'trailingIcon', value: 'Second' },
+      },
+    }, { Icon: 'new-icon-id' }, {
+      instanceSwaps: {
+        Icon: {
+          componentId: 'new-icon-id',
+          componentName: 'Shield',
+        },
+      },
+    });
+
+    expect(result).toEqual({
+      diagnostics: [{
+        figmaProperty: 'Icon',
+        figmaValue: 'new-icon-id',
+        kind: 'unmapped-value',
+      }],
+      props: [],
+    });
+  });
+
   it('maps own magic group and option keys', () => {
     const propMappings = JSON.parse([
       '{',
@@ -363,6 +481,101 @@ describe('createUsageSnippet', () => {
         '</Button>',
       ].join('\n'),
     );
+  });
+
+  it('golden: active icon swaps render Icon elements with normalized names', () => {
+    const metadata: ConnectionMetadata = {
+      schemaVersion: CURRENT_SCHEMA_VERSION,
+      componentName: 'Button',
+      importPath: 'tashil-ui',
+      propMappings: {
+        leadingIcon: {
+          '*': { prop: 'renderRightIcon', value: '$instanceSwap' },
+        },
+        trailingIcon: {
+          '*': { prop: 'renderLeftIcon', value: '$instanceSwap' },
+        },
+      },
+    };
+
+    expect(createValidUsageSnippet(metadata, selection({
+      componentProperties: {
+        hasLeadingIcon: true,
+        hasTrailingIcon: true,
+        label: 'Submit',
+        leadingIcon: 'new-leading-id',
+        trailingIcon: 'new-trailing-id',
+      },
+      instanceSwaps: {
+        leadingIcon: {
+          componentId: 'new-leading-id',
+          componentName: 'Shield',
+        },
+        trailingIcon: {
+          componentId: 'new-trailing-id',
+          componentName: 'ContractCheck',
+        },
+      },
+    }))).toBe([
+      'import { Button, Icon } from "tashil-ui";',
+      '',
+      '<Button renderRightIcon={<Icon name="shield" />} renderLeftIcon={<Icon name="contract-check" />}>',
+      '  Submit',
+      '</Button>',
+    ].join('\n'));
+  });
+
+  it('golden: Figma icon-only buttons omit label and trailing icon', () => {
+    const metadata: ConnectionMetadata = {
+      schemaVersion: CURRENT_SCHEMA_VERSION,
+      childrenMode: 'text',
+      childrenTextProperty: 'label',
+      componentName: 'Button',
+      importPath: '@tashilcar/swiss-army-knife',
+      propMappings: {
+        isOnlyIcon: {
+          false: { prop: 'iconOnly', value: false },
+          true: { prop: 'iconOnly', value: true },
+        },
+        leadingIcon: {
+          '*': { prop: 'renderRightIcon', value: '$instanceSwap' },
+        },
+        trailingIcon: {
+          '*': { prop: 'renderLeftIcon', value: '$instanceSwap' },
+        },
+      },
+    };
+
+    const result = createUsageSnippet(metadata, selection({
+      componentProperties: {
+        hasTrailingIcon: true,
+        trailingIcon: 'chevron-left-id',
+        hasLeadingIcon: true,
+        leadingIcon: 'plus-id',
+        label: 'متن دکمه',
+        isOnlyIcon: 'true',
+      },
+      instanceSwaps: {
+        leadingIcon: {
+          componentId: 'plus-id',
+          componentName: 'Plus',
+        },
+        trailingIcon: {
+          componentId: 'chevron-left-id',
+          componentName: 'ChevronLeft',
+        },
+      },
+    }));
+
+    expectValidTypeScript(result.code);
+    expect(result).toEqual({
+      code: [
+        'import { Button, Icon } from "@tashilcar/swiss-army-knife";',
+        '',
+        '<Button renderRightIcon={<Icon name="plus" />} iconOnly />',
+      ].join('\n'),
+      diagnostics: [],
+    });
   });
 
   it('golden: multiline text children retain their exact whitespace', () => {
@@ -687,6 +900,27 @@ describe('createUsageSnippet', () => {
     expect(result.diagnostics).not.toContainEqual(expect.objectContaining({
       figmaProperty: 'Button Text',
       kind: 'unmapped-property',
+    }));
+  });
+
+  it('falls back to label and consumes it when the configured text property is absent', () => {
+    const result = createUsageSnippet({
+      schemaVersion: CURRENT_SCHEMA_VERSION,
+      componentName: 'Button',
+      importPath: 'tashil-ui',
+      childrenTextProperty: 'Button Text',
+    }, selection({
+      componentProperties: { label: 'متن دکمه' },
+      displayText: 'Fallback layer name',
+    }));
+
+    expect(result.code).toContain('  متن دکمه');
+    expect(result.diagnostics).not.toContainEqual(expect.objectContaining({
+      figmaProperty: 'label',
+      kind: 'unmapped-property',
+    }));
+    expect(result.diagnostics).not.toContainEqual(expect.objectContaining({
+      kind: 'missing-children-source',
     }));
   });
 

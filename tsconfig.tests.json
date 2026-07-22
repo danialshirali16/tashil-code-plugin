@@ -12,8 +12,6 @@
     "src/prop-mappings.test.ts",
     "src/ui*.test.ts",
     "src/ui*.test.tsx",
-    "src/form*.test.ts",
-    "src/form*.test.tsx",
     "vitest.config.ts"
   ]
 }

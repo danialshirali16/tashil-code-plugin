@@ -146,13 +146,10 @@
 }
 
 .form-status {
+  color: var(--figma-color-text);
   font-size: 11px;
   line-height: 16px;
   margin-top: 8px;
-}
-
-.form-status {
-  color: var(--figma-color-text);
 }
 
 .footer-confirmation-copy {

@@ -5,7 +5,7 @@ import {
   type ConnectionMetadata,
   type UiSelectionState,
 } from './types';
-import { isPropMappings } from './codegen';
+import { isPropMappings, isRecord } from './codegen';
 import { normalizeOptionalHttpUrl } from './external-url';
 
 export type ConnectionFormValues = {
@@ -311,6 +311,22 @@ export function areFormValuesEqual(
     && first.storybookUrl === second.storybookUrl;
 }
 
+// Compile-time guard: if a field is added to ConnectionFormValues but not
+// compared above, isDirty silently never flips for it (Save stays disabled).
+// This satisfies check fails tsc until every field is listed here.
+void ({
+  componentName: true,
+  childrenMode: true,
+  childrenTextProperty: true,
+  iconComponentName: true,
+  iconImportPath: true,
+  importPath: true,
+  propMappings: true,
+  sourcePath: true,
+  sourceUrl: true,
+  storybookUrl: true,
+} satisfies Record<keyof ConnectionFormValues, true>);
+
 export function validateConnectionForm(
   values: ConnectionFormValues,
 ): FormValidationResult {
@@ -443,8 +459,4 @@ export function getCopyFeedback(
     ariaLabel: `Copy ${title}`,
     message: '',
   };
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
 }

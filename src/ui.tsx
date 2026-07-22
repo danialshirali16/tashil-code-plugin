@@ -71,11 +71,11 @@ const PROP_MAPPINGS_PLACEHOLDER = `e.g.,
     "md": { "prop": "size", "value": "md" },
     "sm": { "prop": "size", "value": "sm" }
   },
-  "hasLeadingIcon": {
-    "true": { "prop": "leadingIcon", "value": "<Icon />", "raw": true }
+  "leadingIcon": {
+    "*": { "prop": "renderRightIcon", "value": "$instanceSwap" }
   },
-  "hasTrailingIcon": {
-    "true": { "prop": "trailingIcon", "value": "<Icon />", "raw": true }
+  "trailingIcon": {
+    "*": { "prop": "renderLeftIcon", "value": "$instanceSwap" }
   }
 }`;
 
@@ -990,6 +990,11 @@ function renderCodeLine(line: string): Array<h.JSX.Element | string> | string {
     return ' ';
   }
 
+  // ponytail: flat regex tokenizer for highlight only. The `\{[^}]*\}` group
+  // cannot match nested braces, so `raw: true` expressions like
+  // `onClick={() => doX({a:1})}` highlight incorrectly. Fine for the props this
+  // plugin emits today; if raw expressions grow complex, swap in a real TSX
+  // highlighter (e.g. Prismjs/Shiki) instead of widening this regex.
   const tokens = /("[^"]*"|'[^']*'|\b(?:const|default|export|from|function|import|let|return|var)\b|<\/?[A-Z][A-Za-z0-9.]*(?=[\s>/])|[A-Za-z][A-Za-z0-9]*(?==)|\{[^}]*\}|\/?>)/g;
   const parts: Array<h.JSX.Element | string> = [];
   let cursor = 0;

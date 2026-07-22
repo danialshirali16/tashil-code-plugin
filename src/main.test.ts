@@ -42,6 +42,7 @@ type InstanceDouble = InstanceNode & {
 };
 
 type ComponentOptions = {
+  componentProperties?: InstanceNode['componentProperties'];
   propertyDefinitions?: ComponentNode['componentPropertyDefinitions'];
   sharedPluginData?: string;
 };
@@ -54,7 +55,7 @@ function createComponent(
   options: ComponentOptions = {},
 ): ComponentDouble {
   return {
-    componentProperties: {},
+    componentProperties: options.componentProperties ?? {},
     componentPropertyDefinitions: options.propertyDefinitions ?? {},
     getSharedPluginData: vi.fn(() => options.sharedPluginData ?? ''),
     id,
@@ -69,9 +70,10 @@ function createComponent(
 function createInstance(
   id: string,
   mainComponent: Promise<ComponentNode | null>,
+  componentProperties: InstanceNode['componentProperties'] = {},
 ): InstanceDouble {
   return {
-    componentProperties: {},
+    componentProperties,
     getMainComponentAsync: vi.fn(() => mainComponent),
     id,
     name: id,
@@ -111,12 +113,14 @@ async function startPlugin(): Promise<{
   codegenEvents: Map<string, CodegenGenerateHandler>;
   figmaEvents: Map<string, () => void>;
   notify: ReturnType<typeof vi.fn>;
+  nodesById: Map<string, BaseNode>;
   openExternal: ReturnType<typeof vi.fn>;
   selection: SceneNode[];
 }> {
   const codegenEvents = new Map<string, CodegenGenerateHandler>();
   const figmaEvents = new Map<string, () => void>();
   const notify = vi.fn();
+  const nodesById = new Map<string, BaseNode>();
   const openExternal = vi.fn();
   const selection: SceneNode[] = [];
 
@@ -128,6 +132,7 @@ async function startPlugin(): Promise<{
       }),
     },
     currentPage: { selection },
+    getNodeByIdAsync: vi.fn((id: string) => Promise.resolve(nodesById.get(id) ?? null)),
     mode: 'default',
     notify,
     openExternal,
@@ -140,7 +145,7 @@ async function startPlugin(): Promise<{
   const plugin = await import('./main');
   plugin.default();
 
-  return { codegenEvents, figmaEvents, notify, openExternal, selection };
+  return { codegenEvents, figmaEvents, nodesById, notify, openExternal, selection };
 }
 
 beforeEach(() => {
@@ -833,6 +838,55 @@ describe('mutation failure results', () => {
 });
 
 describe('persisted metadata reads', () => {
+  it('resolves changing icon-swap IDs to Icon elements', async () => {
+    const metadata: ConnectionMetadata = {
+      schemaVersion: CURRENT_SCHEMA_VERSION,
+      childrenMode: 'none',
+      componentName: 'Button',
+      importPath: 'tashil-ui',
+      propMappings: {
+        leadingIcon: {
+          '*': { prop: 'renderRightIcon', value: '$instanceSwap' },
+        },
+        trailingIcon: {
+          '*': { prop: 'renderLeftIcon', value: '$instanceSwap' },
+        },
+      },
+    };
+    const { codegenEvents, nodesById } = await startPlugin();
+    const mainComponent = createComponent('button-component', 'Button', {
+      sharedPluginData: JSON.stringify(metadata),
+    });
+    const instance = createInstance(
+      'button-instance',
+      Promise.resolve(mainComponent),
+      {
+        'hasLeadingIcon#guard': { type: 'BOOLEAN', value: true },
+        'hasTrailingIcon#guard': { type: 'BOOLEAN', value: true },
+        'leadingIcon#swap': { type: 'INSTANCE_SWAP', value: 'shield-id' },
+        'trailingIcon#swap': { type: 'INSTANCE_SWAP', value: 'contract-check-id' },
+      },
+    );
+    nodesById.set('shield-id', createComponent('shield-id', 'Shield'));
+    nodesById.set(
+      'contract-check-id',
+      createComponent('contract-check-id', 'ContractCheck'),
+    );
+
+    const blocks = await codegenEvents.get('generate')?.({ node: instance });
+
+    expect(blocks).toEqual([
+      expect.objectContaining({
+        code: [
+          'import { Button, Icon } from "tashil-ui";',
+          '',
+          '<Button renderRightIcon={<Icon name="shield" />} renderLeftIcon={<Icon name="contract-check" />} />',
+        ].join('\n'),
+        language: 'TYPESCRIPT',
+      }),
+    ]);
+  });
+
   it('preserves magic component-property names when generating mapped props', async () => {
     const metadata = JSON.parse([
       '{',
@@ -1073,6 +1127,102 @@ describe('persisted metadata reads', () => {
 });
 
 describe('prop mapping scaffolding', () => {
+  it('scaffolds default instance swaps when the main component is selected', async () => {
+    const { nodesById, selection } = await startPlugin();
+    const component = createComponent('component-a', 'Button', {
+      propertyDefinitions: {
+        'leadingIcon#leading-property': {
+          defaultValue: 'plus-id',
+          preferredValues: [],
+          type: 'INSTANCE_SWAP',
+        },
+      },
+    });
+    nodesById.set('plus-id', createComponent('plus-id', 'Plus'));
+    selection.push(component);
+
+    utilityMocks.handlers.get('SCAFFOLD_PROP_MAPPINGS')?.({
+      operationId: 'scaffold-default-instance-swap',
+      selectionToken: component.id,
+    });
+
+    await vi.waitFor(() => {
+      expect(emittedPayloads<Parameters<ScaffoldResultHandler['handler']>[0]>(
+        'SCAFFOLD_RESULT',
+      )).toEqual([{
+        mappings: {
+          leadingIcon: {
+            '*': { prop: 'renderRightIcon', value: '$instanceSwap' },
+          },
+        },
+        ok: true,
+        operationId: 'scaffold-default-instance-swap',
+        selectionToken: component.id,
+      }]);
+    });
+  });
+
+  it('scaffolds active instance swaps with icon names and render prop targets', async () => {
+    const { nodesById, selection } = await startPlugin();
+    const component = createComponent('component-a', 'Button', {
+      propertyDefinitions: {
+        'leadingIcon#leading-property': {
+          defaultValue: 'default-leading-id',
+          preferredValues: [],
+          type: 'INSTANCE_SWAP',
+        },
+        'trailingIcon#trailing-property': {
+          defaultValue: 'default-trailing-id',
+          preferredValues: [],
+          type: 'INSTANCE_SWAP',
+        },
+      },
+    });
+    const instance = createInstance(
+      'instance-a',
+      Promise.resolve(component),
+      {
+        'leadingIcon#leading-property': {
+          type: 'INSTANCE_SWAP',
+          value: 'shield-id',
+        },
+        'trailingIcon#trailing-property': {
+          type: 'INSTANCE_SWAP',
+          value: 'contract-check-id',
+        },
+      },
+    );
+    nodesById.set('shield-id', createComponent('shield-id', 'Shield'));
+    nodesById.set(
+      'contract-check-id',
+      createComponent('contract-check-id', 'ContractCheck'),
+    );
+    selection.push(instance);
+
+    utilityMocks.handlers.get('SCAFFOLD_PROP_MAPPINGS')?.({
+      operationId: 'scaffold-instance-swaps',
+      selectionToken: instance.id,
+    });
+
+    await vi.waitFor(() => {
+      expect(emittedPayloads<Parameters<ScaffoldResultHandler['handler']>[0]>(
+        'SCAFFOLD_RESULT',
+      )).toEqual([{
+        mappings: {
+          leadingIcon: {
+            '*': { prop: 'renderRightIcon', value: '$instanceSwap' },
+          },
+          trailingIcon: {
+            '*': { prop: 'renderLeftIcon', value: '$instanceSwap' },
+          },
+        },
+        ok: true,
+        operationId: 'scaffold-instance-swaps',
+        selectionToken: instance.id,
+      }]);
+    });
+  });
+
   it('scaffolds magic property and option keys as own entries', async () => {
     const propertyDefinitions = Object.fromEntries([
       ['__proto__', {
@@ -1191,7 +1341,7 @@ describe('prop mapping scaffolding', () => {
         'SCAFFOLD_RESULT',
       )).toEqual([
         {
-          message: 'No variant properties found on this component to scaffold.',
+          message: 'No variant or active instance-swap properties found on this component to scaffold.',
           ok: false,
           operationId: 'scaffold-empty-component-a',
           selectionToken: component.id,

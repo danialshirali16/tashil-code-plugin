@@ -39,7 +39,7 @@ export type ConnectionMetadata = {
   iconComponentName?: string;
   /** Module containing iconComponentName. Required in icon-only mode. */
   iconImportPath?: string;
-  propMappings?: Record<string, Record<string, PropMapping>>;
+  propMappings?: PropMappings;
 };
 
 export type ConnectionIssueReason =

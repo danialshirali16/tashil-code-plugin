@@ -36,7 +36,10 @@ Import `manifest.json` in Figma from:
 > **`manifest.json` is generated**, not hand-written. `npm run build` regenerates
 > it from the `figma-plugin` field in `package.json`. Edit that field (then
 > rebuild) to change the plugin name, menu, or capabilities — never edit
-> `manifest.json` directly.
+> `manifest.json` directly. It is checked in on purpose (like `package-lock.json`)
+> so the shipped plugin matches committed source, and CI's `git diff --exit-code`
+> step fails if it drifts — so after rebuilding, commit the regenerated
+> `manifest.json` along with your `package.json` change.
 
 ## Guides
 

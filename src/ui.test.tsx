@@ -447,4 +447,129 @@ describe('Plugin rendered interactions', () => {
     });
     expect(screen.getByText('source path copied to clipboard.')).toBeTruthy();
   });
+
+  it('blocks a scaffold request while a save is pending on the same selection, then allows it once the save resolves', () => {
+    renderPlugin();
+    receive('SELECTION_STATE', readySelection(existingConnection({
+      sourcePath: 'src/Button.tsx',
+    })));
+
+    const sourcePath = screen.getByLabelText('Source path') as HTMLInputElement;
+    fireEvent.input(sourcePath, { target: { value: 'src/Button.next.tsx' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+    const saveRequests = emittedPayloads<{
+      operationId: string;
+      selectionToken: string;
+    }>('SAVE_CONNECTION');
+    const saveRequest = saveRequests[saveRequests.length - 1]!;
+    expect(screen.getByRole('button', { name: 'Saving…' })).toBeTruthy();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Generate from component' }));
+    expect(emittedPayloads('SCAFFOLD_PROP_MAPPINGS').length).toBe(0);
+    expect(screen.getByRole('button', { name: 'Saving…' })).toBeTruthy();
+
+    receive('SAVE_RESULT', {
+      message: 'Connection saved.',
+      ok: true,
+      operation: 'save',
+      operationId: saveRequest.operationId,
+      selectionToken: saveRequest.selectionToken,
+    });
+    expect((screen.getByRole('button', { name: 'Save' }) as HTMLButtonElement).disabled)
+      .toBe(true);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Generate from component' }));
+    expect(emittedPayloads('SCAFFOLD_PROP_MAPPINGS').length).toBe(1);
+    expect(screen.getByText('Generating prop mappings…')).toBeTruthy();
+  });
+
+  it('consumes a save result for a selection that is no longer active without affecting the active form', () => {
+    renderPlugin();
+    receive('SELECTION_STATE', readySelection(existingConnection({
+      sourcePath: 'src/Button.tsx',
+    }), undefined, 'selection-a'));
+
+    const sourcePath = screen.getByLabelText('Source path') as HTMLInputElement;
+    fireEvent.input(sourcePath, { target: { value: 'src/Button.next.tsx' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+    const saveRequests = emittedPayloads<{
+      operationId: string;
+      selectionToken: string;
+    }>('SAVE_CONNECTION');
+    const saveRequest = saveRequests[saveRequests.length - 1]!;
+
+    receive('SELECTION_STATE', readySelection(existingConnection({
+      importPath: 'tashil-other',
+      sourcePath: 'src/Other.tsx',
+    }), undefined, 'selection-b'));
+    expect((screen.getByLabelText('Source path') as HTMLInputElement).value)
+      .toBe('src/Other.tsx');
+    expect(screen.queryByRole('button', { name: 'Saving…' })).toBeNull();
+
+    receive('SAVE_RESULT', {
+      message: 'Connection saved.',
+      ok: true,
+      operation: 'save',
+      operationId: saveRequest.operationId,
+      selectionToken: 'selection-a',
+    });
+    expect((screen.getByLabelText('Source path') as HTMLInputElement).value)
+      .toBe('src/Other.tsx');
+    expect(screen.queryByText('Connection saved.')).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Saving…' })).toBeNull();
+  });
+
+  it('keeps a save pending when a save result arrives with a mismatched selection token', () => {
+    renderPlugin();
+    receive('SELECTION_STATE', readySelection(existingConnection({
+      sourcePath: 'src/Button.tsx',
+    }), undefined, 'selection-a'));
+
+    const sourcePath = screen.getByLabelText('Source path') as HTMLInputElement;
+    fireEvent.input(sourcePath, { target: { value: 'src/Button.next.tsx' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+    const saveRequests = emittedPayloads<{
+      operationId: string;
+      selectionToken: string;
+    }>('SAVE_CONNECTION');
+    const saveRequest = saveRequests[saveRequests.length - 1]!;
+    expect(screen.getByRole('button', { name: 'Saving…' })).toBeTruthy();
+    expect(screen.getByText('Saving connection…')).toBeTruthy();
+
+    receive('SAVE_RESULT', {
+      message: 'Saved for a different selection.',
+      ok: true,
+      operation: 'save',
+      operationId: saveRequest.operationId,
+      selectionToken: 'selection-b',
+    });
+    expect(screen.getByRole('button', { name: 'Saving…' })).toBeTruthy();
+    expect(screen.queryByText('Saved for a different selection.')).toBeNull();
+  });
+
+  it('keeps a save pending when a save result reports a different operation type', () => {
+    renderPlugin();
+    receive('SELECTION_STATE', readySelection(existingConnection({
+      sourcePath: 'src/Button.tsx',
+    })));
+
+    const sourcePath = screen.getByLabelText('Source path') as HTMLInputElement;
+    fireEvent.input(sourcePath, { target: { value: 'src/Button.next.tsx' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+    const saveRequests = emittedPayloads<{
+      operationId: string;
+      selectionToken: string;
+    }>('SAVE_CONNECTION');
+    const saveRequest = saveRequests[saveRequests.length - 1]!;
+
+    receive('SAVE_RESULT', {
+      message: 'Connection cleared.',
+      ok: true,
+      operation: 'clear',
+      operationId: saveRequest.operationId,
+      selectionToken: saveRequest.selectionToken,
+    });
+    expect(screen.getByRole('button', { name: 'Saving…' })).toBeTruthy();
+    expect(screen.queryByText('Connection cleared.')).toBeNull();
+  });
 });

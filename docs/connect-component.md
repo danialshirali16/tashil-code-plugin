@@ -141,6 +141,41 @@ Make sure:
    value as a TSX expression instead of a quoted string; use it only for valid
    code expressions.
 
+   Button icon instance swaps are handled automatically when `leadingIcon` maps
+   to `renderRightIcon` or `trailingIcon` maps to `renderLeftIcon`. These targets
+   follow the Button's RTL orientation. The plugin
+   reads the currently selected Figma icon component, converts its component
+   name to the Swiss Army Knife icon token, and emits an `Icon` React node. The
+   visibility properties `hasLeadingIcon` and `hasTrailingIcon` act only as
+   guards and are not emitted as React props. For example, a Figma component
+   named `ContractCheck` produces:
+
+   ```tsx
+   import { Button, Icon } from "@tashilcar/swiss-army-knife";
+
+   <Button renderLeftIcon={<Icon name="contract-check" />}>
+     Button
+   </Button>
+   ```
+
+   The generated mapping JSON remains ordinary JSON. Icon mappings use `*` as
+   the option key and `"$instanceSwap"` as a dynamic marker:
+
+   ```json
+   {
+     "leadingIcon": {
+       "*": { "prop": "renderRightIcon", "value": "$instanceSwap" }
+     },
+     "trailingIcon": {
+       "*": { "prop": "renderLeftIcon", "value": "$instanceSwap" }
+     }
+   }
+   ```
+
+   The marker is never emitted into TSX. Codegen replaces it with the live
+   instance-swap component, so changing the icon does not require updating its
+   component ID or name in the saved mappings.
+
    Dev Mode and **Inspect Code** show mapping diagnostics separately from the
    pasteable TSX when an active Figma property or value has no mapping. They also
    report when multiple active mappings target the same React prop; that

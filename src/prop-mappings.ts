@@ -34,6 +34,12 @@ function invalidScaffold(currentValue: string): MergePropMappingsJsonResult {
   };
 }
 
+function isDynamicInstanceSwapMapping(
+  mapping: PropMappings[string][string] | undefined,
+): boolean {
+  return mapping?.value === '$instanceSwap';
+}
+
 /** Convert a Figma property label to a safe lower-camel React prop name. */
 export function createReactPropIdentifier(figmaPropertyName: string): string | null {
   const words = figmaPropertyName
@@ -97,6 +103,13 @@ export function mergePropMappingsJson(
       ?? (Object.create(null) as PropMappings[string]);
 
     for (const [optionName, mapping] of Object.entries(existingGroup)) {
+      if (
+        optionName === '*'
+        && isDynamicInstanceSwapMapping(mapping)
+        && isDynamicInstanceSwapMapping(mergedGroup[optionName])
+      ) {
+        continue;
+      }
       mergedGroup[optionName] = mapping;
     }
 

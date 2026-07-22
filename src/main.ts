@@ -7,6 +7,7 @@ import {
   migratePersistedConnectionMetadata,
   validatePersistedConnectionMetadata,
   validateConnectionMetadata,
+  type ResolvedInstanceSwap,
 } from './codegen';
 import { normalizeHttpUrl, normalizeOptionalHttpUrl } from './external-url';
 import { createReactPropIdentifier } from './prop-mappings';
@@ -41,6 +42,7 @@ type ResolvedSelection = {
   mainComponent: ConnectableComponentNode;
   componentProperties: Record<string, string | boolean>;
   displayText: string;
+  instanceSwaps: Record<string, ResolvedInstanceSwap>;
 };
 
 type ConnectionReadResult =
@@ -308,7 +310,8 @@ async function clearConnection(selectionToken: string, operationId: string): Pro
  * Build a prop-mapping skeleton from the selected component's
  * `componentPropertyDefinitions`. Every VARIANT property becomes a mapping
  * group; each of its `variantOptions` maps to a normalized React prop name.
- * Non-variant properties are skipped (they need a human to decide the target).
+ * Active INSTANCE_SWAP properties also get a mapping from component ID to
+ * the selected component name so codegen can keep resolving future swaps.
  */
 async function scaffoldPropMappings(
   selectionToken: string,
@@ -334,16 +337,14 @@ async function scaffoldPropMappings(
     const unsupportedProperties: string[] = [];
 
     for (const [propertyName, definition] of Object.entries(propertyDefinitions)) {
-      if (definition.type !== 'VARIANT') {
+      if (definition.type !== 'VARIANT' && definition.type !== 'INSTANCE_SWAP') {
         continue;
       }
 
-      const options = definition.variantOptions ?? [];
-      if (options.length === 0) {
-        continue;
-      }
-
-      const reactProp = createReactPropIdentifier(propertyName);
+      const normalizedPropertyName = normalizeComponentPropertyName(propertyName);
+      const reactProp = definition.type === 'INSTANCE_SWAP'
+        ? createInstanceSwapReactPropIdentifier(normalizedPropertyName)
+        : createReactPropIdentifier(normalizedPropertyName);
       if (!reactProp) {
         unsupportedProperties.push(propertyName);
         continue;
@@ -351,12 +352,33 @@ async function scaffoldPropMappings(
 
       const group = createDictionary<PropMapping>();
 
-      for (const option of options) {
-        group[option] = { prop: reactProp, value: option };
+      if (definition.type === 'VARIANT') {
+        for (const option of definition.variantOptions ?? []) {
+          group[option] = { prop: reactProp, value: option };
+        }
+      } else if (definition.type === 'INSTANCE_SWAP') {
+        const instanceSwap = selection.instanceSwaps[normalizedPropertyName]
+          ?? (typeof definition.defaultValue === 'string'
+            ? await resolveInstanceSwapComponent(definition.defaultValue)
+            : undefined);
+
+        if (instanceSwap) {
+          const mappingKey = isIconRenderProp(reactProp)
+            ? '*'
+            : instanceSwap.componentId;
+          group[mappingKey] = {
+            prop: reactProp,
+            value: isIconRenderProp(reactProp)
+              ? '$instanceSwap'
+              : instanceSwap.componentName,
+          };
+        }
+      } else {
+        continue;
       }
 
       if (Object.keys(group).length > 0) {
-        mappings[propertyName] = group;
+        mappings[normalizedPropertyName] = group;
       }
     }
 
@@ -377,7 +399,7 @@ async function scaffoldPropMappings(
     if (Object.keys(mappings).length === 0) {
       emit<ScaffoldResultHandler>('SCAFFOLD_RESULT', {
         ok: false,
-        message: 'No variant properties found on this component to scaffold.',
+        message: 'No variant or active instance-swap properties found on this component to scaffold.',
         operationId,
         selectionToken,
       });
@@ -434,21 +456,25 @@ async function resolveSelection(node: SceneNode): Promise<ResolvedSelection | nu
     }
 
     const connectionTarget = getConnectionTarget(mainComponent);
+    const propertySources = [connectionTarget, mainComponent, node];
 
     return {
       mainComponent: connectionTarget,
       componentProperties: collectComponentProperties(node, mainComponent, connectionTarget),
       displayText: getDisplayText(node),
+      instanceSwaps: await collectInstanceSwaps(propertySources),
     };
   }
 
   if (node.type === 'COMPONENT') {
     const connectionTarget = getConnectionTarget(node);
+    const propertySources = [connectionTarget, node];
 
     return {
       mainComponent: connectionTarget,
       componentProperties: collectComponentProperties(node, node, connectionTarget),
       displayText: getDisplayText(node),
+      instanceSwaps: await collectInstanceSwaps(propertySources),
     };
   }
 
@@ -457,10 +483,79 @@ async function resolveSelection(node: SceneNode): Promise<ResolvedSelection | nu
       mainComponent: node,
       componentProperties: readComponentProperties(node),
       displayText: node.name,
+      instanceSwaps: await collectInstanceSwaps([node]),
     };
   }
 
   return null;
+}
+
+async function collectInstanceSwaps(
+  nodes: ReadonlyArray<InstanceNode | ComponentNode | ComponentSetNode>,
+): Promise<Record<string, ResolvedInstanceSwap>> {
+  const instanceSwaps = createDictionary<ResolvedInstanceSwap>();
+  const visitedNodeIds = new Set<string>();
+
+  for (const node of nodes) {
+    if (visitedNodeIds.has(node.id) || !('componentProperties' in node)) {
+      continue;
+    }
+    visitedNodeIds.add(node.id);
+
+    for (const [propertyName, property] of Object.entries(node.componentProperties)) {
+      if (property.type !== 'INSTANCE_SWAP' || typeof property.value !== 'string') {
+        continue;
+      }
+
+      const instanceSwap = await resolveInstanceSwapComponent(property.value);
+      if (!instanceSwap) {
+        continue;
+      }
+
+      instanceSwaps[normalizeComponentPropertyName(propertyName)] = instanceSwap;
+    }
+  }
+
+  return instanceSwaps;
+}
+
+async function resolveInstanceSwapComponent(
+  componentId: string,
+): Promise<ResolvedInstanceSwap | undefined> {
+  let component: BaseNode | null;
+
+  try {
+    component = await figma.getNodeByIdAsync(componentId);
+  } catch (_error) {
+    return undefined;
+  }
+
+  if (component?.type !== 'COMPONENT') {
+    return undefined;
+  }
+
+  return {
+    componentId,
+    componentName: component.name,
+  };
+}
+
+function createInstanceSwapReactPropIdentifier(figmaPropertyName: string): string | null {
+  const normalized = createReactPropIdentifier(figmaPropertyName);
+
+  if (normalized === 'leadingIcon' || normalized === 'leftIcon') {
+    return 'renderRightIcon';
+  }
+
+  if (normalized === 'trailingIcon' || normalized === 'rightIcon') {
+    return 'renderLeftIcon';
+  }
+
+  return normalized;
+}
+
+function isIconRenderProp(prop: string): boolean {
+  return prop === 'renderLeftIcon' || prop === 'renderRightIcon';
 }
 
 async function resolveCurrentSelection(

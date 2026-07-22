@@ -14,6 +14,7 @@ import {
 export type CodeProp = {
   value: string | number | boolean;
   raw?: boolean;
+  namedImports?: readonly string[];
 };
 
 export type MappingSource = {
@@ -41,7 +42,14 @@ export type MappingDiagnostic =
 
 export type CreateMappedPropsOptions = {
   consumedFigmaProperty?: string;
+  ignoredFigmaProperties?: ReadonlySet<string>;
+  instanceSwaps?: Readonly<Record<string, ResolvedInstanceSwap>>;
   reservedReactProps?: ReadonlySet<string>;
+};
+
+export type ResolvedInstanceSwap = {
+  componentId: string;
+  componentName: string;
 };
 
 export type ResolvedChildrenText = {
@@ -51,6 +59,7 @@ export type ResolvedChildrenText = {
 
 export type MappedPropsResult = {
   diagnostics: MappingDiagnostic[];
+  namedImports?: string[];
   props: string[];
 };
 
@@ -66,6 +75,7 @@ export type UsageSnippetResult = {
 export type SelectionLike = {
   componentProperties: Record<string, string | boolean>;
   displayText: string;
+  instanceSwaps?: Record<string, ResolvedInstanceSwap>;
 };
 
 /**
@@ -79,6 +89,10 @@ const COMPONENT_IDENTIFIER_PATTERN = /^[A-Z_$][A-Za-z0-9_$]*$/;
 const JSX_ATTRIBUTE_NAME_PATTERN = /^[A-Za-z_$][A-Za-z0-9_$]*(?:-[A-Za-z0-9_$]+)*$/;
 const CHILDREN_RESERVED_REACT_PROPS: ReadonlySet<string> = new Set(['children']);
 const ICON_RESERVED_REACT_PROPS: ReadonlySet<string> = new Set(['aria-label', 'children']);
+const ICON_VISIBILITY_GUARDS = [
+  { guardProperty: 'hasLeadingIcon', swapProperty: 'leadingIcon' },
+  { guardProperty: 'hasTrailingIcon', swapProperty: 'trailingIcon' },
+] as const;
 
 function getOwnEntry<T>(record: Readonly<Record<string, T>>, key: string): T | undefined {
   return Object.prototype.hasOwnProperty.call(record, key) ? record[key] : undefined;
@@ -94,18 +108,28 @@ export function createUsageSnippet(
     throw new TypeError(validation.message);
   }
 
-  const childrenMode = metadata.childrenMode ?? 'text';
+  const isFigmaIconOnly = isIconOnlySelection(selection.componentProperties);
+  const childrenMode = isFigmaIconOnly
+    ? 'none'
+    : metadata.childrenMode ?? 'text';
+  const childrenTextProperty = metadata.childrenTextProperty
+    ?? DEFAULT_CHILDREN_TEXT_PROPERTY;
   const resolvedChildren = childrenMode === 'none'
     ? undefined
     : resolveChildrenText(
         selection,
-        metadata.childrenTextProperty ?? DEFAULT_CHILDREN_TEXT_PROPERTY,
+        childrenTextProperty,
       );
+  const ignoredFigmaProperties = isFigmaIconOnly
+    ? createIconOnlyIgnoredProperties(selection.componentProperties, childrenTextProperty)
+    : undefined;
   const mappedProps = createMappedProps(
     metadata.propMappings ?? {},
     selection.componentProperties,
     {
       consumedFigmaProperty: resolvedChildren?.sourceProperty,
+      ignoredFigmaProperties,
+      instanceSwaps: selection.instanceSwaps,
       reservedReactProps: childrenMode === 'icon-only'
         ? ICON_RESERVED_REACT_PROPS
         : CHILDREN_RESERVED_REACT_PROPS,
@@ -121,7 +145,7 @@ export function createUsageSnippet(
   }
 
   const lines = [
-    ...createImportLines(metadata),
+    ...createImportLines(metadata, mappedProps.namedImports),
     '',
   ];
 
@@ -158,6 +182,18 @@ export function createMappedProps(
   const candidates = new Map<string, Array<{ source: MappingSource; value: CodeProp }>>();
 
   for (const [figmaProperty, figmaValue] of Object.entries(componentProperties)) {
+    if (options.ignoredFigmaProperties?.has(figmaProperty)) {
+      continue;
+    }
+
+    if (isConsumedIconVisibilityGuard(figmaProperty, componentProperties)) {
+      continue;
+    }
+
+    if (isHiddenInstanceSwap(figmaProperty, componentProperties)) {
+      continue;
+    }
+
     const mappingGroup = getOwnEntry(propMappings, figmaProperty);
 
     if (!mappingGroup) {
@@ -167,7 +203,16 @@ export function createMappedProps(
       continue;
     }
 
-    const mapping = getOwnEntry(mappingGroup, String(figmaValue));
+    const explicitMapping = getOwnEntry(mappingGroup, String(figmaValue));
+    const resolvedInstanceSwapMapping = createResolvedInstanceSwapMapping(
+      figmaProperty,
+      figmaValue,
+      mappingGroup,
+      options.instanceSwaps,
+    );
+    const mapping: ResolvedPropMapping | undefined = resolvedInstanceSwapMapping?.raw
+      ? resolvedInstanceSwapMapping
+      : explicitMapping ?? resolvedInstanceSwapMapping;
 
     if (!mapping) {
       if (figmaProperty !== options.consumedFigmaProperty) {
@@ -179,12 +224,17 @@ export function createMappedProps(
     const candidatesForProp = candidates.get(mapping.prop) ?? [];
     candidatesForProp.push({
       source: { figmaProperty, figmaValue },
-      value: { value: mapping.value, raw: mapping.raw },
+      value: {
+        value: mapping.value,
+        raw: mapping.raw,
+        namedImports: mapping.namedImports,
+      },
     });
     candidates.set(mapping.prop, candidatesForProp);
   }
 
   const props: string[] = [];
+  const namedImports = new Set<string>();
 
   for (const [prop, candidatesForProp] of candidates) {
     const sources = candidatesForProp.map(({ source }) => source);
@@ -210,10 +260,141 @@ export function createMappedProps(
     const assignment = formatPropAssignment(prop, candidatesForProp[0].value);
     if (assignment) {
       props.push(assignment);
+      for (const namedImport of candidatesForProp[0].value.namedImports ?? []) {
+        namedImports.add(namedImport);
+      }
     }
   }
 
-  return { diagnostics, props };
+  return {
+    diagnostics,
+    ...(namedImports.size > 0 ? { namedImports: Array.from(namedImports) } : {}),
+    props,
+  };
+}
+
+function isIconOnlySelection(
+  componentProperties: Readonly<Record<string, string | boolean>>,
+): boolean {
+  const iconOnlyValue = getOwnEntry(componentProperties, 'isOnlyIcon')
+    ?? getOwnEntry(componentProperties, 'iconOnly');
+  return iconOnlyValue === true || iconOnlyValue === 'true';
+}
+
+function createIconOnlyIgnoredProperties(
+  componentProperties: Readonly<Record<string, string | boolean>>,
+  childrenTextProperty: string,
+): ReadonlySet<string> {
+  const ignored = new Set<string>(['hasTrailingIcon', 'trailingIcon']);
+  const textProperty = findComponentPropertyName(componentProperties, childrenTextProperty);
+
+  if (textProperty) {
+    ignored.add(textProperty);
+  }
+
+  return ignored;
+}
+
+function findComponentPropertyName(
+  componentProperties: Readonly<Record<string, string | boolean>>,
+  propertyName: string,
+): string | undefined {
+  if (getOwnEntry(componentProperties, propertyName) !== undefined) {
+    return propertyName;
+  }
+
+  const normalizedPropertyName = propertyName.toLowerCase();
+  return Object.keys(componentProperties).find((candidate) => {
+    return candidate.toLowerCase() === normalizedPropertyName;
+  });
+}
+
+function isConsumedIconVisibilityGuard(
+  figmaProperty: string,
+  componentProperties: Readonly<Record<string, string | boolean>>,
+): boolean {
+  const pair = ICON_VISIBILITY_GUARDS.find(({ guardProperty }) => {
+    return guardProperty === figmaProperty;
+  });
+
+  return pair !== undefined
+    && getOwnEntry(componentProperties, pair.swapProperty) !== undefined;
+}
+
+function isHiddenInstanceSwap(
+  figmaProperty: string,
+  componentProperties: Readonly<Record<string, string | boolean>>,
+): boolean {
+  const pair = ICON_VISIBILITY_GUARDS.find(({ swapProperty }) => {
+    return swapProperty === figmaProperty;
+  });
+
+  return pair !== undefined
+    && getOwnEntry(componentProperties, pair.guardProperty) === false;
+}
+
+type ResolvedPropMapping = PropMapping & {
+  namedImports?: readonly string[];
+};
+
+const ICON_RENDER_PROPS: ReadonlySet<string> = new Set([
+  'renderLeftIcon',
+  'renderRightIcon',
+]);
+
+function createResolvedInstanceSwapMapping(
+  figmaProperty: string,
+  figmaValue: string | boolean,
+  mappingGroup: Readonly<Record<string, PropMapping>>,
+  instanceSwaps: Readonly<Record<string, ResolvedInstanceSwap>> | undefined,
+): ResolvedPropMapping | undefined {
+  if (!instanceSwaps) {
+    return undefined;
+  }
+
+  const instanceSwap = getOwnEntry(instanceSwaps, figmaProperty);
+  if (!instanceSwap || instanceSwap.componentId !== String(figmaValue)) {
+    return undefined;
+  }
+
+  const wildcardMapping = getOwnEntry(mappingGroup, '*');
+  const mappings = wildcardMapping
+    ? [wildcardMapping]
+    : Object.values(mappingGroup);
+  if (mappings.length === 0) {
+    return undefined;
+  }
+
+  const targetProps = new Set(mappings.map(({ prop }) => prop));
+  if (targetProps.size !== 1) {
+    return undefined;
+  }
+
+  const targetProp = mappings[0].prop;
+  if (ICON_RENDER_PROPS.has(targetProp)) {
+    const iconName = createIconName(instanceSwap.componentName);
+    return {
+      namedImports: ['Icon'],
+      prop: targetProp,
+      raw: true,
+      value: `<Icon name=${JSON.stringify(iconName)} />`,
+    };
+  }
+
+  return {
+    prop: targetProp,
+    value: instanceSwap.componentName,
+  };
+}
+
+function createIconName(componentName: string): string {
+  return componentName
+    .trim()
+    .replace(/([a-z0-9])([A-Z])/g, '$1-$2')
+    .replace(/([A-Z]+)([A-Z][a-z])/g, '$1-$2')
+    .replace(/[^A-Za-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .toLowerCase();
 }
 
 export function formatMappingDiagnostics(diagnostics: MappingDiagnostic[]): string {
@@ -332,35 +513,65 @@ export function resolveChildrenText(
   configuredProperty: string,
 ): ResolvedChildrenText {
   const propertyName = configuredProperty.trim() || DEFAULT_CHILDREN_TEXT_PROPERTY;
-  const exactValue = getOwnEntry(selection.componentProperties, propertyName);
+  const configuredMatch = findTextComponentProperty(
+    selection.componentProperties,
+    propertyName,
+  );
 
-  if (typeof exactValue === 'string' && exactValue.trim().length > 0) {
-    return { sourceProperty: propertyName, text: exactValue };
+  if (configuredMatch) {
+    return { sourceProperty: configuredMatch[0], text: configuredMatch[1] };
   }
 
-  if (exactValue === undefined) {
-    const normalizedPropertyName = propertyName.toLowerCase();
-    const caseInsensitiveMatch = Object.entries(selection.componentProperties).find(
-      ([candidate, value]) => candidate.toLowerCase() === normalizedPropertyName
-        && typeof value === 'string'
-        && value.trim().length > 0,
+  if (propertyName.toLowerCase() !== DEFAULT_CHILDREN_TEXT_PROPERTY.toLowerCase()) {
+    const defaultMatch = findTextComponentProperty(
+      selection.componentProperties,
+      DEFAULT_CHILDREN_TEXT_PROPERTY,
     );
 
-    if (caseInsensitiveMatch) {
-      return {
-        sourceProperty: caseInsensitiveMatch[0],
-        text: caseInsensitiveMatch[1] as string,
-      };
+    if (defaultMatch) {
+      return { sourceProperty: defaultMatch[0], text: defaultMatch[1] };
     }
   }
 
   return { text: selection.displayText };
 }
 
-function createImportLines(metadata: ConnectionMetadata): string[] {
+function findTextComponentProperty(
+  componentProperties: Readonly<Record<string, string | boolean>>,
+  propertyName: string,
+): [string, string] | undefined {
+  const exactValue = getOwnEntry(componentProperties, propertyName);
+
+  if (typeof exactValue === 'string' && exactValue.trim().length > 0) {
+    return [propertyName, exactValue];
+  }
+
+  if (exactValue !== undefined) {
+    return undefined;
+  }
+
+  const normalizedPropertyName = propertyName.toLowerCase();
+  const caseInsensitiveMatch = Object.entries(componentProperties).find(
+    ([candidate, value]) => candidate.toLowerCase() === normalizedPropertyName
+      && typeof value === 'string'
+      && value.trim().length > 0,
+  );
+
+  return caseInsensitiveMatch
+    ? [caseInsensitiveMatch[0], caseInsensitiveMatch[1] as string]
+    : undefined;
+}
+
+function createImportLines(
+  metadata: ConnectionMetadata,
+  generatedNamedImports: readonly string[] = [],
+): string[] {
   const importsByPath = new Map<string, Set<string>>();
 
   addNamedImport(importsByPath, metadata.importPath, metadata.componentName);
+  for (const componentName of generatedNamedImports) {
+    addNamedImport(importsByPath, metadata.importPath, componentName);
+  }
 
   if (
     metadata.childrenMode === 'icon-only'

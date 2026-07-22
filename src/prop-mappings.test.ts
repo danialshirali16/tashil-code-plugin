@@ -67,6 +67,24 @@ describe('mergePropMappingsJson', () => {
     });
   });
 
+  it('updates an existing generated instance-swap wildcard target', () => {
+    const currentValue = JSON.stringify({
+      leadingIcon: {
+        '*': { prop: 'renderLeftIcon', value: '$instanceSwap' },
+      },
+    });
+
+    expect(parseMergedValue(currentValue, {
+      leadingIcon: {
+        '*': { prop: 'renderRightIcon', value: '$instanceSwap' },
+      },
+    })).toEqual({
+      leadingIcon: {
+        '*': { prop: 'renderRightIcon', value: '$instanceSwap' },
+      },
+    });
+  });
+
   it('preserves magic group and option keys while keeping existing entries', () => {
     const currentValue = [
       '{',
