@@ -29,6 +29,8 @@ extracted prop schema and a content hash, never the uploaded source text.
 
 ## Documentation
 
+- [Project brief](docs/project-brief.md) — product scope, runtime flow,
+  architecture, privacy model, and layout-composer status.
 - [Connect a component](docs/connect-component.md) — setup from Figma selection
   to Dev Mode output.
 - [Visual prop mappings](docs/prop-mapping.md) — source/Figma mapping rules,
@@ -85,3 +87,6 @@ Import `manifest.json` in Figma from:
   authoring state and compilation to runtime JSON.
 - `src/codegen.ts` — generated imports, TSX, and mapping diagnostics.
 - `src/connection-health.ts` — source/Figma drift detection and health status.
+- `src/layout/` — tested, internal foundation for Figma auto-layout extraction
+  and TSX/CSS Modules emission; see the project brief for its current exposure
+  status.
