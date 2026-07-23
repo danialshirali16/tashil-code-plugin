@@ -1,0 +1,1115 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Tashil Code — Layout Composer Preview</title>
+    <style>
+      :root {
+        color-scheme: light;
+        --bg: #ffffff;
+        --bg-canvas: #f3f4f6;
+        --bg-secondary: #f2f2f2;
+        --bg-selected: #e8f2ff;
+        --border: #e5e5e5;
+        --border-strong: #c9c9c9;
+        --brand: #0d99ff;
+        --brand-strong: #0878c9;
+        --success: #168a4b;
+        --success-bg: #eaf7ef;
+        --text: #1f1f1f;
+        --text-secondary: #6b6b6b;
+        --text-tertiary: #8c8c8c;
+        --warning: #916800;
+        --warning-bg: #fff8dd;
+        --syntax-keyword: #8250df;
+        --syntax-string: #1a7f37;
+        --syntax-tag: #0550ae;
+        --shadow: 0 18px 52px rgb(0 0 0 / 14%);
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      html,
+      body {
+        min-height: 100%;
+      }
+
+      body {
+        align-items: center;
+        background: var(--bg-canvas);
+        color: var(--text);
+        display: flex;
+        font-family: Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        justify-content: center;
+        margin: 0;
+        padding: 32px;
+      }
+
+      button,
+      select {
+        font: inherit;
+      }
+
+      button {
+        color: inherit;
+      }
+
+      .preview-stage {
+        display: grid;
+        gap: 12px;
+        justify-items: center;
+      }
+
+      .stage-label {
+        color: var(--text-secondary);
+        font-size: 12px;
+        line-height: 16px;
+      }
+
+      .surface-tabs {
+        align-items: center;
+        background: #e8e8e8;
+        border-radius: 7px;
+        display: flex;
+        gap: 2px;
+        padding: 2px;
+      }
+
+      .surface-tab {
+        appearance: none;
+        background: transparent;
+        border: 0;
+        border-radius: 5px;
+        color: var(--text-secondary);
+        cursor: pointer;
+        font-size: 11px;
+        font-weight: 500;
+        height: 28px;
+        padding: 4px 10px;
+      }
+
+      .surface-tab[aria-selected="true"] {
+        background: var(--bg);
+        box-shadow: 0 1px 2px rgb(0 0 0 / 10%);
+        color: var(--text);
+      }
+
+      .surface-tab:focus-visible {
+        outline: 2px solid var(--brand);
+        outline-offset: 1px;
+      }
+
+      .surface {
+        display: none;
+      }
+
+      .surface.active {
+        display: grid;
+      }
+
+      .plugin-window {
+        background: var(--bg);
+        border: 1px solid var(--border-strong);
+        border-radius: 10px;
+        box-shadow: var(--shadow);
+        grid-template-rows: 40px minmax(0, 1fr);
+        height: 640px;
+        overflow: hidden;
+        width: 480px;
+      }
+
+      .plugin-header {
+        align-items: center;
+        border-bottom: 1px solid var(--border);
+        display: flex;
+        justify-content: space-between;
+        padding: 0 12px;
+      }
+
+      .workflow-tabs,
+      .output-tabs {
+        align-items: center;
+        display: flex;
+        gap: 4px;
+      }
+
+      .workflow-tab,
+      .output-tab {
+        appearance: none;
+        background: transparent;
+        border: 0;
+        border-radius: 4px;
+        cursor: pointer;
+        font-size: 11px;
+        line-height: 16px;
+        min-height: 24px;
+        padding: 4px 8px;
+      }
+
+      .workflow-tab[aria-selected="true"],
+      .output-tab[aria-selected="true"] {
+        background: var(--bg-secondary);
+        font-weight: 600;
+      }
+
+      .workflow-tab:focus-visible,
+      .output-tab:focus-visible,
+      .ghost-button:focus-visible,
+      .copy-button:focus-visible,
+      select:focus-visible,
+      summary:focus-visible {
+        outline: 2px solid var(--brand);
+        outline-offset: 1px;
+      }
+
+      .help-button {
+        align-items: center;
+        appearance: none;
+        background: transparent;
+        border: 0;
+        border-radius: 4px;
+        color: var(--text-secondary);
+        cursor: pointer;
+        display: inline-flex;
+        font-size: 12px;
+        font-weight: 600;
+        height: 24px;
+        justify-content: center;
+        width: 24px;
+      }
+
+      .plugin-body {
+        min-height: 0;
+        overflow: auto;
+      }
+
+      .view {
+        display: none;
+      }
+
+      .view.active {
+        display: block;
+      }
+
+      .content {
+        display: grid;
+        gap: 16px;
+        padding: 16px;
+      }
+
+      .selection-card {
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        display: grid;
+        gap: 10px;
+        padding: 12px;
+      }
+
+      .selection-topline {
+        align-items: flex-start;
+        display: grid;
+        gap: 10px;
+        grid-template-columns: 32px minmax(0, 1fr) auto;
+      }
+
+      .selection-icon {
+        align-items: center;
+        background: var(--bg-secondary);
+        border-radius: 6px;
+        display: flex;
+        height: 32px;
+        justify-content: center;
+        width: 32px;
+      }
+
+      .selection-icon img {
+        height: 22px;
+        width: 22px;
+      }
+
+      .eyebrow {
+        color: var(--text-secondary);
+        font-size: 10px;
+        font-weight: 600;
+        letter-spacing: 0.06em;
+        line-height: 14px;
+        text-transform: uppercase;
+      }
+
+      h1,
+      h2,
+      h3,
+      p {
+        margin: 0;
+      }
+
+      .selection-title {
+        font-size: 13px;
+        font-weight: 600;
+        line-height: 18px;
+        margin-top: 1px;
+      }
+
+      .selection-meta {
+        color: var(--text-secondary);
+        font-size: 11px;
+        line-height: 16px;
+      }
+
+      .status-pill {
+        align-items: center;
+        background: var(--success-bg);
+        border-radius: 999px;
+        color: var(--success);
+        display: inline-flex;
+        font-size: 10px;
+        font-weight: 600;
+        line-height: 16px;
+        padding: 2px 7px;
+        white-space: nowrap;
+      }
+
+      .summary-row {
+        align-items: center;
+        background: #fafafa;
+        border-radius: 6px;
+        color: var(--text-secondary);
+        display: flex;
+        font-size: 11px;
+        justify-content: space-between;
+        line-height: 16px;
+        padding: 7px 8px;
+      }
+
+      .summary-value {
+        color: var(--text);
+        font-weight: 500;
+      }
+
+      .section {
+        display: grid;
+        gap: 8px;
+      }
+
+      .section-header {
+        align-items: center;
+        display: flex;
+        justify-content: space-between;
+      }
+
+      .section-title {
+        font-size: 11px;
+        font-weight: 600;
+        line-height: 16px;
+      }
+
+      .section-helper {
+        color: var(--text-secondary);
+        font-size: 10px;
+        line-height: 14px;
+      }
+
+      .tree {
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        overflow: hidden;
+      }
+
+      .tree summary {
+        align-items: center;
+        cursor: pointer;
+        display: grid;
+        font-size: 11px;
+        gap: 8px;
+        grid-template-columns: minmax(0, 1fr) auto;
+        line-height: 16px;
+        list-style-position: inside;
+        min-height: 34px;
+        padding: 7px 9px;
+      }
+
+      .tree summary::-webkit-details-marker {
+        color: var(--text-tertiary);
+      }
+
+      .tree-children {
+        border-top: 1px solid var(--border);
+        display: grid;
+        padding: 4px 0;
+      }
+
+      .tree-row {
+        align-items: center;
+        display: grid;
+        font-size: 11px;
+        gap: 8px;
+        grid-template-columns: 14px minmax(0, 1fr) auto;
+        line-height: 16px;
+        min-height: 28px;
+        padding: 5px 9px 5px 28px;
+      }
+
+      .tree-row.level-2 {
+        padding-left: 46px;
+      }
+
+      .layer-mark {
+        background: var(--border-strong);
+        border-radius: 2px;
+        height: 10px;
+        width: 10px;
+      }
+
+      .layer-mark.component {
+        background: var(--brand);
+        border-radius: 3px;
+        height: 8px;
+        transform: rotate(45deg);
+        width: 8px;
+      }
+
+      .layer-name {
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .layer-type {
+        color: var(--text-tertiary);
+        font-size: 10px;
+      }
+
+      .connected-label {
+        color: var(--success);
+        font-size: 10px;
+        font-weight: 600;
+      }
+
+      .output-card {
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        overflow: hidden;
+      }
+
+      .output-toolbar {
+        align-items: center;
+        border-bottom: 1px solid var(--border);
+        display: flex;
+        gap: 8px;
+        justify-content: space-between;
+        min-height: 40px;
+        padding: 7px 8px;
+      }
+
+      .toolbar-actions {
+        align-items: center;
+        display: flex;
+        gap: 6px;
+      }
+
+      select {
+        appearance: auto;
+        background: var(--bg);
+        border: 1px solid var(--border-strong);
+        border-radius: 5px;
+        color: var(--text);
+        font-size: 10px;
+        height: 26px;
+        padding: 2px 5px;
+      }
+
+      .copy-button,
+      .ghost-button {
+        appearance: none;
+        background: var(--bg);
+        border: 1px solid var(--border-strong);
+        border-radius: 5px;
+        cursor: pointer;
+        font-size: 10px;
+        font-weight: 500;
+        height: 26px;
+        padding: 3px 8px;
+      }
+
+      .copy-button {
+        background: var(--brand);
+        border-color: var(--brand);
+        color: #ffffff;
+      }
+
+      .copy-button:hover {
+        background: var(--brand-strong);
+      }
+
+      .code-wrap {
+        background: #fbfbfb;
+        max-height: 252px;
+        min-height: 252px;
+        overflow: auto;
+      }
+
+      pre {
+        color: #24292f;
+        font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+        font-size: 10px;
+        line-height: 16px;
+        margin: 0;
+        padding: 10px 12px 14px;
+        tab-size: 2;
+        white-space: pre;
+      }
+
+      .diagnostic {
+        align-items: flex-start;
+        background: var(--warning-bg);
+        border: 1px solid #ecd98e;
+        border-radius: 7px;
+        color: var(--warning);
+        display: grid;
+        font-size: 10px;
+        gap: 8px;
+        grid-template-columns: auto 1fr;
+        line-height: 15px;
+        padding: 8px 10px;
+      }
+
+      .diagnostic strong {
+        font-weight: 600;
+      }
+
+      .devmode-window {
+        background: var(--bg);
+        border: 1px solid var(--border-strong);
+        border-radius: 10px;
+        box-shadow: var(--shadow);
+        grid-template-rows: auto auto minmax(0, 1fr);
+        height: 640px;
+        overflow: hidden;
+        width: 400px;
+      }
+
+      .devmode-header {
+        align-items: center;
+        border-bottom: 1px solid var(--border);
+        display: grid;
+        gap: 10px;
+        grid-template-columns: minmax(0, 1fr) auto;
+        min-height: 52px;
+        padding: 9px 12px;
+      }
+
+      .devmode-brand {
+        align-items: center;
+        display: flex;
+        gap: 8px;
+        min-width: 0;
+      }
+
+      .devmode-brand img {
+        border-radius: 5px;
+        height: 26px;
+        width: 26px;
+      }
+
+      .devmode-brand-copy {
+        display: grid;
+        min-width: 0;
+      }
+
+      .devmode-title {
+        font-size: 12px;
+        font-weight: 600;
+        line-height: 16px;
+      }
+
+      .devmode-subtitle {
+        color: var(--text-secondary);
+        font-size: 10px;
+        line-height: 14px;
+      }
+
+      .devmode-badge {
+        background: #e8dcff;
+        border-radius: 999px;
+        color: #6a35bd;
+        font-size: 10px;
+        font-weight: 600;
+        line-height: 16px;
+        padding: 2px 7px;
+      }
+
+      .devmode-selection {
+        border-bottom: 1px solid var(--border);
+        display: grid;
+        gap: 8px;
+        padding: 12px;
+      }
+
+      .devmode-selection-heading {
+        align-items: flex-start;
+        display: grid;
+        gap: 8px;
+        grid-template-columns: minmax(0, 1fr) auto;
+      }
+
+      .devmode-selection-name {
+        font-size: 12px;
+        font-weight: 600;
+        line-height: 17px;
+      }
+
+      .devmode-selection-type {
+        color: var(--text-tertiary);
+        font-size: 9px;
+        font-weight: 600;
+        letter-spacing: 0.06em;
+        line-height: 15px;
+      }
+
+      .devmode-summary {
+        align-items: center;
+        background: var(--success-bg);
+        border-radius: 6px;
+        color: var(--success);
+        display: grid;
+        font-size: 10px;
+        gap: 8px;
+        grid-template-columns: minmax(0, 1fr) auto;
+        line-height: 15px;
+        padding: 7px 8px;
+      }
+
+      .devmode-summary strong {
+        font-weight: 600;
+      }
+
+      .devmode-content {
+        display: grid;
+        gap: 14px;
+        min-height: 0;
+        overflow: auto;
+        padding: 12px;
+      }
+
+      .devmode-codegen-header {
+        align-items: center;
+        display: flex;
+        justify-content: space-between;
+      }
+
+      .devmode-codegen-title {
+        font-size: 11px;
+        font-weight: 600;
+        line-height: 16px;
+      }
+
+      .language-selector {
+        align-items: center;
+        border: 1px solid var(--border-strong);
+        border-radius: 5px;
+        display: flex;
+        font-size: 10px;
+        gap: 5px;
+        height: 26px;
+        padding: 3px 7px;
+      }
+
+      .language-selector img {
+        border-radius: 3px;
+        height: 14px;
+        width: 14px;
+      }
+
+      .devmode-block {
+        border: 1px solid var(--border);
+        border-radius: 7px;
+        overflow: hidden;
+      }
+
+      .devmode-block-header {
+        align-items: center;
+        background: #fafafa;
+        border-bottom: 1px solid var(--border);
+        display: flex;
+        justify-content: space-between;
+        min-height: 34px;
+        padding: 5px 7px 5px 10px;
+      }
+
+      .devmode-block-title {
+        font-size: 10px;
+        font-weight: 600;
+        line-height: 15px;
+      }
+
+      .devmode-block pre {
+        background: #ffffff;
+        max-height: 208px;
+        overflow: auto;
+        padding: 9px 10px 12px;
+      }
+
+      .devmode-block.css-block pre {
+        max-height: 142px;
+      }
+
+      .devmode-note {
+        color: var(--text-secondary);
+        font-size: 10px;
+        line-height: 15px;
+        padding-bottom: 2px;
+      }
+
+      .connect-empty {
+        align-items: center;
+        display: grid;
+        gap: 12px;
+        justify-items: center;
+        min-height: 560px;
+        padding: 40px;
+        text-align: center;
+      }
+
+      .connect-empty img {
+        height: 44px;
+        opacity: 0.7;
+        width: 44px;
+      }
+
+      .connect-empty h1 {
+        font-size: 13px;
+        line-height: 18px;
+      }
+
+      .connect-empty p {
+        color: var(--text-secondary);
+        font-size: 11px;
+        line-height: 16px;
+        max-width: 270px;
+      }
+
+      .toast {
+        background: #252525;
+        border-radius: 6px;
+        bottom: 14px;
+        color: #ffffff;
+        font-size: 11px;
+        left: 50%;
+        line-height: 16px;
+        opacity: 0;
+        padding: 7px 10px;
+        pointer-events: none;
+        position: fixed;
+        transform: translate(-50%, 8px);
+        transition: opacity 140ms ease, transform 140ms ease;
+        z-index: 2;
+      }
+
+      .toast.visible {
+        opacity: 1;
+        transform: translate(-50%, 0);
+      }
+
+      @media (max-width: 560px) {
+        body {
+          background: var(--bg);
+          display: block;
+          padding: 0;
+        }
+
+        .preview-stage {
+          display: block;
+        }
+
+        .stage-label {
+          display: none;
+        }
+
+        .surface-tabs {
+          margin: 8px auto 0;
+        }
+
+        .plugin-window,
+        .devmode-window {
+          border: 0;
+          border-radius: 0;
+          box-shadow: none;
+          height: calc(100vh - 44px);
+          width: 100%;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="preview-stage">
+      <div class="stage-label">Interactive concept · one layout generator, two Figma surfaces</div>
+
+      <div class="surface-tabs" role="tablist" aria-label="Preview surface">
+        <button class="surface-tab" data-surface="devmode" aria-selected="true" role="tab" type="button">
+          Figma Dev Mode
+        </button>
+        <button class="surface-tab" data-surface="plugin" aria-selected="false" role="tab" type="button">
+          Plugin UI
+        </button>
+      </div>
+
+      <main class="plugin-window surface" id="plugin-surface" aria-label="Tashil Code layout composer preview">
+        <header class="plugin-header">
+          <div class="workflow-tabs" role="tablist" aria-label="Tashil Code workflow">
+            <button
+              class="workflow-tab"
+              data-view="connect"
+              role="tab"
+              aria-controls="connect-view"
+              aria-selected="false"
+              type="button"
+            >
+              Connect Component
+            </button>
+            <button
+              class="workflow-tab"
+              data-view="inspect"
+              role="tab"
+              aria-controls="inspect-view"
+              aria-selected="true"
+              type="button"
+            >
+              Inspect Code
+            </button>
+          </div>
+          <button class="help-button" type="button" aria-label="About this preview" title="About this preview">?</button>
+        </header>
+
+        <div class="plugin-body">
+          <section class="view" id="connect-view" role="tabpanel">
+            <div class="connect-empty">
+              <img src="../assets/icon-16-detach.svg" alt="">
+              <div>
+                <h1>“Checkout / Payment” is a layout</h1>
+                <p>
+                  Connect Component remains focused on reusable design-system components.
+                  Open Inspect Code to generate this layout.
+                </p>
+              </div>
+              <button class="ghost-button" data-view-shortcut="inspect" type="button">Open Inspect Code</button>
+            </div>
+          </section>
+
+          <section class="view active" id="inspect-view" role="tabpanel">
+            <div class="content">
+              <section class="selection-card" aria-labelledby="selection-title">
+                <div class="selection-topline">
+                  <div class="selection-icon">
+                    <img src="../assets/icon-24-interaction-click-small.svg" alt="">
+                  </div>
+                  <div>
+                    <div class="eyebrow">Layout detected</div>
+                    <h1 class="selection-title" id="selection-title">Checkout / Payment</h1>
+                    <p class="selection-meta">Frame · Auto layout · 8 visible layers</p>
+                  </div>
+                  <span class="status-pill">Ready</span>
+                </div>
+                <div class="summary-row">
+                  <span>Composition</span>
+                  <span class="summary-value">4 connected components · 3 layout wrappers</span>
+                </div>
+              </section>
+
+              <section class="section" aria-labelledby="structure-title">
+                <div class="section-header">
+                  <div>
+                    <h2 class="section-title" id="structure-title">Composition</h2>
+                    <p class="section-helper">Connected instances stay as production components.</p>
+                  </div>
+                </div>
+
+                <details class="tree" open>
+                  <summary>
+                    <span><strong>Checkout / Payment</strong> <span class="layer-type">Frame</span></span>
+                    <span class="layer-type">column · 24 gap</span>
+                  </summary>
+                  <div class="tree-children">
+                    <div class="tree-row">
+                      <span class="layer-mark"></span>
+                      <span class="layer-name">Page header</span>
+                      <span class="layer-type">Frame</span>
+                    </div>
+                    <div class="tree-row level-2">
+                      <span class="layer-mark component"></span>
+                      <span class="layer-name">IconButton / Back</span>
+                      <span class="connected-label">Connected</span>
+                    </div>
+                    <div class="tree-row level-2">
+                      <span class="layer-mark component"></span>
+                      <span class="layer-name">ProgressStepper / Payment</span>
+                      <span class="connected-label">Connected</span>
+                    </div>
+                    <div class="tree-row">
+                      <span class="layer-mark"></span>
+                      <span class="layer-name">Payment fields</span>
+                      <span class="layer-type">Frame</span>
+                    </div>
+                    <div class="tree-row level-2">
+                      <span class="layer-mark component"></span>
+                      <span class="layer-name">TextField / Card number</span>
+                      <span class="connected-label">Connected</span>
+                    </div>
+                    <div class="tree-row level-2">
+                      <span class="layer-mark component"></span>
+                      <span class="layer-name">Button / Continue</span>
+                      <span class="connected-label">Connected</span>
+                    </div>
+                  </div>
+                </details>
+              </section>
+
+              <section class="section" aria-labelledby="output-title">
+                <div class="section-header">
+                  <h2 class="section-title" id="output-title">Generated output</h2>
+                  <span class="section-helper">Imports deduplicated</span>
+                </div>
+
+                <div class="output-card">
+                  <div class="output-toolbar">
+                    <div class="output-tabs" role="tablist" aria-label="Generated output type">
+                      <button class="output-tab" data-output="tsx" aria-selected="true" role="tab" type="button">TSX</button>
+                      <button class="output-tab" data-output="css" aria-selected="false" role="tab" type="button">CSS</button>
+                    </div>
+                    <div class="toolbar-actions">
+                      <button class="copy-button" id="copy-output" type="button">Copy TSX</button>
+                    </div>
+                  </div>
+                  <div class="code-wrap">
+                    <pre id="generated-code" tabindex="0" aria-label="Generated layout code"></pre>
+                  </div>
+                </div>
+              </section>
+
+              <div class="diagnostic" role="note">
+                <strong>1 note</strong>
+                <span>Fixed canvas width was omitted so the generated layout can remain responsive.</span>
+              </div>
+            </div>
+          </section>
+        </div>
+      </main>
+
+      <aside class="devmode-window surface active" id="devmode-surface" aria-label="Figma Dev Mode code panel preview">
+        <header class="devmode-header">
+          <div class="devmode-brand">
+            <img src="../assets/icon.png" alt="">
+            <div class="devmode-brand-copy">
+              <span class="devmode-title">Tashil Code</span>
+              <span class="devmode-subtitle">Code generation</span>
+            </div>
+          </div>
+          <span class="devmode-badge">Dev Mode</span>
+        </header>
+
+        <section class="devmode-selection" aria-labelledby="devmode-selection-title">
+          <div class="devmode-selection-heading">
+            <div>
+              <div class="eyebrow">Selected layout</div>
+              <h1 class="devmode-selection-name" id="devmode-selection-title">Checkout / Payment</h1>
+            </div>
+            <span class="devmode-selection-type">FRAME</span>
+          </div>
+          <div class="devmode-summary">
+            <span><strong>Layout ready</strong> · 4 connected components</span>
+            <span>3 wrappers</span>
+          </div>
+        </section>
+
+        <div class="devmode-content">
+          <div class="devmode-codegen-header">
+            <h2 class="devmode-codegen-title">Code</h2>
+            <div class="language-selector" aria-label="Selected codegen language">
+              <img src="../assets/icon.png" alt="">
+              <span>Tashil UI</span>
+            </div>
+          </div>
+
+          <section class="devmode-block" aria-labelledby="devmode-tsx-title">
+            <div class="devmode-block-header">
+              <h3 class="devmode-block-title" id="devmode-tsx-title">PaymentDetails · React / TSX</h3>
+              <button class="ghost-button" data-copy-output="tsx" type="button">Copy</button>
+            </div>
+            <pre id="devmode-tsx-code" tabindex="0" aria-label="Generated TSX in Figma Dev Mode"></pre>
+          </section>
+
+          <section class="devmode-block css-block" aria-labelledby="devmode-css-title">
+            <div class="devmode-block-header">
+              <h3 class="devmode-block-title" id="devmode-css-title">PaymentDetails.module.css</h3>
+              <button class="ghost-button" data-copy-output="css" type="button">Copy</button>
+            </div>
+            <pre id="devmode-css-code" tabindex="0" aria-label="Generated CSS in Figma Dev Mode"></pre>
+          </section>
+
+          <p class="devmode-note">
+            Tashil keeps connected instances as production components and generates CSS only for layout wrappers.
+          </p>
+        </div>
+      </aside>
+    </div>
+
+    <div class="toast" id="toast" role="status" aria-live="polite">Copied</div>
+
+    <script>
+      const outputs = {
+        tsx: `import {
+  Button,
+  IconButton,
+  ProgressStepper,
+  TextField,
+} from "@tashilcar/ui";
+import styles from "./PaymentDetails.module.css";
+
+export function PaymentDetails() {
+  return (
+    <main className={styles.page}>
+      <header className={styles.header}>
+        <IconButton icon="arrow-left" label="Back" />
+        <ProgressStepper current={2} total={3} />
+      </header>
+
+      <section className={styles.fields}>
+        <TextField
+          label="Card number"
+          inputMode="numeric"
+        />
+        <Button size="lg" variant="primary">
+          Continue
+        </Button>
+      </section>
+    </main>
+  );
+}`,
+        css: `.page {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+  max-width: 480px;
+  padding: 24px;
+}
+
+.header {
+  align-items: center;
+  display: flex;
+  justify-content: space-between;
+}
+
+.fields {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}`
+      };
+
+      let currentView = "inspect";
+      let currentOutput = "tsx";
+      let currentSurface = "devmode";
+      let toastTimer;
+
+      const codeElement = document.getElementById("generated-code");
+      const copyButton = document.getElementById("copy-output");
+      const toast = document.getElementById("toast");
+      const devmodeTsxCode = document.getElementById("devmode-tsx-code");
+      const devmodeCssCode = document.getElementById("devmode-css-code");
+
+      function renderOutput() {
+        codeElement.textContent = outputs[currentOutput];
+        copyButton.textContent = currentOutput === "tsx" ? "Copy TSX" : "Copy CSS";
+        devmodeTsxCode.textContent = outputs.tsx;
+        devmodeCssCode.textContent = outputs.css;
+      }
+
+      function setSurface(nextSurface) {
+        currentSurface = nextSurface;
+        document.querySelectorAll(".surface-tab").forEach((tab) => {
+          tab.setAttribute("aria-selected", String(tab.dataset.surface === currentSurface));
+        });
+        document.querySelectorAll(".surface").forEach((surface) => {
+          surface.classList.toggle("active", surface.id === `${currentSurface}-surface`);
+        });
+      }
+
+      function setView(nextView) {
+        currentView = nextView;
+        document.querySelectorAll(".workflow-tab").forEach((tab) => {
+          tab.setAttribute("aria-selected", String(tab.dataset.view === currentView));
+        });
+        document.querySelectorAll(".view").forEach((view) => {
+          view.classList.toggle("active", view.id === `${currentView}-view`);
+        });
+      }
+
+      function setOutput(nextOutput) {
+        currentOutput = nextOutput;
+        document.querySelectorAll(".output-tab").forEach((tab) => {
+          tab.setAttribute("aria-selected", String(tab.dataset.output === currentOutput));
+        });
+        renderOutput();
+      }
+
+      function showToast(message) {
+        window.clearTimeout(toastTimer);
+        toast.textContent = message;
+        toast.classList.add("visible");
+        toastTimer = window.setTimeout(() => {
+          toast.classList.remove("visible");
+        }, 1800);
+      }
+
+      async function copyOutput(outputType = currentOutput) {
+        const text = outputs[outputType];
+
+        try {
+          await navigator.clipboard.writeText(text);
+        } catch (_error) {
+          const textarea = document.createElement("textarea");
+          textarea.value = text;
+          textarea.style.position = "fixed";
+          textarea.style.opacity = "0";
+          document.body.appendChild(textarea);
+          textarea.select();
+          document.execCommand("copy");
+          textarea.remove();
+        }
+
+        showToast(`${outputType.toUpperCase()} copied`);
+      }
+
+      document.querySelectorAll(".surface-tab").forEach((tab) => {
+        tab.addEventListener("click", () => setSurface(tab.dataset.surface));
+      });
+
+      document.querySelectorAll(".workflow-tab").forEach((tab) => {
+        tab.addEventListener("click", () => setView(tab.dataset.view));
+      });
+
+      document.querySelectorAll("[data-view-shortcut]").forEach((button) => {
+        button.addEventListener("click", () => setView(button.dataset.viewShortcut));
+      });
+
+      document.querySelectorAll(".output-tab").forEach((tab) => {
+        tab.addEventListener("click", () => setOutput(tab.dataset.output));
+      });
+
+      document.querySelectorAll("[data-copy-output]").forEach((button) => {
+        button.addEventListener("click", () => copyOutput(button.dataset.copyOutput));
+      });
+
+      copyButton.addEventListener("click", copyOutput);
+
+      document.querySelector(".help-button").addEventListener("click", () => {
+        showToast("Concept: layout composition inside Inspect Code");
+      });
+
+      renderOutput();
+    </script>
+  </body>
+</html>

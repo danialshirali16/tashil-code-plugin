@@ -24,8 +24,8 @@ import {
   finishPendingMutation,
   getClearAction,
   getFirstInvalidField,
-  getPendingMutationForSelection,
-  getSelectionStatusAnnouncement,
+  getPendingMutationForTarget,
+  getTargetStatusAnnouncement,
   markFormDraftSaved,
   selectFormDraft,
   startPendingMutation,
@@ -43,18 +43,23 @@ import {
 import {
   type ChildrenMode,
   type ClearConnectionHandler,
+  type ComponentInventoryState,
+  type ComponentInventoryStateHandler,
+  type ComponentTargetStateHandler,
   type InspectCodeState,
   type InspectCodeStateHandler,
   type MappingDocument,
+  type OpenComponentTargetHandler,
   type PropMappings,
   type RefreshSelectionHandler,
+  type ScanComponentsHandler,
   type SaveConnectionHandler,
   type SaveResultHandler,
   type ScaffoldPropMappingsHandler,
   type ScaffoldResultHandler,
-  type SelectionStateHandler,
+  type CanvasTargetStateHandler,
   type SourcePropValue,
-  type UiSelectionState,
+  type UiTargetState,
 } from './types';
 
 export type ConnectionController = {
@@ -66,17 +71,22 @@ export type ConnectionController = {
   fieldErrors: FormErrors;
   formValues: ConnectionFormValues;
   inspectCodeState: InspectCodeState;
+  inventoryState: ComponentInventoryState;
   isClearConfirmationOpen: boolean;
   isDirty: boolean;
   isReady: boolean;
   isSourceUploading: boolean;
   connectionHealth?: ConnectionHealth;
+  closeTarget: () => void;
+  openInventoryTarget: (targetToken: string) => void;
   reconcileFigma: () => void;
   removeStaleMapping: (sourcePropName: string) => void;
+  rescanComponents: () => void;
   save: () => void;
   scaffold: () => void;
-  selectionState: UiSelectionState;
-  selectionStatusAnnouncement: string;
+  targetOrigin?: 'inventory' | 'canvas';
+  targetState: UiTargetState;
+  targetStatusAnnouncement: string;
   setChildrenMode: (value: ChildrenMode) => void;
   setCustomPropMappings: (value: string) => void;
   setFormField: (field: FormField, value: string) => void;
@@ -91,19 +101,30 @@ export type ConnectionController = {
 };
 
 export function useConnectionController(): ConnectionController {
-  const [selectionState, setSelectionState] = useState<UiSelectionState>({
+  const [targetState, setTargetState] = useState<UiTargetState>({
     status: 'empty',
     message: 'Select a component instance or main component.',
+  });
+  const [targetOrigin, setTargetOrigin] = useState<'inventory' | 'canvas'>();
+  const targetOriginRef = useRef<'inventory' | 'canvas'>();
+  const [inventoryState, setInventoryState] = useState<ComponentInventoryState>({
+    scannedPages: 0,
+    status: 'scanning',
+    totalPages: 0,
   });
   const initialFormValues = createFormValues();
   const [formValues, setFormValuesState] = useState(initialFormValues);
   const formValuesRef = useRef(initialFormValues);
   const draftsRef = useRef<DraftStore>(new Map());
-  const activeSelectionTokenRef = useRef<string>();
-  const selectionStateRef = useRef<UiSelectionState>({
+  const activeTargetTokenRef = useRef<string>();
+  const targetStateRef = useRef<UiTargetState>({
     status: 'empty',
     message: 'Select a component instance or main component.',
   });
+  const scanSequenceRef = useRef(0);
+  const targetRequestSequenceRef = useRef(0);
+  const currentScanIdRef = useRef('');
+  const currentTargetRequestIdRef = useRef('');
   const initialPendingMutations = createPendingMutationState();
   const pendingMutationsRef = useRef<PendingMutationState>(initialPendingMutations);
   const [pendingMutations, setPendingMutationsState] = useState(initialPendingMutations);
@@ -121,10 +142,10 @@ export function useConnectionController(): ConnectionController {
   const sourceVerifiedSelectionsRef = useRef<Set<string>>(new Set());
   const savedMappingDocumentsRef = useRef<Map<string, MappingDocument>>(new Map());
 
-  const isReady = selectionState.status === 'ready';
-  const selectionStatusAnnouncement = getSelectionStatusAnnouncement(selectionState);
-  const activePendingMutation = selectionState.status === 'ready'
-    ? getPendingMutationForSelection(pendingMutations, selectionState.selectionToken)
+  const isReady = targetState.status === 'ready';
+  const targetStatusAnnouncement = getTargetStatusAnnouncement(targetState);
+  const activePendingMutation = targetState.status === 'ready'
+    ? getPendingMutationForTarget(pendingMutations, targetState.targetToken)
     : undefined;
 
   useEffect(() => {
@@ -134,9 +155,37 @@ export function useConnectionController(): ConnectionController {
   }, [isClearConfirmationOpen]);
 
   useEffect(() => {
-    const offSelectionState = on<SelectionStateHandler>('SELECTION_STATE', (state) => {
-      applySelectionState(state);
-    });
+    const offCanvasTargetState = on<CanvasTargetStateHandler>(
+      'CANVAS_TARGET_STATE',
+      ({ source, state }) => {
+        if (
+          source === 'selectionchange'
+          && state.status === 'ready'
+          && targetOriginRef.current !== 'inventory'
+        ) {
+          applyTargetState(state, 'canvas');
+        }
+      },
+    );
+
+    const offComponentTargetState = on<ComponentTargetStateHandler>(
+      'COMPONENT_TARGET_STATE',
+      ({ requestId, state }) => {
+        if (requestId !== currentTargetRequestIdRef.current) {
+          return;
+        }
+        applyTargetState(state, 'inventory');
+      },
+    );
+
+    const offInventoryState = on<ComponentInventoryStateHandler>(
+      'COMPONENT_INVENTORY_STATE',
+      ({ scanId, state }) => {
+        if (scanId === currentScanIdRef.current) {
+          setInventoryState(state);
+        }
+      },
+    );
 
     const offSaveResult = on<SaveResultHandler>('SAVE_RESULT', (result) => {
       handleSaveResult(result);
@@ -147,10 +196,11 @@ export function useConnectionController(): ConnectionController {
     });
 
     const offScaffoldResult = on<ScaffoldResultHandler>('SCAFFOLD_RESULT', (result) => {
+      const targetToken = result.targetToken;
       const pendingMutation = completePendingMutation({
         operation: 'scaffold',
         operationId: result.operationId,
-        selectionToken: result.selectionToken,
+        targetToken,
       });
 
       if (!pendingMutation) {
@@ -158,61 +208,73 @@ export function useConnectionController(): ConnectionController {
       }
 
       if (!result.ok) {
-        if (activeSelectionTokenRef.current === result.selectionToken) {
+        if (activeTargetTokenRef.current === targetToken) {
           setStatusMessage('');
           setErrorMessage(result.message || 'Could not scaffold prop mappings.');
         }
         return;
       }
 
-      mergePropMappings(result.selectionToken, result.mappings ?? {});
+      mergePropMappings(targetToken, result.mappings ?? {});
     });
 
+    rescanComponents();
     emit<RefreshSelectionHandler>('REFRESH_SELECTION');
 
     return () => {
-      offSelectionState();
+      offCanvasTargetState();
+      offComponentTargetState();
+      offInventoryState();
       offSaveResult();
       offInspectCodeState();
       offScaffoldResult();
     };
   }, []);
 
-  function applySelectionState(state: UiSelectionState): void {
-    const previousToken = activeSelectionTokenRef.current;
-    selectionStateRef.current = state;
-    setSelectionState(state);
+  function applyTargetState(
+    state: UiTargetState,
+    origin: 'inventory' | 'canvas',
+  ): void {
+    const previousToken = activeTargetTokenRef.current;
+    targetStateRef.current = state;
+    setTargetState(state);
     setErrorMessage('');
     setFieldErrors({});
 
     if (state.status !== 'ready') {
       sourceUploadIdRef.current += 1;
       setIsSourceUploading(false);
-      activeSelectionTokenRef.current = undefined;
-      displayFormDraft(createFormDraft(createFormValues()));
+      if (origin === 'inventory') {
+        activeTargetTokenRef.current = undefined;
+        displayFormDraft(createFormDraft(createFormValues()));
+      }
       setStatusMessage('');
       setIsClearConfirmationOpen(false);
+      targetOriginRef.current = origin;
+      setTargetOrigin(origin);
       return;
     }
 
     const result = selectFormDraft(draftsRef.current, state);
     if (state.existingConnection?.mappingDocument) {
       savedMappingDocumentsRef.current.set(
-        state.selectionToken,
+        state.targetToken,
         state.existingConnection.mappingDocument,
       );
     } else {
-      savedMappingDocumentsRef.current.delete(state.selectionToken);
+      savedMappingDocumentsRef.current.delete(state.targetToken);
     }
-    if (previousToken !== state.selectionToken) {
+    if (previousToken !== state.targetToken) {
       sourceUploadIdRef.current += 1;
       setIsSourceUploading(false);
     }
     draftsRef.current = result.drafts;
-    activeSelectionTokenRef.current = state.selectionToken;
+    activeTargetTokenRef.current = state.targetToken;
+    targetOriginRef.current = origin;
+    setTargetOrigin(origin);
     displayFormDraft(result.draft!);
 
-    if (previousToken !== state.selectionToken) {
+    if (previousToken !== state.targetToken) {
       setStatusMessage(result.restored
         ? 'Restored your unsaved changes for this component.'
         : '');
@@ -222,21 +284,60 @@ export function useConnectionController(): ConnectionController {
     }
   }
 
+  function rescanComponents(): void {
+    const scanId = `scan-${Date.now()}-${++scanSequenceRef.current}`;
+    currentScanIdRef.current = scanId;
+    setInventoryState({
+      scannedPages: 0,
+      status: 'scanning',
+      totalPages: 0,
+    });
+    emit<ScanComponentsHandler>('SCAN_COMPONENTS', { scanId });
+  }
+
+  function openInventoryTarget(targetToken: string): void {
+    const requestId = `target-${Date.now()}-${++targetRequestSequenceRef.current}`;
+    currentTargetRequestIdRef.current = requestId;
+    emit<OpenComponentTargetHandler>('OPEN_COMPONENT_TARGET', {
+      requestId,
+      targetToken,
+    });
+  }
+
+  function closeTarget(): void {
+    sourceUploadIdRef.current += 1;
+    setIsSourceUploading(false);
+    activeTargetTokenRef.current = undefined;
+    targetOriginRef.current = undefined;
+    setTargetOrigin(undefined);
+    const emptyState: UiTargetState = {
+      status: 'empty',
+      message: 'Choose a component from the inventory.',
+    };
+    targetStateRef.current = emptyState;
+    setTargetState(emptyState);
+    setFieldErrors({});
+    setErrorMessage('');
+    setStatusMessage('');
+    setIsClearConfirmationOpen(false);
+  }
+
   function handleSaveResult(result: Parameters<SaveResultHandler['handler']>[0]): void {
+    const targetToken = result.targetToken;
     const pendingMutation = completePendingMutation({
       operation: result.operation,
       operationId: result.operationId,
-      selectionToken: result.selectionToken,
+      targetToken,
     });
 
     if (!pendingMutation) {
       return;
     }
 
-    const isActiveSelection = activeSelectionTokenRef.current === result.selectionToken;
+    const isActiveTarget = activeTargetTokenRef.current === targetToken;
 
     if (result.operation === 'save' && pendingMutation.operation === 'save') {
-      const draft = draftsRef.current.get(result.selectionToken);
+      const draft = draftsRef.current.get(targetToken);
 
       if (result.ok && draft) {
         let confirmedValues = pendingMutation.submittedValues;
@@ -245,19 +346,19 @@ export function useConnectionController(): ConnectionController {
           pendingMutation.submittedValues.mappingDocument,
         );
         if (submittedDocument) {
-          const currentSelection = selectionStateRef.current;
+          const currentTarget = targetStateRef.current;
           const savedDocument: MappingDocument = {
             ...submittedDocument,
-            figmaSnapshot: currentSelection.status === 'ready'
-              && currentSelection.selectionToken === result.selectionToken
-              && currentSelection.figmaSnapshot
-              ? currentSelection.figmaSnapshot
+            figmaSnapshot: currentTarget.status === 'ready'
+              && currentTarget.targetToken === targetToken
+              && currentTarget.figmaSnapshot
+              ? currentTarget.figmaSnapshot
               : submittedDocument.figmaSnapshot,
             lastValidatedAt: new Date().toISOString(),
             revision: submittedDocument.revision + 1,
           };
           confirmedDocument = savedDocument;
-          savedMappingDocumentsRef.current.set(result.selectionToken, savedDocument);
+          savedMappingDocumentsRef.current.set(targetToken, savedDocument);
           confirmedValues = {
             ...confirmedValues,
             mappingDocument: JSON.stringify(savedDocument, null, 2),
@@ -285,23 +386,43 @@ export function useConnectionController(): ConnectionController {
           };
         }
         const nextDrafts = new Map(draftsRef.current);
-        nextDrafts.set(result.selectionToken, savedDraft);
+        nextDrafts.set(targetToken, savedDraft);
         draftsRef.current = nextDrafts;
-        if (isActiveSelection) {
+        if (isActiveTarget) {
           displayFormDraft(savedDraft);
         }
 
       }
     } else if (result.ok) {
-      const cleared = clearFormDraft(draftsRef.current, result.selectionToken);
+      const cleared = clearFormDraft(draftsRef.current, targetToken);
       draftsRef.current = cleared.drafts;
 
-      if (isActiveSelection) {
+      if (isActiveTarget) {
         displayFormDraft(cleared.draft);
       }
     }
 
-    if (isActiveSelection) {
+    if (result.ok) {
+      const status = result.operation === 'save' ? 'connected' : 'not-connected';
+      setInventoryState((current) => (
+        current.status === 'ready' || current.status === 'partial'
+          ? {
+              ...current,
+              items: current.items.map((item) => (
+                item.targetToken === targetToken
+                  ? { ...item, status }
+                  : item
+              )),
+            }
+          : current
+      ));
+    }
+
+    if (isActiveTarget) {
+      if (result.ok && result.targetState) {
+        targetStateRef.current = result.targetState;
+        setTargetState(result.targetState);
+      }
       setErrorMessage(result.ok ? '' : result.message);
       setStatusMessage(result.ok ? result.message : '');
       setIsClearConfirmationOpen(false);
@@ -334,8 +455,8 @@ export function useConnectionController(): ConnectionController {
     return result.mutation;
   }
 
-  function mergePropMappings(selectionToken: string, incoming: PropMappings): void {
-    const draft = draftsRef.current.get(selectionToken);
+  function mergePropMappings(targetToken: string, incoming: PropMappings): void {
+    const draft = draftsRef.current.get(targetToken);
     if (!draft) {
       return;
     }
@@ -343,7 +464,7 @@ export function useConnectionController(): ConnectionController {
     const result = mergePropMappingsJson(draft.values.propMappings, incoming);
 
     if (!result.ok) {
-      if (activeSelectionTokenRef.current === selectionToken) {
+      if (activeTargetTokenRef.current === targetToken) {
         setStatusMessage('');
         setErrorMessage(result.message);
       }
@@ -352,10 +473,10 @@ export function useConnectionController(): ConnectionController {
 
     const updatedDraft = updateFormDraft(draft, 'propMappings', result.value);
     const nextDrafts = new Map(draftsRef.current);
-    nextDrafts.set(selectionToken, updatedDraft);
+    nextDrafts.set(targetToken, updatedDraft);
     draftsRef.current = nextDrafts;
 
-    if (activeSelectionTokenRef.current === selectionToken) {
+    if (activeTargetTokenRef.current === targetToken) {
       displayFormDraft(updatedDraft);
       setFieldErrors((current) => ({ ...current, propMappings: undefined }));
       setErrorMessage('');
@@ -370,16 +491,16 @@ export function useConnectionController(): ConnectionController {
   }
 
   function setFormField(field: FormField, value: string): void {
-    const selectionToken = activeSelectionTokenRef.current;
-    if (!selectionToken) {
+    const targetToken = activeTargetTokenRef.current;
+    if (!targetToken) {
       return;
     }
 
-    const draft = draftsRef.current.get(selectionToken)
+    const draft = draftsRef.current.get(targetToken)
       ?? createFormDraft(formValuesRef.current);
     const updatedDraft = updateFormDraft(draft, field, value);
     const nextDrafts = new Map(draftsRef.current);
-    nextDrafts.set(selectionToken, updatedDraft);
+    nextDrafts.set(targetToken, updatedDraft);
     draftsRef.current = nextDrafts;
     displayFormDraft(updatedDraft);
     setFieldErrors((current) => ({ ...current, [field]: undefined }));
@@ -432,8 +553,8 @@ export function useConnectionController(): ConnectionController {
   }
 
   function applyMappingDocument(document: MappingDocument, message: string): void {
-    const selectionToken = activeSelectionTokenRef.current;
-    if (!selectionToken) {
+    const targetToken = activeTargetTokenRef.current;
+    if (!targetToken) {
       return;
     }
 
@@ -442,7 +563,7 @@ export function useConnectionController(): ConnectionController {
       ? readCustomPropMappings() ?? {}
       : extractAdvancedPropMappings(readPropMappings(), document);
     const compiled = compileMappingDocument(document, preservedMappings);
-    const draft = draftsRef.current.get(selectionToken)
+    const draft = draftsRef.current.get(targetToken)
       ?? createFormDraft(formValuesRef.current);
     let updatedDraft = updateFormDraft(
       draft,
@@ -484,7 +605,7 @@ export function useConnectionController(): ConnectionController {
       );
     }
     const nextDrafts = new Map(draftsRef.current);
-    nextDrafts.set(selectionToken, updatedDraft);
+    nextDrafts.set(targetToken, updatedDraft);
     draftsRef.current = nextDrafts;
     displayFormDraft(updatedDraft);
     setFieldErrors((current) => ({
@@ -498,15 +619,15 @@ export function useConnectionController(): ConnectionController {
   }
 
   async function uploadSourceFiles(files: readonly File[]): Promise<void> {
-    const currentSelection = selectionStateRef.current;
-    if (currentSelection.status !== 'ready' || !currentSelection.figmaSnapshot) {
+    const currentTarget = targetStateRef.current;
+    if (currentTarget.status !== 'ready' || !currentTarget.figmaSnapshot) {
       setErrorMessage('Select a Figma component with component properties first.');
       return;
     }
 
     const uploadId = sourceUploadIdRef.current + 1;
     sourceUploadIdRef.current = uploadId;
-    const selectionToken = currentSelection.selectionToken;
+    const targetToken = currentTarget.targetToken;
     setIsSourceUploading(true);
     setErrorMessage('');
     setStatusMessage('Analyzing source files…');
@@ -518,12 +639,12 @@ export function useConnectionController(): ConnectionController {
       })));
       const result = parseSourceComponent(
         inputs,
-        formValuesRef.current.componentName.trim() || currentSelection.componentName,
+        formValuesRef.current.componentName.trim() || currentTarget.componentName,
       );
 
       if (
         sourceUploadIdRef.current !== uploadId
-        || activeSelectionTokenRef.current !== selectionToken
+        || activeTargetTokenRef.current !== targetToken
       ) {
         return;
       }
@@ -536,11 +657,11 @@ export function useConnectionController(): ConnectionController {
 
       const document = createMappingDocumentDraft(
         result.snapshot,
-        currentSelection.figmaSnapshot,
+        currentTarget.figmaSnapshot,
         readPropMappings(),
         readMappingDocument(),
       );
-      sourceVerifiedSelectionsRef.current.add(selectionToken);
+      sourceVerifiedSelectionsRef.current.add(targetToken);
       applyMappingDocument(
         document,
         result.warnings.length > 0
@@ -550,7 +671,7 @@ export function useConnectionController(): ConnectionController {
     } catch (_error) {
       if (
         sourceUploadIdRef.current === uploadId
-        && activeSelectionTokenRef.current === selectionToken
+        && activeTargetTokenRef.current === targetToken
       ) {
         setStatusMessage('');
         setErrorMessage('Could not read the selected source files.');
@@ -563,11 +684,11 @@ export function useConnectionController(): ConnectionController {
   }
 
   function reconcileFigma(): void {
-    const currentSelection = selectionStateRef.current;
+    const currentTarget = targetStateRef.current;
     const document = readMappingDocument();
     if (
-      currentSelection.status !== 'ready'
-      || !currentSelection.figmaSnapshot
+      currentTarget.status !== 'ready'
+      || !currentTarget.figmaSnapshot
       || !document?.sourceSnapshot
     ) {
       setErrorMessage('Upload source and select a Figma component before reconciling.');
@@ -577,7 +698,7 @@ export function useConnectionController(): ConnectionController {
     applyMappingDocument(
       createMappingDocumentDraft(
         document.sourceSnapshot,
-        currentSelection.figmaSnapshot,
+        currentTarget.figmaSnapshot,
         readPropMappings(),
         document,
       ),
@@ -623,12 +744,12 @@ export function useConnectionController(): ConnectionController {
   }
 
   function setCustomPropMappings(value: string): void {
-    const selectionToken = activeSelectionTokenRef.current;
-    if (!selectionToken) {
+    const targetToken = activeTargetTokenRef.current;
+    if (!targetToken) {
       return;
     }
 
-    const draft = draftsRef.current.get(selectionToken)
+    const draft = draftsRef.current.get(targetToken)
       ?? createFormDraft(formValuesRef.current);
     let updatedDraft = updateFormDraft(draft, 'customPropMappings', value);
     const document = readMappingDocument(updatedDraft.values.mappingDocument);
@@ -642,7 +763,7 @@ export function useConnectionController(): ConnectionController {
     }
 
     const nextDrafts = new Map(draftsRef.current);
-    nextDrafts.set(selectionToken, updatedDraft);
+    nextDrafts.set(targetToken, updatedDraft);
     draftsRef.current = nextDrafts;
     displayFormDraft(updatedDraft);
     setFieldErrors((current) => ({ ...current, customPropMappings: undefined }));
@@ -653,10 +774,10 @@ export function useConnectionController(): ConnectionController {
 
   function save(): void {
     if (
-      selectionState.status !== 'ready'
-      || activeSelectionTokenRef.current !== selectionState.selectionToken
+      targetState.status !== 'ready'
+      || activeTargetTokenRef.current !== targetState.targetToken
     ) {
-      setErrorMessage('Selection changed. Select one component and try again.');
+      setErrorMessage('This component is no longer available. Open it again and retry.');
       return;
     }
 
@@ -686,7 +807,7 @@ export function useConnectionController(): ConnectionController {
     if (!beginPendingMutation({
       operation: 'save',
       operationId,
-      selectionToken: selectionState.selectionToken,
+      targetToken: targetState.targetToken,
       submittedValues: { ...formValuesRef.current },
     })) {
       return;
@@ -698,16 +819,16 @@ export function useConnectionController(): ConnectionController {
     emit<SaveConnectionHandler>('SAVE_CONNECTION', {
       metadata: validation.metadata,
       operationId,
-      selectionToken: selectionState.selectionToken,
+      targetToken: targetState.targetToken,
     });
   }
 
   function scaffold(): void {
     if (
-      selectionState.status !== 'ready'
-      || activeSelectionTokenRef.current !== selectionState.selectionToken
+      targetState.status !== 'ready'
+      || activeTargetTokenRef.current !== targetState.targetToken
     ) {
-      setErrorMessage('Selection changed. Select one component and try again.');
+      setErrorMessage('This component is no longer available. Open it again and retry.');
       return;
     }
 
@@ -715,7 +836,7 @@ export function useConnectionController(): ConnectionController {
     if (!beginPendingMutation({
       operation: 'scaffold',
       operationId,
-      selectionToken: selectionState.selectionToken,
+      targetToken: targetState.targetToken,
     })) {
       return;
     }
@@ -724,22 +845,22 @@ export function useConnectionController(): ConnectionController {
     setStatusMessage('Generating prop mappings…');
     emit<ScaffoldPropMappingsHandler>('SCAFFOLD_PROP_MAPPINGS', {
       operationId,
-      selectionToken: selectionState.selectionToken,
+      targetToken: targetState.targetToken,
     });
   }
 
   function clear(): void {
     if (
-      selectionState.status !== 'ready'
-      || activeSelectionTokenRef.current !== selectionState.selectionToken
+      targetState.status !== 'ready'
+      || activeTargetTokenRef.current !== targetState.targetToken
     ) {
-      setErrorMessage('Selection changed. Select one component and try again.');
+      setErrorMessage('This component is no longer available. Open it again and retry.');
       return;
     }
 
-    if (getPendingMutationForSelection(
+    if (getPendingMutationForTarget(
       pendingMutationsRef.current,
-      selectionState.selectionToken,
+      targetState.targetToken,
     )) {
       return;
     }
@@ -753,7 +874,7 @@ export function useConnectionController(): ConnectionController {
     if (!beginPendingMutation({
       operation: 'clear',
       operationId,
-      selectionToken: selectionState.selectionToken,
+      targetToken: targetState.targetToken,
     })) {
       return;
     }
@@ -763,7 +884,7 @@ export function useConnectionController(): ConnectionController {
     setStatusMessage('Clearing connection…');
     emit<ClearConnectionHandler>('CLEAR_CONNECTION', {
       operationId,
-      selectionToken: selectionState.selectionToken,
+      targetToken: targetState.targetToken,
     });
   }
 
@@ -774,13 +895,13 @@ export function useConnectionController(): ConnectionController {
     }, 0);
   }
 
-  const connectionHealth = selectionState.status === 'ready'
+  const connectionHealth = targetState.status === 'ready'
     ? evaluateConnectionHealth(
-        savedMappingDocumentsRef.current.get(selectionState.selectionToken)
-          ?? selectionState.existingConnection?.mappingDocument,
-        selectionState.figmaSnapshot,
+        savedMappingDocumentsRef.current.get(targetState.targetToken)
+          ?? targetState.existingConnection?.mappingDocument,
+        targetState.figmaSnapshot,
         readMappingDocument(formValues.mappingDocument),
-        sourceVerifiedSelectionsRef.current.has(selectionState.selectionToken),
+        sourceVerifiedSelectionsRef.current.has(targetState.targetToken),
       )
     : undefined;
 
@@ -798,12 +919,17 @@ export function useConnectionController(): ConnectionController {
     isReady,
     isSourceUploading,
     connectionHealth,
+    closeTarget,
+    inventoryState,
+    openInventoryTarget,
     reconcileFigma,
     removeStaleMapping,
+    rescanComponents,
     save,
     scaffold,
-    selectionState,
-    selectionStatusAnnouncement,
+    targetOrigin,
+    targetState,
+    targetStatusAnnouncement,
     setChildrenMode,
     setCustomPropMappings,
     setFormField,

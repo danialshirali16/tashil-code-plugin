@@ -8,6 +8,7 @@
     "src/main.ts",
     "src/codegen.ts",
     "src/external-url.ts",
-    "src/types.ts"
+    "src/types.ts",
+    "src/layout/fixtures.ts"
   ]
 }

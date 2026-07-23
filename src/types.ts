@@ -133,10 +133,48 @@ export type ConnectionReferences = {
   updatedAt?: string;
 };
 
-export type UiSelectionState =
+export type ComponentConnectionStatus =
+  | 'connected'
+  | 'needs-attention'
+  | 'not-connected';
+
+export type ComponentInventoryItem = {
+  componentName: string;
+  nodeType: 'COMPONENT' | 'COMPONENT_SET';
+  pageName: string;
+  status: ComponentConnectionStatus;
+  targetToken: string;
+};
+
+export type ComponentInventoryState =
+  | {
+      scannedPages: number;
+      status: 'scanning';
+      totalPages: number;
+    }
+  | {
+      items: ComponentInventoryItem[];
+      scannedPages: number;
+      status: 'ready';
+      totalPages: number;
+    }
+  | {
+      items: ComponentInventoryItem[];
+      message: string;
+      scannedPages: number;
+      skippedPageNames: string[];
+      status: 'partial';
+      totalPages: number;
+    }
+  | {
+      message: string;
+      status: 'error';
+    };
+
+export type UiTargetState =
   | {
       status: 'ready';
-      selectionToken: string;
+      targetToken: string;
       componentName: string;
       figmaSnapshot?: FigmaComponentSnapshot;
       existingConnection?: ConnectionMetadata;
@@ -145,7 +183,7 @@ export type UiSelectionState =
     }
   | {
       status: 'empty';
-      selectionToken?: never;
+      targetToken?: never;
       componentName?: never;
       existingConnection?: never;
       connectionIssue?: never;
@@ -175,9 +213,28 @@ export type CodegenBlock = {
   code: string;
 };
 
-export type SelectionStateHandler = {
-  name: 'SELECTION_STATE';
-  handler: (state: UiSelectionState) => void;
+export type CanvasTargetStateHandler = {
+  name: 'CANVAS_TARGET_STATE';
+  handler: (payload: {
+    source: 'initial' | 'refresh' | 'selectionchange';
+    state: UiTargetState;
+  }) => void;
+};
+
+export type ComponentInventoryStateHandler = {
+  name: 'COMPONENT_INVENTORY_STATE';
+  handler: (payload: {
+    scanId: string;
+    state: ComponentInventoryState;
+  }) => void;
+};
+
+export type ComponentTargetStateHandler = {
+  name: 'COMPONENT_TARGET_STATE';
+  handler: (payload: {
+    requestId: string;
+    state: UiTargetState;
+  }) => void;
 };
 
 export type InspectCodeStateHandler = {
@@ -189,19 +246,32 @@ export type SaveConnectionHandler = {
   name: 'SAVE_CONNECTION';
   handler: (payload: {
     operationId: string;
-    selectionToken: string;
+    targetToken: string;
     metadata: ConnectionMetadata;
   }) => void;
 };
 
 export type ClearConnectionHandler = {
   name: 'CLEAR_CONNECTION';
-  handler: (payload: { operationId: string; selectionToken: string }) => void;
+  handler: (payload: {
+    operationId: string;
+    targetToken: string;
+  }) => void;
 };
 
 export type RefreshSelectionHandler = {
   name: 'REFRESH_SELECTION';
   handler: () => void;
+};
+
+export type ScanComponentsHandler = {
+  name: 'SCAN_COMPONENTS';
+  handler: (payload: { scanId: string }) => void;
+};
+
+export type OpenComponentTargetHandler = {
+  name: 'OPEN_COMPONENT_TARGET';
+  handler: (payload: { requestId: string; targetToken: string }) => void;
 };
 
 export type ResizeWindowHandler = {
@@ -221,14 +291,18 @@ export type SaveResultHandler = {
     ok: boolean;
     operationId: string;
     operation: 'clear' | 'save';
-    selectionToken: string;
+    targetState?: UiTargetState;
+    targetToken: string;
   }) => void;
 };
 
 /** UI -> main: request a prop-mapping scaffold for the current selection. */
 export type ScaffoldPropMappingsHandler = {
   name: 'SCAFFOLD_PROP_MAPPINGS';
-  handler: (payload: { operationId: string; selectionToken: string }) => void;
+  handler: (payload: {
+    operationId: string;
+    targetToken: string;
+  }) => void;
 };
 
 /** main -> UI: the scaffolded mappings (or a failure reason). */
@@ -239,6 +313,6 @@ export type ScaffoldResultHandler = {
     message?: string;
     ok: boolean;
     operationId: string;
-    selectionToken: string;
+    targetToken: string;
   }) => void;
 };

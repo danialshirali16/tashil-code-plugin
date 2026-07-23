@@ -3,5 +3,5 @@
   "compilerOptions": {
     "types": ["@figma/plugin-typings"]
   },
-  "include": ["src/main.test.ts"]
+  "include": ["src/main.test.ts", "src/layout/golden.test.ts"]
 }

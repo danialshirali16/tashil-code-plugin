@@ -4,11 +4,12 @@ import {
   CONNECTION_NAMESPACE,
   CURRENT_SCHEMA_VERSION,
   type CodegenBlock,
+  type ComponentInventoryState,
   type ConnectionMetadata,
   type InspectCodeState,
   type MappingDocument,
   type ScaffoldResultHandler,
-  type UiSelectionState,
+  type UiTargetState,
 } from './types';
 
 type MessageHandler = (payload: unknown) => void;
@@ -20,7 +21,21 @@ const utilityMocks = vi.hoisted(() => {
     emit: vi.fn(),
     handlers,
     on: vi.fn((name: string, handler: MessageHandler) => {
-      handlers.set(name, handler);
+      handlers.set(name, (payload) => {
+        if (
+          typeof payload === 'object'
+          && payload !== null
+          && 'selectionToken' in payload
+          && !('targetToken' in payload)
+        ) {
+          handler({
+            ...payload,
+            targetToken: payload.selectionToken,
+          });
+          return;
+        }
+        handler(payload);
+      });
       return () => handlers.delete(name);
     }),
     showUI: vi.fn(),
@@ -40,6 +55,11 @@ type ComponentDouble = ComponentNode & {
 
 type InstanceDouble = InstanceNode & {
   getMainComponentAsync: ReturnType<typeof vi.fn>;
+};
+
+type PageDouble = PageNode & {
+  findAllWithCriteria: ReturnType<typeof vi.fn>;
+  loadAsync: ReturnType<typeof vi.fn>;
 };
 
 type ComponentOptions = {
@@ -83,6 +103,21 @@ function createInstance(
   } as unknown as InstanceDouble;
 }
 
+function createPage(
+  id: string,
+  name: string,
+  nodes: ReadonlyArray<ComponentNode | ComponentSetNode>,
+  loadAsync: () => Promise<void> = () => Promise.resolve(),
+): PageDouble {
+  return {
+    findAllWithCriteria: vi.fn(() => [...nodes]),
+    id,
+    loadAsync: vi.fn(loadAsync),
+    name,
+    type: 'PAGE',
+  } as unknown as PageDouble;
+}
+
 function createDeferred<T>(): {
   promise: Promise<T>;
   reject: (reason?: unknown) => void;
@@ -99,6 +134,14 @@ function createDeferred<T>(): {
 }
 
 function emittedPayloads<T>(name: string): T[] {
+  if (name === 'SELECTION_STATE') {
+    return utilityMocks.emit.mock.calls
+      .filter(([eventName]) => eventName === 'CANVAS_TARGET_STATE')
+      .map(([, payload]) => (
+        payload as { state: UiTargetState }
+      ).state as T);
+  }
+
   return utilityMocks.emit.mock.calls
     .filter(([eventName]) => eventName === name)
     .map(([, payload]) => payload as T);
@@ -116,6 +159,7 @@ async function startPlugin(): Promise<{
   notify: ReturnType<typeof vi.fn>;
   nodesById: Map<string, BaseNode>;
   openExternal: ReturnType<typeof vi.fn>;
+  pages: PageNode[];
   selection: SceneNode[];
 }> {
   const codegenEvents = new Map<string, CodegenGenerateHandler>();
@@ -123,7 +167,26 @@ async function startPlugin(): Promise<{
   const notify = vi.fn();
   const nodesById = new Map<string, BaseNode>();
   const openExternal = vi.fn();
+  const pages: PageNode[] = [];
   const selection: SceneNode[] = [];
+  const pushSelection = selection.push.bind(selection);
+  const spliceSelection = selection.splice.bind(selection);
+  selection.push = (...nodes: SceneNode[]): number => {
+    for (const node of nodes) {
+      nodesById.set(node.id, node);
+    }
+    return pushSelection(...nodes);
+  };
+  selection.splice = (
+    start: number,
+    deleteCount?: number,
+    ...nodes: SceneNode[]
+  ): SceneNode[] => {
+    for (const node of nodes) {
+      nodesById.set(node.id, node);
+    }
+    return spliceSelection(start, deleteCount ?? selection.length - start, ...nodes);
+  };
 
   vi.stubGlobal('figma', {
     closePlugin: vi.fn(),
@@ -140,13 +203,22 @@ async function startPlugin(): Promise<{
     on: vi.fn((name: string, handler: () => void) => {
       figmaEvents.set(name, handler);
     }),
+    root: { children: pages },
     ui: { resize: vi.fn() },
   });
 
   const plugin = await import('./main');
   plugin.default();
 
-  return { codegenEvents, figmaEvents, nodesById, notify, openExternal, selection };
+  return {
+    codegenEvents,
+    figmaEvents,
+    nodesById,
+    notify,
+    openExternal,
+    pages,
+    selection,
+  };
 }
 
 beforeEach(() => {
@@ -181,7 +253,7 @@ describe('selection synchronization', () => {
     utilityMocks.handlers.get('REFRESH_SELECTION')?.(undefined);
 
     await vi.waitFor(() => {
-      expect(emittedPayloads<UiSelectionState>('SELECTION_STATE')).toContainEqual(
+      expect(emittedPayloads<UiTargetState>('SELECTION_STATE')).toContainEqual(
         expect.objectContaining({
           figmaSnapshot: {
             componentId: 'component-a',
@@ -226,7 +298,7 @@ describe('selection synchronization', () => {
     utilityMocks.handlers.get('REFRESH_SELECTION')?.(undefined);
 
     await vi.waitFor(() => {
-      expect(emittedPayloads<UiSelectionState>('SELECTION_STATE')).toEqual([{
+      expect(emittedPayloads<UiTargetState>('SELECTION_STATE')).toEqual([{
         status: 'empty',
         message,
       }]);
@@ -252,7 +324,7 @@ describe('selection synchronization', () => {
     figmaEvents.get('selectionchange')?.();
 
     await vi.waitFor(() => {
-      expect(emittedPayloads<UiSelectionState>('SELECTION_STATE')).toEqual([{
+      expect(emittedPayloads<UiTargetState>('SELECTION_STATE')).toEqual([{
         status: 'empty',
         message,
       }]);
@@ -280,10 +352,10 @@ describe('selection synchronization', () => {
     figmaEvents.get('selectionchange')?.();
 
     await vi.waitFor(() => {
-      expect(emittedPayloads<UiSelectionState>('SELECTION_STATE')).toEqual([
+      expect(emittedPayloads<UiTargetState>('SELECTION_STATE')).toEqual([
         expect.objectContaining({
           componentName: 'ButtonB',
-          selectionToken: 'instance-b',
+          targetToken: 'component-b',
           status: 'ready',
         }),
       ]);
@@ -310,10 +382,10 @@ describe('selection synchronization', () => {
     figmaEvents.get('selectionchange')?.();
 
     await vi.waitFor(() => {
-      expect(emittedPayloads<UiSelectionState>('SELECTION_STATE')).toEqual([
+      expect(emittedPayloads<UiTargetState>('SELECTION_STATE')).toEqual([
         expect.objectContaining({
           componentName: 'ButtonB',
-          selectionToken: 'instance-b',
+          targetToken: 'component-b',
           status: 'ready',
         }),
       ]);
@@ -326,7 +398,7 @@ describe('selection synchronization', () => {
     expect(utilityMocks.emit).toHaveBeenCalledTimes(emittedCallCount);
   });
 
-  it('rejects a mutation token for a selection that is no longer current', async () => {
+  it('rejects an inaccessible mutation target without consulting canvas selection', async () => {
     const { selection } = await startPlugin();
     const mainComponent = createComponent('component-b', 'ButtonB');
     const instance = createInstance('instance-b', Promise.resolve(mainComponent));
@@ -345,7 +417,7 @@ describe('selection synchronization', () => {
     await vi.waitFor(() => {
       expect(emittedPayloads<{ message: string; ok: boolean }>('SAVE_RESULT')).toEqual([
         expect.objectContaining({
-          message: expect.stringMatching(/selection changed/i),
+          message: expect.stringMatching(/no longer available/i),
           ok: false,
           operationId: 'save-stale-selection',
         }),
@@ -356,13 +428,13 @@ describe('selection synchronization', () => {
     expect(mainComponent.setSharedPluginData).not.toHaveBeenCalled();
   });
 
-  it('rechecks the selection after resolving an asynchronous instance target', async () => {
-    const { selection } = await startPlugin();
+  it('keeps a target-ID mutation valid when canvas selection changes', async () => {
+    const { nodesById, selection } = await startPlugin();
     const mainComponentA = createComponent('component-a', 'ButtonA');
     const mainComponentB = createComponent('component-b', 'ButtonB');
-    const deferredMainComponentA = createDeferred<ComponentNode | null>();
-    const instanceA = createInstance('instance-a', deferredMainComponentA.promise);
+    const instanceA = createInstance('instance-a', Promise.resolve(mainComponentA));
     const instanceB = createInstance('instance-b', Promise.resolve(mainComponentB));
+    nodesById.set(mainComponentA.id, mainComponentA);
     selection.splice(0, selection.length, instanceA);
 
     utilityMocks.handlers.get('SAVE_CONNECTION')?.({
@@ -372,24 +444,209 @@ describe('selection synchronization', () => {
         importPath: 'tashil-ui',
       },
       operationId: 'save-selection-race',
-      selectionToken: 'instance-a',
+      targetToken: mainComponentA.id,
     });
 
-    expect(instanceA.getMainComponentAsync).toHaveBeenCalledOnce();
     selection.splice(0, selection.length, instanceB);
-    deferredMainComponentA.resolve(mainComponentA);
 
     await vi.waitFor(() => {
-      expect(emittedPayloads<{ message: string; ok: boolean }>('SAVE_RESULT')).toEqual([
-        expect.objectContaining({
-          message: expect.stringMatching(/selection changed/i),
-          ok: false,
-          operationId: 'save-selection-race',
-        }),
-      ]);
+      expect(mainComponentA.setSharedPluginData).toHaveBeenCalledOnce();
     });
 
-    expect(mainComponentA.setSharedPluginData).not.toHaveBeenCalled();
+    expect(mainComponentB.setSharedPluginData).not.toHaveBeenCalled();
+  });
+});
+
+describe('file-wide component inventory', () => {
+  it('scans pages sequentially, sorts rows, classifies status, and deduplicates component sets', async () => {
+    const { pages } = await startPlugin();
+    const connected = createComponent('connected', 'Zeta', {
+      sharedPluginData: JSON.stringify({
+        componentName: 'Zeta',
+        importPath: 'library',
+        schemaVersion: CURRENT_SCHEMA_VERSION,
+      }),
+    });
+    const standalone = createComponent('standalone', 'Alpha');
+    const remote = createComponent('remote', 'Remote');
+    Object.assign(remote, { remote: true });
+    const set = {
+      componentProperties: {},
+      componentPropertyDefinitions: {},
+      getSharedPluginData: vi.fn(() => ''),
+      id: 'set-a',
+      name: 'Control',
+      parent: { type: 'PAGE' },
+      remote: false,
+      setSharedPluginData: vi.fn(),
+      type: 'COMPONENT_SET',
+    } as unknown as ComponentSetNode;
+    const variant = createComponent('variant-a', 'Control / Size=Small');
+    Object.assign(variant, { parent: set });
+    const pageTwo = createPage('page-2', 'Foundations', [connected]);
+    const pageOne = createPage(
+      'page-1',
+      'Components',
+      [standalone, remote, set, variant],
+    );
+    pages.push(pageOne, pageTwo);
+
+    utilityMocks.handlers.get('SCAN_COMPONENTS')?.({ scanId: 'scan-a' });
+
+    await vi.waitFor(() => {
+      const states = emittedPayloads<{
+        scanId: string;
+        state: ComponentInventoryState;
+      }>('COMPONENT_INVENTORY_STATE');
+      expect(states[states.length - 1]).toEqual({
+        scanId: 'scan-a',
+        state: {
+          items: [
+            expect.objectContaining({
+              componentName: 'Alpha',
+              pageName: 'Components',
+              status: 'not-connected',
+              targetToken: 'standalone',
+            }),
+            expect.objectContaining({
+              componentName: 'Control',
+              nodeType: 'COMPONENT_SET',
+              targetToken: 'set-a',
+            }),
+            expect.objectContaining({
+              componentName: 'Zeta',
+              pageName: 'Foundations',
+              status: 'connected',
+              targetToken: 'connected',
+            }),
+          ],
+          scannedPages: 2,
+          status: 'ready',
+          totalPages: 2,
+        },
+      });
+    });
+
+    expect(pageOne.loadAsync.mock.invocationCallOrder[0]).toBeLessThan(
+      pageTwo.loadAsync.mock.invocationCallOrder[0],
+    );
+    expect(pageOne.findAllWithCriteria).toHaveBeenCalledWith({
+      types: ['COMPONENT', 'COMPONENT_SET'],
+    });
+  });
+
+  it('continues after a page failure and reports a partial result', async () => {
+    const { pages } = await startPlugin();
+    const component = createComponent('button', 'Button');
+    pages.push(
+      createPage('broken', 'Broken page', [], () => Promise.reject(new Error('no access'))),
+      createPage('healthy', 'Healthy page', [component]),
+    );
+
+    utilityMocks.handlers.get('SCAN_COMPONENTS')?.({ scanId: 'scan-partial' });
+
+    await vi.waitFor(() => {
+      const states = emittedPayloads<{
+        scanId: string;
+        state: ComponentInventoryState;
+      }>('COMPONENT_INVENTORY_STATE');
+      expect(states[states.length - 1]).toEqual({
+        scanId: 'scan-partial',
+        state: expect.objectContaining({
+          items: [expect.objectContaining({ targetToken: 'button' })],
+          skippedPageNames: ['Broken page'],
+          status: 'partial',
+        }),
+      });
+    });
+  });
+
+  it('suppresses a stale scan after a newer rescan completes', async () => {
+    const { pages } = await startPlugin();
+    const deferred = createDeferred<void>();
+    pages.push(createPage('slow', 'Slow page', [], () => deferred.promise));
+
+    utilityMocks.handlers.get('SCAN_COMPONENTS')?.({ scanId: 'scan-old' });
+    await flushPromises();
+
+    pages.splice(
+      0,
+      pages.length,
+      createPage('fast', 'Fast page', [createComponent('fast-component', 'Fast')]),
+    );
+    utilityMocks.handlers.get('SCAN_COMPONENTS')?.({ scanId: 'scan-new' });
+
+    await vi.waitFor(() => {
+      const newStates = emittedPayloads<{
+        scanId: string;
+        state: ComponentInventoryState;
+      }>('COMPONENT_INVENTORY_STATE').filter(({ scanId }) => scanId === 'scan-new');
+      expect(newStates[newStates.length - 1]).toEqual({
+        scanId: 'scan-new',
+        state: expect.objectContaining({
+          items: [expect.objectContaining({ targetToken: 'fast-component' })],
+          status: 'ready',
+        }),
+      });
+    });
+
+    deferred.resolve();
+    await flushPromises();
+    const oldStates = emittedPayloads<{
+      scanId: string;
+      state: ComponentInventoryState;
+    }>('COMPONENT_INVENTORY_STATE').filter(({ scanId }) => scanId === 'scan-old');
+    expect(oldStates).toEqual([
+      {
+        scanId: 'scan-old',
+        state: {
+          scannedPages: 0,
+          status: 'scanning',
+          totalPages: 1,
+        },
+      },
+    ]);
+  });
+
+  it('opens and mutates an explicit local target without selecting it', async () => {
+    const { nodesById, selection } = await startPlugin();
+    const selected = createComponent('selected', 'Selected');
+    const target = createComponent('target', 'Target');
+    nodesById.set(target.id, target);
+    selection.push(selected);
+
+    utilityMocks.handlers.get('OPEN_COMPONENT_TARGET')?.({
+      requestId: 'open-target',
+      targetToken: target.id,
+    });
+
+    await vi.waitFor(() => {
+      expect(emittedPayloads('COMPONENT_TARGET_STATE')).toContainEqual({
+        requestId: 'open-target',
+        state: expect.objectContaining({
+          componentName: 'Target',
+          status: 'ready',
+          targetToken: target.id,
+        }),
+      });
+    });
+
+    utilityMocks.handlers.get('SAVE_CONNECTION')?.({
+      metadata: {
+        componentName: 'Target',
+        importPath: 'library',
+        schemaVersion: CURRENT_SCHEMA_VERSION,
+      },
+      operationId: 'save-target',
+      targetToken: target.id,
+    });
+
+    await vi.waitFor(() => {
+      expect(target.setSharedPluginData).toHaveBeenCalledOnce();
+    });
+    expect(selected.setSharedPluginData).not.toHaveBeenCalled();
+    expect(selection).toHaveLength(1);
+    expect(selection[0]).toBe(selected);
   });
 });
 
@@ -433,13 +690,13 @@ describe('connection persistence', () => {
     });
     expect(Number.isNaN(Date.parse(persistedMetadata.updatedAt ?? ''))).toBe(false);
     expect(notify).toHaveBeenCalledWith('Button connected to Storybook');
-    expect(emittedPayloads('SAVE_RESULT')).toEqual([{
+    expect(emittedPayloads('SAVE_RESULT')).toEqual([expect.objectContaining({
       message: 'Connection saved.',
       ok: true,
       operation: 'save',
       operationId: 'save-component-a',
-      selectionToken: component.id,
-    }]);
+      targetToken: component.id,
+    })]);
   });
 
   it('increments the mapping revision and refreshes the Figma snapshot only after save', async () => {
@@ -511,13 +768,13 @@ describe('connection persistence', () => {
     });
 
     expect(notify).toHaveBeenCalledWith('Storybook connection cleared');
-    expect(emittedPayloads('SAVE_RESULT')).toEqual([{
+    expect(emittedPayloads('SAVE_RESULT')).toEqual([expect.objectContaining({
       message: 'Connection cleared.',
       ok: true,
       operation: 'clear',
       operationId: 'clear-component-a',
-      selectionToken: component.id,
-    }]);
+      targetToken: component.id,
+    })]);
   });
 
   it('rejects a crafted save containing an unsafe reference URL', async () => {
@@ -719,13 +976,13 @@ describe('post-mutation effects', () => {
     await flushPromises();
 
     expect(component.setSharedPluginData).toHaveBeenCalledOnce();
-    expect(emittedPayloads('SAVE_RESULT')).toEqual([{
+    expect(emittedPayloads('SAVE_RESULT')).toEqual([expect.objectContaining({
       message: 'Connection saved.',
       ok: true,
       operation: 'save',
       operationId: 'save-refresh-throws',
-      selectionToken: component.id,
-    }]);
+      targetToken: component.id,
+    })]);
   });
 
   it('keeps a clear successful when the selection refresh rejects', async () => {
@@ -749,13 +1006,13 @@ describe('post-mutation effects', () => {
     await flushPromises();
 
     expect(component.setSharedPluginData).toHaveBeenCalledOnce();
-    expect(emittedPayloads('SAVE_RESULT')).toEqual([{
+    expect(emittedPayloads('SAVE_RESULT')).toEqual([expect.objectContaining({
       message: 'Connection cleared.',
       ok: true,
       operation: 'clear',
       operationId: 'clear-refresh-throws',
-      selectionToken: component.id,
-    }]);
+      targetToken: component.id,
+    })]);
   });
 
   it('keeps a save successful and still refreshes when notification throws', async () => {
@@ -781,13 +1038,13 @@ describe('post-mutation effects', () => {
     });
 
     expect(component.setSharedPluginData).toHaveBeenCalledOnce();
-    expect(emittedPayloads('SAVE_RESULT')).toEqual([{
+    expect(emittedPayloads('SAVE_RESULT')).toEqual([expect.objectContaining({
       message: 'Connection saved.',
       ok: true,
       operation: 'save',
       operationId: 'save-notify-throws',
-      selectionToken: component.id,
-    }]);
+      targetToken: component.id,
+    })]);
   });
 
   it('keeps a clear successful and still refreshes when notification throws', async () => {
@@ -808,13 +1065,13 @@ describe('post-mutation effects', () => {
     });
 
     expect(component.setSharedPluginData).toHaveBeenCalledOnce();
-    expect(emittedPayloads('SAVE_RESULT')).toEqual([{
+    expect(emittedPayloads('SAVE_RESULT')).toEqual([expect.objectContaining({
       message: 'Connection cleared.',
       ok: true,
       operation: 'clear',
       operationId: 'clear-notify-throws',
-      selectionToken: component.id,
-    }]);
+      targetToken: component.id,
+    })]);
   });
 });
 
@@ -882,7 +1139,7 @@ describe('mutation failure results', () => {
         ok: false,
         operation: 'save',
         operationId: 'save-throws',
-        selectionToken: component.id,
+        targetToken: component.id,
       }]);
     });
   });
@@ -906,7 +1163,7 @@ describe('mutation failure results', () => {
         ok: false,
         operation: 'clear',
         operationId: 'clear-throws',
-        selectionToken: component.id,
+        targetToken: component.id,
       }]);
     });
   });
@@ -931,7 +1188,7 @@ describe('mutation failure results', () => {
         message: expect.stringContaining('definitions unavailable'),
         ok: false,
         operationId: 'scaffold-throws',
-        selectionToken: component.id,
+        targetToken: component.id,
       }]);
     });
   });
@@ -972,7 +1229,6 @@ describe('persisted metadata reads', () => {
       'contract-check-id',
       createComponent('contract-check-id', 'ContractCheck'),
     );
-
     const blocks = await codegenEvents.get('generate')?.({ node: instance });
 
     expect(blocks).toEqual([
@@ -1120,7 +1376,7 @@ describe('persisted metadata reads', () => {
     utilityMocks.handlers.get('REFRESH_SELECTION')?.(undefined);
 
     await vi.waitFor(() => {
-      expect(emittedPayloads<UiSelectionState>('SELECTION_STATE')).toEqual([
+      expect(emittedPayloads<UiTargetState>('SELECTION_STATE')).toEqual([
         expect.objectContaining({
           existingConnection: {
             ...legacyMetadata,
@@ -1199,7 +1455,7 @@ describe('persisted metadata reads', () => {
     utilityMocks.handlers.get('REFRESH_SELECTION')?.(undefined);
 
     await vi.waitFor(() => {
-      expect(emittedPayloads<UiSelectionState>('SELECTION_STATE')).toContainEqual(
+      expect(emittedPayloads<UiTargetState>('SELECTION_STATE')).toContainEqual(
         expect.objectContaining({
           connectionIssue: expect.objectContaining({ reason: 'future-schema-version' }),
           existingConnection: undefined,
@@ -1257,12 +1513,12 @@ describe('prop mapping scaffolding', () => {
         },
         ok: true,
         operationId: 'scaffold-default-instance-swap',
-        selectionToken: component.id,
+        targetToken: component.id,
       }]);
     });
   });
 
-  it('scaffolds active instance swaps with icon names and render prop targets', async () => {
+  it('scaffolds target component instance swaps with icon names and render prop targets', async () => {
     const { nodesById, selection } = await startPlugin();
     const component = createComponent('component-a', 'Button', {
       propertyDefinitions: {
@@ -1297,11 +1553,20 @@ describe('prop mapping scaffolding', () => {
       'contract-check-id',
       createComponent('contract-check-id', 'ContractCheck'),
     );
+    nodesById.set(
+      'default-leading-id',
+      createComponent('default-leading-id', 'Shield'),
+    );
+    nodesById.set(
+      'default-trailing-id',
+      createComponent('default-trailing-id', 'ContractCheck'),
+    );
+    nodesById.set(component.id, component);
     selection.push(instance);
 
     utilityMocks.handlers.get('SCAFFOLD_PROP_MAPPINGS')?.({
       operationId: 'scaffold-instance-swaps',
-      selectionToken: instance.id,
+      targetToken: component.id,
     });
 
     await vi.waitFor(() => {
@@ -1318,7 +1583,7 @@ describe('prop mapping scaffolding', () => {
         },
         ok: true,
         operationId: 'scaffold-instance-swaps',
-        selectionToken: instance.id,
+        targetToken: component.id,
       }]);
     });
   });
@@ -1352,7 +1617,7 @@ describe('prop mapping scaffolding', () => {
       expect(payload).toMatchObject({
         ok: true,
         operationId: 'scaffold-magic-keys',
-        selectionToken: component.id,
+        targetToken: component.id,
       });
       expect(Object.keys(payload.mappings)).toEqual(['__proto__']);
       expect(Object.keys(payload.mappings['__proto__'])).toEqual([
@@ -1416,7 +1681,7 @@ describe('prop mapping scaffolding', () => {
           },
           ok: true,
           operationId: 'scaffold-component-a',
-          selectionToken: component.id,
+          targetToken: component.id,
         },
       ]);
     });
@@ -1444,7 +1709,7 @@ describe('prop mapping scaffolding', () => {
           message: 'No variant or active instance-swap properties found on this component to scaffold.',
           ok: false,
           operationId: 'scaffold-empty-component-a',
-          selectionToken: component.id,
+          targetToken: component.id,
         },
       ]);
     });
@@ -1476,7 +1741,7 @@ describe('prop mapping scaffolding', () => {
           message: expect.stringMatching(/rename.*letters or numbers.*manually/i),
           ok: false,
           operationId: 'scaffold-invalid-property',
-          selectionToken: component.id,
+          targetToken: component.id,
         }),
       ]);
     });
