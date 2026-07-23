@@ -1,6 +1,9 @@
 # How to Connect a Component
 
-This guide explains how to connect a Figma component to Storybook using the **Tashil Code** plugin.
+This guide explains how to connect a Figma component to a production React
+component using the **Tashil Code** plugin. For mapping rules and examples, see
+[Visual prop mappings](prop-mapping.md); for later updates, see
+[Maintain a connection](maintain-connections.md).
 
 ## Goal
 
@@ -78,21 +81,32 @@ Make sure:
 
    There is currently no separate Children input. When the source exposes
    `children`, connect it directly to the matching Figma text property in
-   **Source & prop mappings**. Leading and trailing React icon props appear as
-   slot rows and connect to Figma instance-swap properties in the same editor.
+   **Source & prop mappings**. The supported React icon slots are
+   `renderLeftIcon` and `renderRightIcon`; they appear as slot rows and connect
+   to Figma instance-swap properties in the same editor.
 
    **Source & prop mappings (optional)**
 
-   Upload or drop the component's `.ts`/`.tsx` props file. When types and the
-   implementation are split, select both files together. Parsing happens locally;
-   only the extracted prop names, types, values, defaults, file name, and content
-   hash are persisted. The original source text is not stored.
+   Upload or drop the component's `.ts`/`.tsx` props file. The props declaration
+   must be an interface named `<ComponentName>Props`, such as `ButtonProps`.
+   When types and the implementation are split, select both files together.
+   Local literal-union aliases are resolved when they live in the props file.
+   Parsing happens locally; only the extracted prop names, types, values,
+   defaults, file name, and content hash are persisted. The original source text
+   is not stored.
 
    The editor groups `children`, leading/trailing icon slots, and standard variant
    props. Connect each code prop to a compatible Figma property, then map its
    source values to Figma variant values. Suggestions use names and values but
    remain editable. **Generate from component** remains available when source is
    not available.
+
+   When the uploaded source has no `children` prop, generated JSX is self-closing
+   and the plugin does not expect a Figma `label` text property. Figma-only
+   properties that are present in the saved snapshot but have no source mapping
+   (for example, a prototype interaction state such as `Status`) are treated as
+   intentionally outside code generation. A new Figma property added after the
+   last save still appears for review.
 
    **Custom wildcard & raw mappings** is only for cases the visual rows cannot
    represent. These mappings are preserved while standard rows are edited.
@@ -168,9 +182,9 @@ Make sure:
    pasteable TSX when an active Figma property or value has no mapping. They also
    report when multiple active mappings target the same React prop; that
    conflicting prop is omitted until the mappings use unique targets. The
-   selected children mode owns the React `children` prop, and Icon mode also
-   owns `aria-label`; mappings targeting those reserved props are omitted and
-   reported so generated TSX never supplies them twice.
+   generated children own the React `children` prop, and legacy icon-only
+   codegen also owns `aria-label`; mappings targeting those reserved props are
+   omitted and reported so generated TSX never supplies them twice.
 
 5. Review connection health:
 
@@ -298,7 +312,11 @@ revision, and validation time. Codegen continues to consume `propMappings`.
 }
 ```
 
-Icon mode stores the additional required import fields:
+### Legacy icon-only compatibility
+
+Older saved connections can use icon-only mode, which stores the additional
+required import fields below. New connections should use the visual
+instance-swap rows in **Source & prop mappings** instead.
 
 ```json
 {

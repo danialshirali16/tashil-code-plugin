@@ -1,3 +1,6 @@
+> Historical plan — completed and retained for implementation context. It is
+> not the current project roadmap.
+
 ## Plan: implement #2, #5, #6
 
 All three confirmed as the recommended options. They're interdependent: extracting pure codegen logic (#6) is the cleanest place to also delete the Button special-casing (#2), and the scaffold feature (#5) reuses that same pure module.

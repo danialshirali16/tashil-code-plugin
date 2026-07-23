@@ -110,9 +110,17 @@ export function createUsageSnippet(
   }
 
   const isFigmaIconOnly = isIconOnlySelection(selection.componentProperties);
+  const sourceHasChildren = metadata.mappingDocument?.sourceSnapshot
+    ? metadata.mappingDocument.sourceSnapshot.props.some((prop) => prop.role === 'children')
+    : undefined;
+  const configuredChildrenMode = metadata.childrenMode ?? 'text';
   const childrenMode = isFigmaIconOnly
     ? 'none'
-    : metadata.childrenMode ?? 'text';
+    : configuredChildrenMode === 'icon-only'
+      ? 'icon-only'
+      : sourceHasChildren === false
+        ? 'none'
+        : configuredChildrenMode;
   const childrenTextProperty = metadata.childrenTextProperty
     ?? DEFAULT_CHILDREN_TEXT_PROPERTY;
   const resolvedChildren = childrenMode === 'none'
@@ -121,9 +129,12 @@ export function createUsageSnippet(
         selection,
         childrenTextProperty,
       );
-  const ignoredFigmaProperties = isFigmaIconOnly
-    ? createIconOnlyIgnoredProperties(selection.componentProperties, childrenTextProperty)
-    : undefined;
+  const ignoredFigmaProperties = createIgnoredFigmaProperties(
+    metadata,
+    selection.componentProperties,
+    childrenTextProperty,
+    isFigmaIconOnly,
+  );
   const mappedProps = createMappedProps(
     metadata.propMappings ?? {},
     selection.componentProperties,
@@ -294,6 +305,33 @@ function createIconOnlyIgnoredProperties(
   }
 
   return ignored;
+}
+
+function createIgnoredFigmaProperties(
+  metadata: ConnectionMetadata,
+  componentProperties: Readonly<Record<string, string | boolean>>,
+  childrenTextProperty: string,
+  isFigmaIconOnly: boolean,
+): ReadonlySet<string> | undefined {
+  const ignored = new Set<string>();
+  const propMappings = metadata.propMappings ?? {};
+
+  for (const property of metadata.mappingDocument?.figmaSnapshot.properties ?? []) {
+    if (!getOwnEntry(propMappings, property.name)) {
+      ignored.add(property.name);
+    }
+  }
+
+  if (isFigmaIconOnly) {
+    for (const property of createIconOnlyIgnoredProperties(
+      componentProperties,
+      childrenTextProperty,
+    )) {
+      ignored.add(property);
+    }
+  }
+
+  return ignored.size > 0 ? ignored : undefined;
 }
 
 function findComponentPropertyName(

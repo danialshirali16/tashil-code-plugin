@@ -463,7 +463,17 @@ export function useConnectionController(): ConnectionController {
       'propMappings',
       JSON.stringify(compiled, null, 2),
     );
-    if (document.sourceSnapshot?.props.some((prop) => prop.role === 'children')) {
+    const sourceHasChildren = document.sourceSnapshot
+      ? document.sourceSnapshot.props.some((prop) => prop.role === 'children')
+      : undefined;
+    if (sourceHasChildren !== undefined && draft.values.childrenMode !== 'icon-only') {
+      updatedDraft = updateFormDraft(
+        updatedDraft,
+        'childrenMode',
+        sourceHasChildren ? 'text' : 'none',
+      );
+    }
+    if (sourceHasChildren) {
       const childrenMapping = document.mappings.find(
         (mapping) => mapping.kind === 'children',
       );

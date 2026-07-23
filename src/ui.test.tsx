@@ -348,6 +348,13 @@ describe('Plugin rendered interactions', () => {
     await waitFor(() => {
       expect(screen.getByText('Button.next.tsx')).toBeTruthy();
     });
+
+    fireEvent.input(screen.getByLabelText('Import path'), {
+      target: { value: 'tashil-ui' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+    const saveRequests = emittedPayloads<{ metadata: ConnectionMetadata }>('SAVE_CONNECTION');
+    expect(saveRequests[saveRequests.length - 1]?.metadata.childrenMode).toBe('none');
   });
 
   it('keeps a save pending through stale results, then accepts exact success and failure', () => {

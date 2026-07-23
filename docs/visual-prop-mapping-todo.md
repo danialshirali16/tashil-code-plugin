@@ -1,4 +1,8 @@
-# Visual Prop Mapping TODO
+# Visual Prop Mapping Delivery Record
+
+> Historical implementation checklist. The visual prop-mapping feature shipped
+> in July 2026; this file is kept as a delivery record rather than an active
+> roadmap.
 
 ## Foundation
 
@@ -48,11 +52,14 @@
 
 - [x] Add drift and direct file-input integration tests (parser, compiler, migration, and UI coverage exists).
 - [x] Verify existing instance-swap and children behavior.
-- [x] Run source lint, typecheck, 273 tests, and production build.
+- [x] Run source lint, typecheck, 274 tests, and production build.
 - [x] Remove the standalone `previews/` prototype after implementation review.
 - [x] Update the connection guide and in-plugin help.
 
-## Deferred
+## Explicitly out of scope
 
-- [ ] Generate a repository-owned `tashil-components.json` manifest in CI.
-- [ ] Import or retrieve manifests for automatic source drift detection.
+- Generating a repository-owned `tashil-components.json` manifest in CI.
+- Importing or retrieving manifests for automatic source drift detection.
+
+These manifest tasks were deliberately excluded from this feature and are not
+active work.

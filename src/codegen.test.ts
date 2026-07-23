@@ -960,6 +960,68 @@ describe('createUsageSnippet', () => {
     expect(formatMappingDiagnostics(result.diagnostics)).toMatch(/selected layer text\/name/i);
   });
 
+  it('uses source-backed no-children components and ignores intentionally unmapped Figma-only properties', () => {
+    const result = createUsageSnippet({
+      schemaVersion: CURRENT_SCHEMA_VERSION,
+      childrenMode: 'text',
+      childrenTextProperty: 'label',
+      componentName: 'Switch',
+      importPath: 'tashil-ui',
+      mappingDocument: {
+        figmaSnapshot: {
+          componentId: 'switch-set',
+          componentName: 'Switch',
+          properties: [
+            { id: 'size-id', name: 'Size', options: ['Small'], rawKey: 'Size#size-id', type: 'VARIANT' },
+            { id: 'select-id', name: 'Select', options: ['No', 'Yes'], rawKey: 'Select#select-id', type: 'VARIANT' },
+            { id: 'status-id', name: 'Status', options: ['Idle', 'Hover'], rawKey: 'Status#status-id', type: 'VARIANT' },
+          ],
+        },
+        mappings: [
+          {
+            figmaPropertyId: 'size-id',
+            figmaPropertyName: 'Size',
+            sourceProp: 'size',
+            values: [{ figmaValue: 'Small', sourceValue: 'small' }],
+          },
+          {
+            figmaPropertyId: 'select-id',
+            figmaPropertyName: 'Select',
+            sourceProp: 'checked',
+            values: [
+              { figmaValue: 'No', sourceValue: false },
+              { figmaValue: 'Yes', sourceValue: true },
+            ],
+          },
+        ],
+        revision: 1,
+        sourceSnapshot: {
+          componentName: 'Switch',
+          contentHash: 'fnv1a-switch',
+          fileName: 'types.tsx',
+          props: [
+            { name: 'size', required: false, role: 'standard', typeName: "'large' | 'small'", values: ['large', 'small'] },
+            { name: 'checked', required: true, role: 'standard', typeName: 'boolean', values: [false, true] },
+          ],
+        },
+      },
+      propMappings: {
+        Select: {
+          No: { prop: 'checked', value: false },
+          Yes: { prop: 'checked', value: true },
+        },
+        Size: { Small: { prop: 'size', value: 'small' } },
+      },
+    }, selection({
+      componentProperties: { Select: 'No', Size: 'Small', Status: 'Idle' },
+      displayText: 'Switch',
+    }));
+
+    expect(result.code).toContain('<Switch size={"small"} />');
+    expect(result.diagnostics).toEqual([]);
+    expectValidTypeScript(result.code);
+  });
+
   it('resolves exact properties before case-insensitive alternatives', () => {
     expect(resolveChildrenText(selection({
       componentProperties: { Label: 'Case insensitive', label: 'Exact' },

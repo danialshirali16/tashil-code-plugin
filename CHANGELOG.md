@@ -16,6 +16,7 @@ All notable changes to Tashil Code are documented in this file.
 - Added an explicit reconciliation flow that preserves stale mappings until they are manually removed.
 - Added separate custom wildcard/raw mappings and a read-only generated JSON preview.
 - Added schema version 4 authoring snapshots, validation timestamps, and confirmed-save revisions.
+- Added dedicated prop-mapping, connection-maintenance, and contributor documentation.
 
 ### Changed
 
@@ -30,6 +31,8 @@ All notable changes to Tashil Code are documented in this file.
 ### Fixed
 
 - Fixed the Connect Component footer so it remains anchored to the bottom while only the form content scrolls.
+- Stopped source-backed components without a `children` prop from requesting a missing Figma `label` property.
+- Treated saved Figma-only properties without a source mapping, such as interaction-state variants, as intentionally unmapped during code generation.
 - Prevented reconciliation from silently deleting mappings.
 - Prevented Broken connections from being saved before their conflicts are resolved.
 - Preserved revision progression across repeated and in-flight saves.
@@ -43,5 +46,5 @@ All notable changes to Tashil Code are documented in this file.
 ### Validation
 
 - Added parser, compiler, migration, drift, revision, upload, and UI integration coverage.
-- All 273 automated tests pass.
+- All 274 automated tests pass.
 - ESLint, TypeScript checks, and the production build pass.
