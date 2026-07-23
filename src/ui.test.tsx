@@ -723,12 +723,7 @@ describe('Plugin rendered interactions', () => {
     expect(screen.getByLabelText('Component name')).toBeTruthy();
   });
 
-  it('opens final reference URLs and copies the source path', async () => {
-    const writeText = vi.fn().mockResolvedValue(undefined);
-    Object.defineProperty(navigator, 'clipboard', {
-      configurable: true,
-      value: { writeText },
-    });
+  it('renders the redesigned references and opens final reference URLs', () => {
     renderPlugin();
     const inspectState: InspectCodeState = {
       status: 'connected',
@@ -743,7 +738,7 @@ describe('Plugin rendered interactions', () => {
     fireEvent.click(screen.getByRole('tab', { name: 'Inspect Code' }));
 
     fireEvent.click(screen.getByRole('button', { name: 'Open Storybook in browser' }));
-    fireEvent.click(screen.getByRole('button', { name: 'Open Source in browser' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Open Source URL in browser' }));
     expect(emittedPayloads('OPEN_EXTERNAL')).toEqual([
       {
         target: 'storybook',
@@ -754,12 +749,9 @@ describe('Plugin rendered interactions', () => {
         url: 'https://github.example/components/Button.tsx',
       },
     ]);
-
-    fireEvent.click(screen.getByRole('button', { name: 'Copy source path' }));
-    await waitFor(() => {
-      expect(writeText).toHaveBeenCalledWith('src/Button.tsx');
-    });
-    expect(screen.getByText('source path copied to clipboard.')).toBeTruthy();
+    expect(screen.getByText('Source URL')).toBeTruthy();
+    expect(screen.getByText('Source path')).toBeTruthy();
+    expect(screen.getByText('src/Button.tsx')).toBeTruthy();
   });
 
   it('blocks a scaffold request while a save is pending on the same selection, then allows it once the save resolves', () => {

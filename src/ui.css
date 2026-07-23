@@ -702,7 +702,8 @@ body {
 
 .inspect-content {
   align-content: start;
-  display: grid;
+  display: flex;
+  flex-direction: column;
   gap: 16px;
   grid-row: 2;
   min-height: 0;
@@ -711,82 +712,138 @@ body {
 }
 
 .code-section {
-  display: grid;
+  display: flex;
+  flex: 0 0 auto;
+  flex-direction: column;
   gap: 4px;
-  min-height: 0;
+  min-height: auto;
 }
 
 .reference-section {
   display: grid;
+  flex: 0 0 auto;
   gap: 8px;
 }
 
 .reference-list {
   border: 1px solid var(--figma-color-border);
-  border-radius: 6px;
+  border-radius: 5px;
   display: grid;
   margin: 0;
+  overflow: hidden;
 }
 
 .reference-row {
+  align-items: start;
   display: grid;
-  gap: 4px;
-  padding: 8px;
+  gap: 12px;
+  grid-template-columns: 20px minmax(0, 1fr) auto;
+  padding: 10px 8px 10px 12px;
 }
 
 .reference-row + .reference-row {
   border-top: 1px solid var(--figma-color-border);
 }
 
-.reference-label,
-.reference-label-row {
+.reference-copy {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+  padding-top: 2px;
+}
+
+.reference-label {
   color: var(--figma-color-text);
   font-size: 11px;
-  font-weight: 600;
+  font-weight: 500;
   line-height: 16px;
   margin: 0;
 }
 
-.reference-label-row {
+.reference-icon {
   align-items: center;
-  display: grid;
-  grid-template-columns: 1fr auto;
+  display: flex;
+  height: 20px;
+  justify-content: center;
+  overflow: hidden;
+  width: 20px;
+}
+
+.reference-icon > div,
+.reference-icon > div > svg {
+  display: block;
+  height: 20px;
+  width: 20px;
+}
+
+.reference-icon-source img {
+  display: block;
+  height: 16px;
+  width: 16px;
+}
+
+.reference-icon-storybook img {
+  display: block;
+  height: 15.05px;
+  width: 12.08px;
 }
 
 .reference-value {
-  color: var(--figma-color-text);
+  color: var(--figma-color-text-secondary);
   display: grid;
-  gap: 6px;
+  font-size: 11px;
+  font-weight: 400;
+  gap: 4px;
   line-height: 16px;
   margin: 0;
   min-width: 0;
 }
 
 .reference-url,
-.reference-path {
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-  font-size: 11px;
+.reference-path,
+.reference-date {
+  min-width: 0;
+}
+
+.reference-url {
   overflow-wrap: anywhere;
 }
 
+.reference-path,
+.reference-date {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .reference-open-button {
+  align-items: center;
   appearance: none;
-  background: var(--figma-color-bg-secondary);
-  border: 1px solid var(--figma-color-border-strong, var(--figma-color-border));
+  background: transparent;
+  border: 0;
   border-radius: 5px;
   color: var(--figma-color-text);
-  cursor: default;
-  font: inherit;
-  font-size: 11px;
-  justify-self: start;
-  line-height: 16px;
-  min-height: 24px;
-  padding: 3px 8px;
+  cursor: pointer;
+  display: flex;
+  height: 24px;
+  justify-content: center;
+  padding: 0;
+  width: 24px;
+}
+
+.reference-open-button:hover {
+  background: var(--figma-color-bg-hover);
+}
+
+.reference-open-button > div,
+.reference-open-button > div > svg {
+  height: 24px;
+  width: 24px;
 }
 
 .reference-open-button:focus-visible {
   outline: 2px solid var(--figma-color-border-brand-strong, currentColor);
-  outline-offset: 2px;
+  outline-offset: 1px;
 }
 
 .reference-warning,
@@ -825,6 +882,7 @@ body {
 }
 
 .code-block {
+  align-self: start;
   background: var(--figma-color-bg);
   border: 1px solid var(--figma-color-border);
   border-radius: 4px;
@@ -832,12 +890,19 @@ body {
   color: var(--figma-color-text);
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
   font-size: 11px;
+  flex: 0 0 auto;
+  height: auto;
   line-height: 16px;
   margin: 0;
+  max-height: none;
   overflow-x: auto;
-  overflow-y: hidden;
+  overflow-y: clip;
   padding: 0;
   width: 100%;
+}
+
+.code-block > code {
+  display: block;
 }
 
 .code-block:focus-visible {

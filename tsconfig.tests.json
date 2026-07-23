@@ -14,6 +14,7 @@
     "src/mapping-document.test.ts",
     "src/mapping-editor.test.ts",
     "src/source-schema.test.ts",
+    "src/layout/core.test.ts",
     "src/ui*.test.ts",
     "src/ui*.test.tsx",
     "vitest.config.ts"

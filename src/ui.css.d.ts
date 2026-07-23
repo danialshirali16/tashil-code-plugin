@@ -100,9 +100,13 @@ declare const styles: {
   readonly "mapping-section-label": string;
   readonly "page-heading": string;
   readonly "primary-actions": string;
+  readonly "reference-copy": string;
+  readonly "reference-date": string;
   readonly "reference-empty": string;
+  readonly "reference-icon": string;
+  readonly "reference-icon-source": string;
+  readonly "reference-icon-storybook": string;
   readonly "reference-label": string;
-  readonly "reference-label-row": string;
   readonly "reference-list": string;
   readonly "reference-open-button": string;
   readonly "reference-path": string;

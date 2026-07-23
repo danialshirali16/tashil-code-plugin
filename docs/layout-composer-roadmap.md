@@ -158,7 +158,7 @@ The exact property names may change, but the boundaries should not:
 `createUsageSnippet` currently combines import generation and JSX formatting.
 Layout composition needs these pieces separately.
 
-- [ ] Add a pure `createComponentUsage` API that returns:
+- [x] Add a pure `createComponentUsage` API that returns:
 
   ```ts
   type ComponentUsage = {
@@ -168,18 +168,18 @@ Layout composition needs these pieces separately.
   };
   ```
 
-- [ ] Keep `createUsageSnippet` as a compatibility wrapper around
+- [x] Keep `createUsageSnippet` as a compatibility wrapper around
   `createComponentUsage`.
-- [ ] Confirm existing component codegen output remains byte-for-byte stable.
-- [ ] Represent imports structurally using module path, imported name, and local
+- [x] Confirm existing component codegen output remains byte-for-byte stable.
+- [x] Represent imports structurally using module path, imported name, and local
   name.
-- [ ] Deduplicate imports across all component descendants.
-- [ ] Sort imports deterministically.
-- [ ] Resolve same-name imports from different modules using deterministic local
+- [x] Deduplicate imports across all component descendants.
+- [x] Sort imports deterministically.
+- [x] Resolve same-name imports from different modules using deterministic local
   aliases.
-- [ ] Ensure aliased local names are also used in the generated JSX.
-- [ ] Preserve existing icon instance-swap behavior and named `Icon` imports.
-- [ ] Preserve all existing mapping diagnostics.
+- [x] Ensure aliased local names are also used in the generated JSX.
+- [x] Preserve existing icon instance-swap behavior and named `Icon` imports.
+- [x] Preserve all existing mapping diagnostics.
 
 ## Supported layout scope
 
@@ -325,10 +325,10 @@ Behavior:
 
 ## Phase 0 — Contract fixtures and architecture
 
-- [ ] Add an architecture decision record for the shared layout IR and dual
+- [x] Add an architecture decision record for the shared layout IR and dual
   adapters.
-- [ ] Record the version 1 supported-node matrix.
-- [ ] Create representative mocked Figma fixtures:
+- [x] Record the version 1 supported-node matrix.
+- [x] Create representative mocked Figma fixtures:
   - Vertical form layout.
   - Horizontal header layout.
   - Nested auto-layout frames.
@@ -341,8 +341,8 @@ Behavior:
   - Raw text node.
   - Absolute-positioned child.
   - Unsupported vector/image layer.
-- [ ] Save reviewed golden TSX, CSS, and diagnostics for each fixture.
-- [ ] Measure current connected-component output so compatibility can be tested.
+- [x] Save reviewed golden TSX, CSS, and diagnostics for each fixture.
+- [x] Measure current connected-component output so compatibility can be tested.
 
 Exit criteria:
 
@@ -364,15 +364,15 @@ src/layout/generate-layout.ts
 
 TODOs:
 
-- [ ] Introduce the layout IR and diagnostic types.
-- [ ] Refactor `createUsageSnippet` into the compatible structured component
+- [x] Introduce the layout IR and diagnostic types.
+- [x] Refactor `createUsageSnippet` into the compatible structured component
   usage API.
-- [ ] Implement deterministic import collection and aliasing.
-- [ ] Implement class-name generation and collision handling.
-- [ ] Implement the TSX emitter.
-- [ ] Implement the CSS Modules emitter.
-- [ ] Add unit tests for every pure formatter and emitter.
-- [ ] Add golden tests for complete generated documents.
+- [x] Implement deterministic import collection and aliasing.
+- [x] Implement class-name generation and collision handling.
+- [x] Implement the TSX emitter.
+- [x] Implement the CSS Modules emitter.
+- [x] Add unit tests for every pure formatter and emitter.
+- [x] Add golden tests for complete generated documents.
 
 Exit criteria:
 
@@ -392,27 +392,29 @@ src/layout/generation-context.ts
 
 TODOs:
 
-- [ ] Add a root resolver that distinguishes component and layout selections.
-- [ ] Traverse supported layout descendants in visible document order.
-- [ ] Stop immediately at every component instance boundary.
-- [ ] Resolve connected component metadata through the existing connection
+- [x] Add a root resolver that distinguishes component and layout selections.
+- [x] Traverse supported layout descendants in visible document order.
+- [x] Stop immediately at every component instance boundary.
+- [x] Resolve connected component metadata through the existing connection
   reader.
-- [ ] Convert connected instances into structured component usages.
-- [ ] Convert unconnected or broken instances into placeholders.
-- [ ] Convert supported frames into container IR nodes.
-- [ ] Convert supported text nodes into escaped text IR nodes.
-- [ ] Convert unsupported nodes into placeholders and diagnostics.
-- [ ] Exclude hidden nodes and record an informational diagnostic only when the
+- [x] Convert connected instances into structured component usages.
+- [x] Convert unconnected or broken instances into placeholders.
+- [x] Convert supported frames into container IR nodes.
+- [x] Convert supported text nodes into escaped text IR nodes.
+- [x] Convert unsupported nodes into placeholders and diagnostics.
+- [x] Exclude hidden nodes and record an informational diagnostic only when the
   omission is materially useful.
-- [ ] Track the full layer path during traversal.
-- [ ] Add per-generation caches for:
+- [x] Track the full layer path during traversal.
+- [x] Add per-generation caches for:
   - Main-component lookup by instance ID.
   - Connection target lookup.
   - Parsed connection metadata.
-  - Resolved instance swaps.
-- [ ] Avoid a global cache until invalidation behavior is proven.
-- [ ] Add configurable maximum depth and node count.
-- [ ] Return a controlled partial result when a limit is reached.
+  - Resolved instance swaps. _(Deferred: the swap cache is wired in Phase 4
+    alongside `figma.getNodeByIdAsync`; connected instances without icon swaps
+    — the version-1 common case — resolve fully today.)_
+- [x] Avoid a global cache until invalidation behavior is proven.
+- [x] Add configurable maximum depth and node count.
+- [x] Return a controlled partial result when a limit is reached.
 
 Exit criteria:
 

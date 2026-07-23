@@ -1,0 +1,1391 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Tashil Code — Semantic Mapping Preview</title>
+    <link
+      rel="stylesheet"
+      href="https://unpkg.com/@phosphor-icons/web@2.1.1/src/regular/style.css"
+    />
+    <style>
+      :root {
+        color-scheme: light;
+        --bg: #ffffff;
+        --bg-secondary: #f5f5f5;
+        --bg-hover: #ededed;
+        --bg-selected: #f3f3f3;
+        --text: #1f1f1f;
+        --text-secondary: #777777;
+        --text-tertiary: #aaaaaa;
+        --border: #dedede;
+        --border-strong: #333333;
+        --brand: #0d99ff;
+        --brand-hover: #0b87df;
+        --success: #14ae5c;
+        --success-bg: #effaf3;
+        --warning: #9a6700;
+        --warning-bg: #fff8e6;
+        --danger: #d92d20;
+        --radius: 6px;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      html,
+      body {
+        min-height: 100%;
+      }
+
+      body {
+        margin: 0;
+        background: #ececec;
+        color: var(--text);
+        font-family: Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        font-size: 12px;
+      }
+
+      button,
+      input,
+      select {
+        color: inherit;
+        font: inherit;
+      }
+
+      button {
+        cursor: pointer;
+      }
+
+      .stage {
+        min-height: 100vh;
+        display: grid;
+        place-items: center;
+        padding: 20px;
+      }
+
+      .plugin {
+        width: min(526px, calc(100vw - 20px));
+        height: min(740px, calc(100vh - 20px));
+        min-height: 600px;
+        display: grid;
+        grid-template-rows: 39px 40px minmax(0, 1fr);
+        overflow: hidden;
+        border: 1px solid #d5d5d5;
+        border-radius: 14px;
+        background: var(--bg);
+        box-shadow: 0 18px 48px rgba(0, 0, 0, 0.16);
+      }
+
+      .titlebar,
+      .workflow-bar,
+      .detail-nav,
+      .heading-row,
+      .source-summary,
+      .mapping-heading-row,
+      .mapping-property,
+      .footer,
+      .inspect-heading,
+      .code-toolbar,
+      .status-row {
+        display: flex;
+        align-items: center;
+      }
+
+      .titlebar {
+        justify-content: space-between;
+        padding: 0 15px;
+        border-bottom: 1px solid var(--border);
+      }
+
+      .brand {
+        display: flex;
+        align-items: center;
+        gap: 9px;
+        font-size: 13px;
+        font-weight: 650;
+      }
+
+      .brand-icon {
+        width: 22px;
+        height: 18px;
+        display: grid;
+        place-items: center;
+        border-radius: 3px;
+        background: #202020;
+        color: white;
+        font-size: 12px;
+      }
+
+      .icon-button {
+        width: 28px;
+        height: 28px;
+        display: grid;
+        place-items: center;
+        padding: 0;
+        border: 0;
+        border-radius: 4px;
+        background: transparent;
+        font-size: 16px;
+      }
+
+      .icon-button:hover {
+        background: var(--bg-secondary);
+      }
+
+      .workflow-bar {
+        justify-content: space-between;
+        padding: 0 8px 0 7px;
+        border-bottom: 1px solid var(--border);
+      }
+
+      .tabs {
+        height: 100%;
+        display: flex;
+        align-items: center;
+        gap: 4px;
+      }
+
+      .tab {
+        height: 24px;
+        padding: 4px 8px;
+        border: 0;
+        border-radius: 4px;
+        background: transparent;
+        font-size: 12px;
+      }
+
+      .tab.active {
+        background: var(--bg-secondary);
+        font-weight: 650;
+      }
+
+      .content {
+        min-height: 0;
+        overflow: hidden;
+      }
+
+      .screen {
+        height: 100%;
+        min-height: 0;
+      }
+
+      .hidden {
+        display: none !important;
+      }
+
+      .inventory {
+        height: 100%;
+        padding: 16px;
+        overflow-y: auto;
+      }
+
+      .heading-row {
+        justify-content: space-between;
+        gap: 12px;
+      }
+
+      h1,
+      h2,
+      h3,
+      p {
+        margin-top: 0;
+      }
+
+      .heading-row h1,
+      .detail-title,
+      .inspect-heading h1 {
+        margin-bottom: 3px;
+        font-size: 14px;
+        line-height: 20px;
+      }
+
+      .heading-row p,
+      .detail-subtitle,
+      .inspect-heading p {
+        margin-bottom: 0;
+        color: var(--text-secondary);
+        font-size: 11px;
+        line-height: 16px;
+      }
+
+      .button {
+        min-height: 28px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 5px;
+        padding: 4px 10px;
+        border: 1px solid var(--border);
+        border-radius: 5px;
+        background: var(--bg);
+        font-size: 11px;
+        font-weight: 550;
+      }
+
+      .button:hover {
+        background: var(--bg-secondary);
+      }
+
+      .button.primary {
+        border-color: #252525;
+        background: #252525;
+        color: white;
+      }
+
+      .button.primary:hover {
+        background: #393939;
+      }
+
+      .button.brand {
+        border-color: var(--brand);
+        background: var(--brand);
+        color: white;
+      }
+
+      .button.brand:hover {
+        background: var(--brand-hover);
+      }
+
+      .filters {
+        margin-top: 16px;
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 8px;
+      }
+
+      .filter {
+        min-height: 56px;
+        display: grid;
+        gap: 2px;
+        padding: 8px 4px;
+        border: 1px solid var(--border);
+        border-radius: 6px;
+        background: var(--bg);
+        color: var(--text-secondary);
+        text-align: center;
+      }
+
+      .filter strong {
+        color: var(--text);
+        font-size: 16px;
+        line-height: 20px;
+      }
+
+      .filter.active {
+        border-color: var(--border-strong);
+        background: var(--bg-selected);
+      }
+
+      .search {
+        width: 100%;
+        height: 32px;
+        margin-top: 12px;
+        padding: 6px 10px;
+        border: 1px solid var(--border);
+        border-radius: 5px;
+        background: var(--bg);
+        outline: none;
+      }
+
+      .search:focus {
+        border-color: var(--brand);
+      }
+
+      .search::placeholder {
+        color: var(--text-tertiary);
+      }
+
+      .dot-filter {
+        margin-top: 8px;
+        display: flex;
+        align-items: center;
+        gap: 7px;
+        padding: 3px 0;
+        border: 0;
+        background: transparent;
+        font-size: 11px;
+      }
+
+      .checkbox {
+        width: 14px;
+        height: 14px;
+        display: grid;
+        place-items: center;
+        border: 1px solid var(--border-strong);
+        border-radius: 3px;
+        background: var(--brand);
+        border-color: var(--brand);
+        color: white;
+        font-size: 9px;
+      }
+
+      .count-muted {
+        color: var(--text-tertiary);
+      }
+
+      .component-list {
+        margin-top: 12px;
+        display: grid;
+        gap: 6px;
+      }
+
+      .component-row {
+        width: 100%;
+        min-height: 48px;
+        display: grid;
+        grid-template-columns: 20px minmax(0, 1fr) 12px;
+        align-items: center;
+        gap: 10px;
+        padding: 7px 10px;
+        border: 1px solid transparent;
+        border-radius: 6px;
+        background: var(--bg-secondary);
+        text-align: left;
+      }
+
+      .component-row:hover {
+        border-color: var(--border);
+        background: var(--bg-hover);
+      }
+
+      .component-status {
+        width: 16px;
+        height: 16px;
+        display: grid;
+        place-items: center;
+        border: 1px dashed var(--text-tertiary);
+        border-radius: 50%;
+        color: var(--text-tertiary);
+        font-size: 9px;
+      }
+
+      .component-status.connected {
+        border-style: solid;
+        border-color: var(--success);
+        color: var(--success);
+      }
+
+      .component-copy {
+        min-width: 0;
+        display: grid;
+      }
+
+      .component-copy strong {
+        overflow: hidden;
+        font-size: 12px;
+        font-weight: 500;
+        line-height: 16px;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .component-copy small {
+        overflow: hidden;
+        color: var(--text-secondary);
+        font-size: 10px;
+        line-height: 14px;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .component-copy small::before {
+        content: "↪ ";
+      }
+
+      .chevron {
+        color: var(--text-tertiary);
+        font-size: 16px;
+      }
+
+      .detail-screen {
+        display: grid;
+        grid-template-rows: 40px minmax(0, 1fr) 48px;
+      }
+
+      .detail-nav {
+        justify-content: space-between;
+        padding: 0 12px;
+        border-bottom: 1px solid var(--border);
+      }
+
+      .back-button {
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+        padding: 4px 5px 4px 2px;
+        border: 0;
+        border-radius: 4px;
+        background: transparent;
+        font-size: 11px;
+      }
+
+      .back-button:hover {
+        background: var(--bg-secondary);
+      }
+
+      .nav-component {
+        max-width: 45%;
+        overflow: hidden;
+        color: var(--text-secondary);
+        font-size: 11px;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .detail-scroll,
+      .inspect-scroll {
+        min-height: 0;
+        padding: 16px;
+        overflow-y: auto;
+      }
+
+      .detail-title {
+        margin-bottom: 2px;
+      }
+
+      .detail-subtitle {
+        margin-bottom: 14px;
+      }
+
+      .status-card {
+        margin-bottom: 16px;
+        display: grid;
+        gap: 4px;
+        padding: 8px 10px;
+        border: 1px solid var(--border);
+        border-left: 3px solid var(--warning);
+        border-radius: 6px;
+      }
+
+      .status-card.ready {
+        border-left-color: var(--success);
+      }
+
+      .status-row {
+        gap: 6px;
+      }
+
+      .status-dot {
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        background: var(--warning);
+      }
+
+      .ready .status-dot {
+        background: var(--success);
+      }
+
+      .status-row strong {
+        font-size: 11px;
+      }
+
+      .status-card p {
+        margin: 0 0 0 14px;
+        color: var(--text-secondary);
+        font-size: 10px;
+        line-height: 14px;
+      }
+
+      .form-section {
+        display: grid;
+        gap: 10px;
+      }
+
+      .section-title-row {
+        display: flex;
+        align-items: flex-end;
+        justify-content: space-between;
+        gap: 12px;
+      }
+
+      .section-title-row h2 {
+        margin: 0;
+        font-size: 11px;
+        line-height: 16px;
+      }
+
+      .section-title-row span {
+        color: var(--text-secondary);
+        font-size: 10px;
+      }
+
+      .source-summary {
+        gap: 10px;
+        padding: 10px;
+        border-radius: 6px;
+        background: var(--bg-secondary);
+      }
+
+      .source-icon {
+        width: 28px;
+        height: 28px;
+        display: grid;
+        place-items: center;
+        flex: 0 0 auto;
+        border-radius: 4px;
+        background: #252525;
+        color: white;
+        font-size: 14px;
+      }
+
+      .source-copy {
+        min-width: 0;
+        display: grid;
+        flex: 1;
+      }
+
+      .source-copy strong {
+        overflow: hidden;
+        font-size: 11px;
+        line-height: 16px;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .source-copy small {
+        overflow: hidden;
+        color: var(--text-secondary);
+        font-size: 10px;
+        line-height: 14px;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .mapping-editor {
+        margin-top: 16px;
+        display: grid;
+        gap: 12px;
+        padding: 12px;
+        border: 1px solid var(--border);
+        border-radius: 8px;
+      }
+
+      .mapping-heading-row {
+        justify-content: space-between;
+        gap: 12px;
+      }
+
+      .mapping-heading-row h2 {
+        margin-bottom: 2px;
+        font-size: 11px;
+      }
+
+      .mapping-heading-row p {
+        margin: 0;
+        color: var(--text-secondary);
+        font-size: 10px;
+        line-height: 14px;
+      }
+
+      .mapping-progress {
+        flex: 0 0 auto;
+        padding: 3px 7px;
+        border-radius: 999px;
+        background: var(--success-bg);
+        color: #137547;
+        font-size: 10px;
+        font-weight: 600;
+      }
+
+      .translation-note {
+        display: flex;
+        gap: 8px;
+        padding: 8px 9px;
+        border: 1px solid #d7e9f8;
+        border-radius: 6px;
+        background: #f3f9fe;
+        color: #285e87;
+        font-size: 10px;
+        line-height: 14px;
+      }
+
+      .translation-note i {
+        margin-top: 1px;
+        flex: 0 0 auto;
+        font-size: 14px;
+      }
+
+      .translation-note strong {
+        display: block;
+        margin-bottom: 1px;
+      }
+
+      .mapping-columns,
+      .mapping-property {
+        display: grid;
+        grid-template-columns: minmax(130px, 1fr) 12px minmax(150px, 1fr);
+        gap: 8px;
+      }
+
+      .mapping-columns {
+        padding: 0 8px;
+        color: var(--text-secondary);
+        font-size: 10px;
+      }
+
+      .mapping-columns span:last-child {
+        grid-column: 3;
+      }
+
+      .mapping-groups {
+        overflow: hidden;
+        border: 1px solid var(--border);
+        border-radius: 6px;
+      }
+
+      .group-label {
+        padding: 4px 8px;
+        border-top: 1px solid var(--border);
+        border-bottom: 1px solid var(--border);
+        background: var(--bg-secondary);
+        color: var(--text-secondary);
+        font-size: 9px;
+        font-weight: 650;
+        letter-spacing: 0.03em;
+        text-transform: uppercase;
+      }
+
+      .group-label:first-child {
+        border-top: 0;
+      }
+
+      .mapping-row + .mapping-row {
+        border-top: 1px solid var(--border);
+      }
+
+      .mapping-property {
+        align-items: center;
+        padding: 8px;
+      }
+
+      .code-prop {
+        min-width: 0;
+        display: grid;
+      }
+
+      .code-prop strong {
+        overflow: hidden;
+        font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+        font-size: 10px;
+        line-height: 15px;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .code-prop small {
+        overflow: hidden;
+        color: var(--text-secondary);
+        font-size: 9px;
+        line-height: 13px;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .mapping-arrow {
+        color: var(--text-tertiary);
+        text-align: center;
+      }
+
+      .mapping-select {
+        width: 100%;
+        min-width: 0;
+        height: 28px;
+        padding: 4px 23px 4px 8px;
+        border: 1px solid transparent;
+        border-radius: 5px;
+        background: var(--bg-secondary);
+        outline: none;
+        font-size: 10px;
+      }
+
+      .mapping-select:focus {
+        border-color: var(--brand);
+      }
+
+      .runtime-value {
+        min-width: 0;
+        padding: 6px 8px;
+        border-radius: 5px;
+        background: var(--warning-bg);
+        color: var(--warning);
+        font-size: 10px;
+      }
+
+      .advanced {
+        border-top: 1px solid var(--border);
+        padding-top: 9px;
+      }
+
+      .advanced summary {
+        font-size: 10px;
+        font-weight: 600;
+        cursor: pointer;
+      }
+
+      .advanced p {
+        margin: 7px 0 0;
+        color: var(--text-secondary);
+        font-size: 10px;
+        line-height: 14px;
+      }
+
+      .footer {
+        justify-content: flex-end;
+        gap: 7px;
+        padding: 0 8px;
+        border-top: 1px solid var(--border);
+      }
+
+      .inspect-screen {
+        display: grid;
+        grid-template-rows: minmax(0, 1fr);
+      }
+
+      .inspect-heading {
+        justify-content: space-between;
+        align-items: flex-start;
+        gap: 12px;
+        margin-bottom: 14px;
+      }
+
+      .verified {
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+        padding: 3px 7px;
+        border-radius: 999px;
+        background: var(--success-bg);
+        color: #137547;
+        font-size: 9px;
+        font-weight: 600;
+      }
+
+      .code-section {
+        overflow: hidden;
+        border: 1px solid var(--border);
+        border-radius: 6px;
+      }
+
+      .code-toolbar {
+        justify-content: space-between;
+        height: 32px;
+        padding: 0 7px 0 10px;
+        border-bottom: 1px solid var(--border);
+        background: var(--bg-secondary);
+        color: var(--text-secondary);
+        font-size: 10px;
+      }
+
+      pre {
+        margin: 0;
+        padding: 10px 12px;
+        overflow-x: auto;
+        background: var(--bg);
+        color: var(--text);
+        font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+        font-size: 10px;
+        line-height: 16px;
+      }
+
+      .kw,
+      .tag {
+        color: #8250df;
+      }
+
+      .attr {
+        color: #0969da;
+      }
+
+      .string {
+        color: #1a7f37;
+      }
+
+      .comment {
+        color: var(--text-tertiary);
+      }
+
+      .inspect-note {
+        margin-top: 12px;
+        padding: 8px 10px;
+        border: 1px solid var(--border);
+        border-radius: 6px;
+      }
+
+      .inspect-note h2 {
+        margin-bottom: 3px;
+        font-size: 11px;
+      }
+
+      .inspect-note p {
+        margin-bottom: 0;
+        color: var(--text-secondary);
+        font-size: 10px;
+        line-height: 14px;
+      }
+
+      .resolved-list {
+        margin-top: 10px;
+        overflow: hidden;
+        border: 1px solid var(--border);
+        border-radius: 6px;
+      }
+
+      .resolved-row {
+        display: grid;
+        grid-template-columns: minmax(120px, 0.8fr) minmax(0, 1.2fr);
+        gap: 10px;
+        padding: 8px 10px;
+        border-top: 1px solid var(--border);
+        font-size: 10px;
+      }
+
+      .resolved-row:first-child {
+        border-top: 0;
+      }
+
+      .resolved-row code {
+        font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+        font-weight: 650;
+      }
+
+      .resolved-row span {
+        color: var(--text-secondary);
+      }
+
+      .toast {
+        position: fixed;
+        left: 50%;
+        bottom: 24px;
+        z-index: 10;
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        padding: 8px 10px;
+        border-radius: 6px;
+        background: #252525;
+        box-shadow: 0 8px 24px rgba(0, 0, 0, 0.2);
+        color: white;
+        font-size: 10px;
+        opacity: 0;
+        pointer-events: none;
+        transform: translate(-50%, 8px);
+        transition: opacity 150ms ease, transform 150ms ease;
+      }
+
+      .toast.visible {
+        opacity: 1;
+        transform: translate(-50%, 0);
+      }
+
+      .empty {
+        min-height: 100%;
+        display: grid;
+        place-items: center;
+        padding: 24px;
+        text-align: center;
+      }
+
+      .empty-inner {
+        max-width: 280px;
+      }
+
+      .empty-icon {
+        width: 56px;
+        height: 56px;
+        margin: 0 auto 12px;
+        display: grid;
+        place-items: center;
+        border: 1px dashed var(--border);
+        color: var(--text-secondary);
+        font-size: 30px;
+      }
+
+      .empty h1 {
+        margin-bottom: 4px;
+        font-size: 12px;
+      }
+
+      .empty p {
+        margin-bottom: 12px;
+        color: var(--text-secondary);
+        font-size: 10px;
+        line-height: 15px;
+      }
+
+      :focus-visible {
+        outline: 2px solid var(--brand);
+        outline-offset: 1px;
+      }
+
+      @media (max-width: 420px) {
+        .stage {
+          padding: 0;
+        }
+
+        .plugin {
+          width: 100vw;
+          height: 100vh;
+          min-height: 560px;
+          border: 0;
+          border-radius: 0;
+        }
+
+        .mapping-columns,
+        .mapping-property {
+          grid-template-columns: minmax(100px, 0.9fr) 10px minmax(125px, 1.1fr);
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main class="stage">
+      <section class="plugin" aria-label="Tashil Code plugin preview">
+        <header class="titlebar">
+          <div class="brand">
+            <span class="brand-icon"><i class="ph ph-code" aria-hidden="true"></i></span>
+            <span>Tashil Code</span>
+          </div>
+          <button class="icon-button" aria-label="Close preview" type="button">
+            <i class="ph ph-x" aria-hidden="true"></i>
+          </button>
+        </header>
+
+        <nav class="workflow-bar" aria-label="Tashil Code workflow">
+          <div class="tabs" role="tablist">
+            <button class="tab active" data-tab="components" role="tab" aria-selected="true" type="button">
+              Components
+            </button>
+            <button class="tab" data-tab="inspect" role="tab" aria-selected="false" type="button">
+              Inspect Code
+            </button>
+          </div>
+          <button class="icon-button" aria-label="Open how it works" type="button">
+            <i class="ph ph-question" aria-hidden="true"></i>
+          </button>
+        </nav>
+
+        <div class="content">
+          <section class="screen inventory" id="inventory-screen" role="tabpanel">
+            <div class="heading-row">
+              <div>
+                <h1>Main components</h1>
+                <p>Choose a component to connect it to code.</p>
+              </div>
+              <button class="button" type="button">Rescan</button>
+            </div>
+
+            <div class="filters" role="group" aria-label="Filter components">
+              <button class="filter active" data-filter="all" type="button">
+                <strong>8</strong><span>All</span>
+              </button>
+              <button class="filter" data-filter="not-connected" type="button">
+                <strong>6</strong><span>Not connected</span>
+              </button>
+              <button class="filter" data-filter="connected" type="button">
+                <strong>2</strong><span>Connected</span>
+              </button>
+            </div>
+
+            <label class="visually-hidden" for="component-search">Search components</label>
+            <input class="search" id="component-search" placeholder="Search components or pages" type="search" />
+
+            <button class="dot-filter" id="dot-filter" aria-pressed="true" type="button">
+              <span class="checkbox"><i class="ph ph-check" aria-hidden="true"></i></span>
+              <span>Hide names starting with .</span>
+              <span class="count-muted">8</span>
+            </button>
+
+            <div class="component-list" id="component-list" role="list">
+              <button class="component-row" data-name="Banner" data-status="not-connected" role="listitem" type="button">
+                <span class="component-status">○</span>
+                <span class="component-copy"><strong>Banner</strong><small>Banner</small></span>
+                <i class="ph ph-caret-right chevron" aria-hidden="true"></i>
+              </button>
+              <button class="component-row" data-name="Button" data-status="connected" role="listitem" type="button">
+                <span class="component-status connected"><i class="ph ph-check" aria-hidden="true"></i></span>
+                <span class="component-copy"><strong>Button</strong><small>Button</small></span>
+                <i class="ph ph-caret-right chevron" aria-hidden="true"></i>
+              </button>
+              <button class="component-row" data-name="Calendar" data-status="not-connected" role="listitem" type="button">
+                <span class="component-status">○</span>
+                <span class="component-copy"><strong>Calendar</strong><small>Date Picker</small></span>
+                <i class="ph ph-caret-right chevron" aria-hidden="true"></i>
+              </button>
+              <button class="component-row" data-name="Checkbox" data-status="not-connected" role="listitem" type="button">
+                <span class="component-status">○</span>
+                <span class="component-copy"><strong>Checkbox</strong><small>Checkbox</small></span>
+                <i class="ph ph-caret-right chevron" aria-hidden="true"></i>
+              </button>
+              <button class="component-row" data-name="Dialog" data-status="not-connected" role="listitem" type="button">
+                <span class="component-status">○</span>
+                <span class="component-copy"><strong>Dialog</strong><small>Overlays</small></span>
+                <i class="ph ph-caret-right chevron" aria-hidden="true"></i>
+              </button>
+              <button class="component-row" data-name="Dropdown" data-status="not-connected" role="listitem" type="button">
+                <span class="component-status">○</span>
+                <span class="component-copy"><strong>Dropdown</strong><small>Forms</small></span>
+                <i class="ph ph-caret-right chevron" aria-hidden="true"></i>
+              </button>
+              <button class="component-row" data-name="TextField" data-status="connected" role="listitem" type="button">
+                <span class="component-status connected"><i class="ph ph-check" aria-hidden="true"></i></span>
+                <span class="component-copy"><strong>TextField</strong><small>Forms</small></span>
+                <i class="ph ph-caret-right chevron" aria-hidden="true"></i>
+              </button>
+              <button class="component-row" data-name="Toast" data-status="not-connected" role="listitem" type="button">
+                <span class="component-status">○</span>
+                <span class="component-copy"><strong>Toast</strong><small>Feedback</small></span>
+                <i class="ph ph-caret-right chevron" aria-hidden="true"></i>
+              </button>
+            </div>
+          </section>
+
+          <section class="screen detail-screen hidden" id="detail-screen" role="tabpanel">
+            <div class="detail-nav">
+              <button class="back-button" id="back-button" type="button">
+                <i class="ph ph-arrow-left" aria-hidden="true"></i>
+                <span>Back to components</span>
+              </button>
+              <span class="nav-component">Dialog</span>
+            </div>
+
+            <div class="detail-scroll">
+              <h1 class="detail-title">Connect Dialog</h1>
+              <p class="detail-subtitle">Connect this main component to its production implementation.</p>
+
+              <section class="status-card" id="connection-status">
+                <div class="status-row">
+                  <span class="status-dot" aria-hidden="true"></span>
+                  <strong id="connection-status-title">Not connected</strong>
+                </div>
+                <p id="connection-status-copy">Review the source and mappings, then save the connection.</p>
+              </section>
+
+              <section class="form-section" aria-labelledby="code-target-title">
+                <div class="section-title-row">
+                  <h2 id="code-target-title">Code target</h2>
+                  <span>Public API</span>
+                </div>
+                <div class="source-summary">
+                  <span class="source-icon"><i class="ph ph-code" aria-hidden="true"></i></span>
+                  <span class="source-copy">
+                    <strong>ConfirmationDialog</strong>
+                    <small>@tashil/ui · src/components/ConfirmationDialog.tsx</small>
+                  </span>
+                  <button class="button" type="button">Replace</button>
+                </div>
+              </section>
+
+              <section class="mapping-editor" aria-labelledby="mapping-title">
+                <div class="mapping-heading-row">
+                  <div>
+                    <h2 id="mapping-title">Implementation mapping</h2>
+                    <p>Connect code props to design values.</p>
+                  </div>
+                  <span class="mapping-progress">5 mapped</span>
+                </div>
+
+                <div class="translation-note">
+                  <i class="ph ph-info" aria-hidden="true"></i>
+                  <div>
+                    <strong>Dialog’s layers do not match the code structure</strong>
+                    Header and Footer are used as value sources, not emitted as components.
+                  </div>
+                </div>
+
+                <div class="mapping-columns" aria-hidden="true">
+                  <span>Code prop</span>
+                  <span>Figma value</span>
+                </div>
+
+                <div class="mapping-groups">
+                  <div class="group-label">Content</div>
+                  <div class="mapping-row">
+                    <div class="mapping-property">
+                      <span class="code-prop"><strong>title</strong><small>string</small></span>
+                      <span class="mapping-arrow">›</span>
+                      <select class="mapping-select" aria-label="Figma value for title">
+                        <option selected>Header / Title</option>
+                        <option>Title</option>
+                        <option>Not mapped</option>
+                      </select>
+                    </div>
+                  </div>
+                  <div class="mapping-row">
+                    <div class="mapping-property">
+                      <span class="code-prop"><strong>description</strong><small>string</small></span>
+                      <span class="mapping-arrow">›</span>
+                      <select class="mapping-select" aria-label="Figma value for description">
+                        <option selected>Header / Description</option>
+                        <option>Description</option>
+                        <option>Not mapped</option>
+                      </select>
+                    </div>
+                  </div>
+
+                  <div class="group-label">Variants &amp; states</div>
+                  <div class="mapping-row">
+                    <div class="mapping-property">
+                      <span class="code-prop"><strong>intent</strong><small>"neutral" | "danger"</small></span>
+                      <span class="mapping-arrow">›</span>
+                      <select class="mapping-select" aria-label="Figma value for intent">
+                        <option selected>Type</option>
+                        <option>Variant</option>
+                        <option>Not mapped</option>
+                      </select>
+                    </div>
+                  </div>
+
+                  <div class="group-label">Actions</div>
+                  <div class="mapping-row">
+                    <div class="mapping-property">
+                      <span class="code-prop"><strong>cancelAction.label</strong><small>string</small></span>
+                      <span class="mapping-arrow">›</span>
+                      <select class="mapping-select" aria-label="Figma value for cancel action label">
+                        <option selected>Footer / Secondary / Label</option>
+                        <option>Not mapped</option>
+                      </select>
+                    </div>
+                  </div>
+                  <div class="mapping-row">
+                    <div class="mapping-property">
+                      <span class="code-prop"><strong>confirmAction.label</strong><small>string</small></span>
+                      <span class="mapping-arrow">›</span>
+                      <select class="mapping-select" aria-label="Figma value for confirm action label">
+                        <option selected>Footer / Primary / Label</option>
+                        <option>Not mapped</option>
+                      </select>
+                    </div>
+                  </div>
+
+                  <div class="group-label">Application behavior</div>
+                  <div class="mapping-row">
+                    <div class="mapping-property">
+                      <span class="code-prop"><strong>onConfirm</strong><small>() =&gt; void</small></span>
+                      <span class="mapping-arrow">›</span>
+                      <span class="runtime-value">Set in application</span>
+                    </div>
+                  </div>
+                </div>
+
+                <details class="advanced">
+                  <summary>Advanced mapping options</summary>
+                  <p>Custom transforms, wildcard paths, and the generated JSON remain available here without competing with the main workflow.</p>
+                </details>
+              </section>
+            </div>
+
+            <footer class="footer">
+              <button class="button" id="cancel-button" type="button">Cancel</button>
+              <button class="button primary" id="save-button" type="button">Save connection</button>
+            </footer>
+          </section>
+
+          <section class="screen inspect-screen hidden" id="inspect-screen" role="tabpanel">
+            <div class="inspect-scroll">
+              <div class="inspect-heading">
+                <div>
+                  <h1>Dialog implementation</h1>
+                  <p>Production code for the current design properties.</p>
+                </div>
+                <span class="verified"><i class="ph ph-check-circle" aria-hidden="true"></i> Connected</span>
+              </div>
+
+              <section class="code-section" aria-labelledby="code-title">
+                <div class="code-toolbar">
+                  <span id="code-title">React · TypeScript</span>
+                  <button class="button" id="copy-button" type="button">
+                    <i class="ph ph-copy" aria-hidden="true"></i>
+                    <span>Copy</span>
+                  </button>
+                </div>
+                <pre><span class="kw">import</span> { <span class="tag">ConfirmationDialog</span> } <span class="kw">from</span> <span class="string">"@tashil/ui"</span>
+
+&lt;<span class="tag">ConfirmationDialog</span>
+  <span class="attr">intent</span>=<span class="string">"danger"</span>
+  <span class="attr">title</span>=<span class="string">"Delete account?"</span>
+  <span class="attr">description</span>=<span class="string">"This action cannot be undone."</span>
+  <span class="attr">cancelAction</span>={{ label: <span class="string">"Cancel"</span> }}
+  <span class="attr">confirmAction</span>={{ label: <span class="string">"Delete"</span> }}
+  <span class="attr">onConfirm</span>={<span class="comment">/* set in application */</span>}
+/&gt;</pre>
+              </section>
+
+              <section class="inspect-note">
+                <h2>Why this structure?</h2>
+                <p>The Figma Header and Footer supplied values to the public ConfirmationDialog API. They are not standalone source components.</p>
+              </section>
+
+              <div class="resolved-list" aria-label="Resolved mappings">
+                <div class="resolved-row"><code>title</code><span>Header / Title</span></div>
+                <div class="resolved-row"><code>description</code><span>Header / Description</span></div>
+                <div class="resolved-row"><code>intent</code><span>Type: Destructive → danger</span></div>
+                <div class="resolved-row"><code>cancelAction.label</code><span>Footer / Secondary / Label</span></div>
+                <div class="resolved-row"><code>confirmAction.label</code><span>Footer / Primary / Label</span></div>
+                <div class="resolved-row"><code>onConfirm</code><span>Set in application</span></div>
+              </div>
+            </div>
+          </section>
+
+          <section class="screen hidden" id="inspect-empty-screen" role="tabpanel">
+            <div class="empty">
+              <div class="empty-inner">
+                <div class="empty-icon"><i class="ph ph-code" aria-hidden="true"></i></div>
+                <h1>No connected component selected</h1>
+                <p>Open a connected component from the Components tab to inspect its production code.</p>
+                <button class="button" id="browse-button" type="button">Browse components</button>
+              </div>
+            </div>
+          </section>
+        </div>
+      </section>
+    </main>
+
+    <div class="toast" id="toast" role="status" aria-live="polite">
+      <i class="ph ph-check-circle" aria-hidden="true"></i>
+      <span id="toast-copy">Connection saved</span>
+    </div>
+
+    <style>
+      .visually-hidden {
+        position: absolute;
+        width: 1px;
+        height: 1px;
+        padding: 0;
+        margin: -1px;
+        overflow: hidden;
+        clip: rect(0, 0, 0, 0);
+        white-space: nowrap;
+        border: 0;
+      }
+    </style>
+
+    <script>
+      const tabs = [...document.querySelectorAll("[data-tab]")];
+      const filters = [...document.querySelectorAll("[data-filter]")];
+      const inventoryScreen = document.getElementById("inventory-screen");
+      const detailScreen = document.getElementById("detail-screen");
+      const inspectScreen = document.getElementById("inspect-screen");
+      const inspectEmptyScreen = document.getElementById("inspect-empty-screen");
+      const componentRows = [...document.querySelectorAll(".component-row")];
+      const searchInput = document.getElementById("component-search");
+      const toast = document.getElementById("toast");
+      const toastCopy = document.getElementById("toast-copy");
+      let connectionSaved = false;
+      let selectedFilter = "all";
+      let toastTimer;
+
+      function showToast(message) {
+        window.clearTimeout(toastTimer);
+        toastCopy.textContent = message;
+        toast.classList.add("visible");
+        toastTimer = window.setTimeout(() => toast.classList.remove("visible"), 1700);
+      }
+
+      function showComponents(showDetail = false) {
+        tabs.forEach((tab) => {
+          const active = tab.dataset.tab === "components";
+          tab.classList.toggle("active", active);
+          tab.setAttribute("aria-selected", String(active));
+        });
+        inventoryScreen.classList.toggle("hidden", showDetail);
+        detailScreen.classList.toggle("hidden", !showDetail);
+        inspectScreen.classList.add("hidden");
+        inspectEmptyScreen.classList.add("hidden");
+      }
+
+      function showInspect() {
+        tabs.forEach((tab) => {
+          const active = tab.dataset.tab === "inspect";
+          tab.classList.toggle("active", active);
+          tab.setAttribute("aria-selected", String(active));
+        });
+        inventoryScreen.classList.add("hidden");
+        detailScreen.classList.add("hidden");
+        inspectScreen.classList.toggle("hidden", !connectionSaved);
+        inspectEmptyScreen.classList.toggle("hidden", connectionSaved);
+      }
+
+      function updateVisibleRows() {
+        const query = searchInput.value.trim().toLowerCase();
+        componentRows.forEach((row) => {
+          const matchesQuery = row.dataset.name.toLowerCase().includes(query)
+            || row.innerText.toLowerCase().includes(query);
+          const matchesFilter = selectedFilter === "all"
+            || row.dataset.status === selectedFilter;
+          row.classList.toggle("hidden", !(matchesQuery && matchesFilter));
+        });
+      }
+
+      tabs.forEach((tab) => {
+        tab.addEventListener("click", () => {
+          if (tab.dataset.tab === "inspect") {
+            showInspect();
+          } else {
+            showComponents(false);
+          }
+        });
+      });
+
+      filters.forEach((filter) => {
+        filter.addEventListener("click", () => {
+          selectedFilter = filter.dataset.filter;
+          filters.forEach((item) => item.classList.toggle("active", item === filter));
+          updateVisibleRows();
+        });
+      });
+
+      searchInput.addEventListener("input", updateVisibleRows);
+
+      componentRows.forEach((row) => {
+        row.addEventListener("click", () => {
+          if (row.dataset.name === "Dialog") {
+            showComponents(true);
+          } else {
+            showToast("This preview focuses on Dialog");
+          }
+        });
+      });
+
+      document.getElementById("back-button").addEventListener("click", () => showComponents(false));
+      document.getElementById("cancel-button").addEventListener("click", () => showComponents(false));
+      document.getElementById("browse-button").addEventListener("click", () => showComponents(false));
+
+      document.getElementById("save-button").addEventListener("click", () => {
+        connectionSaved = true;
+        const status = document.getElementById("connection-status");
+        status.classList.add("ready");
+        document.getElementById("connection-status-title").textContent = "Connected";
+        document.getElementById("connection-status-copy").textContent =
+          "The production implementation is ready in Inspect Code.";
+        showToast("Dialog connection saved");
+        window.setTimeout(showInspect, 450);
+      });
+
+      document.getElementById("copy-button").addEventListener("click", async (event) => {
+        const code = `import { ConfirmationDialog } from "@tashil/ui"
+
+<ConfirmationDialog
+  intent="danger"
+  title="Delete account?"
+  description="This action cannot be undone."
+  cancelAction={{ label: "Cancel" }}
+  confirmAction={{ label: "Delete" }}
+  onConfirm={/* set in application */}
+/>`;
+        try {
+          await navigator.clipboard.writeText(code);
+          event.currentTarget.querySelector("span").textContent = "Copied";
+          showToast("Code copied");
+          window.setTimeout(() => {
+            event.currentTarget.querySelector("span").textContent = "Copy";
+          }, 1400);
+        } catch {
+          showToast("Copy is unavailable in this preview");
+        }
+      });
+    </script>
+  </body>
+</html>

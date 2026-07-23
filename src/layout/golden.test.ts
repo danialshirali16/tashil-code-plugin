@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import * as ts from 'typescript';
 import { createUsageSnippet, type SelectionLike } from '../codegen';
+import { extractLayout } from './figma-layout-extractor';
 import {
   absolutePositionedChild,
   brokenInstance,
@@ -93,80 +94,77 @@ describe('layout fixtures — Phase 0 baseline', () => {
     });
   });
 
-  describe('pre-feature reality (frames and other nodes are not yet supported)', () => {
-    // Phase 2 will replace each body. The assertions here document *why* each
-    // case is a placeholder today and that the fixture itself is well-formed.
+  describe('fixture → IR extraction (Phase 2)', () => {
+    // Phase 2 added the extractor. These bridge the Phase 0 fixtures to real
+    // extraction behavior, asserting the IR shape each fixture produces.
 
-    it('verticalForm: fixture is a VERTICAL frame root', () => {
-      const root = fixtures.verticalForm();
-      expect(root.type).toBe('FRAME');
-      expect(root.layoutMode).toBe('VERTICAL');
-      expect(root.children.length).toBe(2);
-      expectValidTypeScript('<div />'); // placeholder body until the emitter exists
+    it('verticalForm extracts to a vertical container with two components', async () => {
+      const doc = await extractLayout(fixtures.verticalForm());
+      expect(doc.root.kind).toBe('container');
+      if (doc.root.kind !== 'container') return;
+      expect(doc.root.layout.axis).toBe('vertical');
+      expect(doc.root.children.every((c) => c.kind === 'component')).toBe(true);
     });
 
-    it('horizontalHeader: fixture is a HORIZONTAL frame root', () => {
-      const root = fixtures.horizontalHeader();
-      expect(root.type).toBe('FRAME');
-      expect(root.layoutMode).toBe('HORIZONTAL');
-      expect(root.children.length).toBe(2);
+    it('horizontalHeader extracts to a horizontal container', async () => {
+      const doc = await extractLayout(fixtures.horizontalHeader());
+      expect(doc.root.kind).toBe('container');
+      if (doc.root.kind !== 'container') return;
+      expect(doc.root.layout.axis).toBe('horizontal');
     });
 
-    it('nestedAutoLayout: fixture nests a frame inside a frame', () => {
-      const root = fixtures.nestedAutoLayout();
-      const inner = root.children[0];
-      expect(inner.type).toBe('FRAME');
-      expect((inner as { layoutMode: string }).layoutMode).toBe('VERTICAL');
+    it('nestedAutoLayout extracts a nested container structure', async () => {
+      const doc = await extractLayout(fixtures.nestedAutoLayout());
+      if (doc.root.kind !== 'container') throw new Error('expected container');
+      expect(doc.root.children[0].kind).toBe('container');
     });
 
-    it('wrappingActionRow: fixture enables layoutWrap', () => {
-      const root = fixtures.wrappingActionRow();
-      expect(root.layoutWrap).toBe('WRAP');
-      expect(root.counterAxisSpacing).toBe(8);
+    it('wrappingActionRow extracts with wrap + counter gap', async () => {
+      const doc = await extractLayout(fixtures.wrappingActionRow());
+      if (doc.root.kind !== 'container') throw new Error('expected container');
+      expect(doc.root.layout.wrap).toBe(true);
+      expect(doc.root.layout.counterGap).toBe(8);
     });
 
-    it('connectedMultiplePackages: two distinct import paths', () => {
-      const root = fixtures.connectedMultiplePackages();
-      expect(root.children.length).toBe(2);
+    it('connectedMultiplePackages extracts two component usages', async () => {
+      const doc = await extractLayout(fixtures.connectedMultiplePackages());
+      if (doc.root.kind !== 'container') throw new Error('expected container');
+      const components = doc.root.children.filter((c) => c.kind === 'component');
+      expect(components.length).toBe(2);
     });
 
-    it('unconnectedInstance: main component carries no connection data', () => {
-      const root = unconnectedInstance();
-      const child = root.children[0] as unknown as {
-        getMainComponentAsync: () => Promise<{
-          getSharedPluginData: (namespace: string, key: string) => string;
-        }>;
-      };
-      return Promise.resolve(child.getMainComponentAsync()).then((component) => {
-        expect(component.getSharedPluginData('ns', 'key')).toBe('');
-      });
+    it('unconnectedInstance extracts to a placeholder with a diagnostic', async () => {
+      const doc = await extractLayout(unconnectedInstance());
+      if (doc.root.kind !== 'container') throw new Error('expected container');
+      expect(doc.root.children[0].kind).toBe('placeholder');
+      expect(doc.diagnostics.some((d) => d.reason === 'unconnected-instance')).toBe(true);
     });
 
-    it('brokenInstance: getMainComponentAsync resolves null', () => {
-      const root = brokenInstance();
-      const child = root.children[0] as unknown as {
-        getMainComponentAsync: () => Promise<unknown>;
-      };
-      return Promise.resolve(child.getMainComponentAsync()).then((main) => {
-        expect(main).toBeNull();
-      });
+    it('brokenInstance extracts to a placeholder with a missing-main-component diagnostic', async () => {
+      const doc = await extractLayout(brokenInstance());
+      if (doc.root.kind !== 'container') throw new Error('expected container');
+      expect(doc.root.children[0].kind).toBe('placeholder');
+      expect(doc.diagnostics.some((d) => d.reason === 'missing-main-component')).toBe(true);
     });
 
-    it('rawText: fixture is a TEXT node with characters', () => {
-      const node = rawText();
-      expect(node.type).toBe('TEXT');
-      expect((node as unknown as { characters: string }).characters).toBe('Add a payment method');
+    it('rawText extracts to a text IR node', async () => {
+      const doc = await extractLayout(rawText());
+      expect(doc.root.kind).toBe('text');
+      if (doc.root.kind !== 'text') return;
+      expect(doc.root.text).toBe('Add a payment method');
     });
 
-    it('absolutePositionedChild: child is absolutely positioned', () => {
-      const root = absolutePositionedChild();
-      const child = root.children[0] as unknown as { layoutPositioning: string };
-      expect(child.layoutPositioning).toBe('ABSOLUTE');
+    it('absolutePositionedChild extracts the child as an absolute-positioning placeholder', async () => {
+      const doc = await extractLayout(absolutePositionedChild());
+      if (doc.root.kind !== 'container') throw new Error('expected container');
+      expect(doc.root.children[0].kind).toBe('placeholder');
+      expect(doc.diagnostics.some((d) => d.reason === 'absolute-positioning')).toBe(true);
     });
 
-    it('unsupportedVector: fixture is a VECTOR node', () => {
-      const node = unsupportedVector();
-      expect(node.type).toBe('VECTOR');
+    it('unsupportedVector extracts to an unsupported-root placeholder', async () => {
+      const doc = await extractLayout(unsupportedVector());
+      expect(doc.root.kind).toBe('placeholder');
+      expect(doc.diagnostics.some((d) => d.reason === 'unsupported-root')).toBe(true);
     });
   });
 });

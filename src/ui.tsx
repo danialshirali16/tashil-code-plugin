@@ -5,7 +5,10 @@ import {
   IconCheck24,
   IconButton,
   IconCopySmall24,
+  IconFolder24,
   IconHelp16,
+  IconNewTab24,
+  IconTimeSmall24,
   render,
   Stack,
   Text,
@@ -41,6 +44,11 @@ import {
   type ResizeWindowHandler,
   type UiTargetState,
 } from './types';
+
+const REFERENCE_ICONS = {
+  source: 'data:image/svg+xml;base64,PHN2ZyBwcmVzZXJ2ZUFzcGVjdFJhdGlvPSJub25lIiB3aWR0aD0iMTAwJSIgaGVpZ2h0PSIxMDAlIiBvdmVyZmxvdz0idmlzaWJsZSIgc3R5bGU9ImRpc3BsYXk6IGJsb2NrOyIgdmlld0JveD0iMCAwIDE2IDE2IiBmaWxsPSJub25lIiB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciPgo8ZyBpZD0iR3JvdXAgMSI+CjxwYXRoIGlkPSJWZWN0b3IiIGQ9Ik0wLjMzNDQ5MiA4LjgwNzU1Qy0wLjExMTQ5NyA4LjM2MTU1IC0wLjExMTQ5NyA3LjYzODQ2IDAuMzM0NDkyIDcuMTkyNDZMNy4xOTI0NiAwLjMzNDQ5MkM3LjYzODQ2IC0wLjExMTQ5NyA4LjM2MTU1IC0wLjExMTQ5NyA4LjgwNzU1IDAuMzM0NDkyTDE1LjY2NTUgNy4xOTI0NkMxNi4xMTE1IDcuNjM4NDYgMTYuMTExNSA4LjM2MTU1IDE1LjY2NTUgOC44MDc1NUw4LjgwNzU1IDE1LjY2NTVDOC4zNjE1NSAxNi4xMTE1IDcuNjM4NDYgMTYuMTExNSA3LjE5MjQ2IDE1LjY2NTVMMC4zMzQ0OTIgOC44MDc1NVoiIGZpbGw9IiNFRTUxM0IiLz4KPHBhdGggaWQ9IlZlY3Rvcl8yIiBkPSJNNS43OTk0NCAxLjc0OTQzTDUuMTA0OTggMi40NDM5MUw2Ljg5ODY0IDQuMjM3NTdDNi44MjYwNyA0LjM5MzI0IDYuNzg1NTUgNC41NjY4NiA2Ljc4NTU1IDQuNzQ5OTRDNi43ODU1NSA1LjI2OTcxIDcuMTEyMTIgNS43MTMxOSA3LjU3MTI3IDUuODg2MzlWMTAuMjc0MkM3LjExMjEyIDEwLjQ0NzQgNi43ODU1NSAxMC44OTA5IDYuNzg1NTUgMTEuNDEwNkM2Ljc4NTU1IDEyLjA4MTMgNy4zMjkyMSAxMi42MjQ5IDcuOTk5ODQgMTIuNjI0OUM4LjY3MDQ3IDEyLjYyNDkgOS4yMTQxMyAxMi4wODEzIDkuMjE0MTMgMTEuNDEwNkM5LjIxNDEzIDEwLjkzOTQgOC45NDU3MyAxMC41MzA5IDguNTUzNDQgMTAuMzI5NlY1Ljg5MjM5TDEwLjI2OCA3LjYwNjk3QzEwLjE5OSA3Ljc1OTQ4IDEwLjE2MDYgNy45Mjg4IDEwLjE2MDYgOC4xMDcwOEMxMC4xNjA2IDguNzc3NzEgMTAuNzA0MiA5LjMyMTM3IDExLjM3NDkgOS4zMjEzN0MxMi4wNDU1IDkuMzIxMzcgMTIuNTg5MiA4Ljc3NzcxIDEyLjU4OTIgOC4xMDcwOEMxMi41ODkyIDcuNDM2NDUgMTIuMDQ1NSA2Ljg5Mjc5IDExLjM3NDkgNi44OTI3OUMxMS4yNDQ1IDYuODkyNzkgMTEuMTE5IDYuOTEzMzEgMTEuMDAxMyA2Ljk1MTMxTDkuMTU5OSA1LjEwOTg4QzkuMTk1MTUgNC45OTYxNiA5LjIxNDEzIDQuODc1MjUgOS4yMTQxMyA0Ljc0OTk0QzkuMjE0MTMgNC4wNzkyOSA4LjY3MDQ3IDMuNTM1NjQgNy45OTk4NCAzLjUzNTY0QzcuODc0NTIgMy41MzU2NCA3Ljc1MzY3IDMuNTU0NjMgNy42Mzk5IDMuNTg5ODhMNS43OTk0NCAxLjc0OTQzWiIgZmlsbD0id2hpdGUiLz4KPC9nPgo8L3N2Zz4=',
+  storybook: 'data:image/svg+xml;base64,PHN2ZyBwcmVzZXJ2ZUFzcGVjdFJhdGlvPSJub25lIiB3aWR0aD0iMTAwJSIgaGVpZ2h0PSIxMDAlIiBvdmVyZmxvdz0idmlzaWJsZSIgc3R5bGU9ImRpc3BsYXk6IGJsb2NrOyIgdmlld0JveD0iMCAwIDEyLjA3MzcgMTUuMDQyNSIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj4KPGcgaWQ9Ikdyb3VwIj4KPHBhdGggaWQ9IlZlY3RvciIgZD0iTTAuNDY2NTk1IDEzLjg2MTFMMC4wMDA2MTA2OTYgMS40NDQ3NUMtMC4wMTQ3Nzg5IDEuMDM0NjggMC4yOTk2NDMgMC42ODcxNTcgMC43MDkxOTcgMC42NjE1NkwxMS4yNzAyIDAuMDAxNDk4NDlDMTEuNjg3MSAtMC4wMjQ1NTYzIDEyLjA0NjEgMC4yOTIyNjcgMTIuMDcyMiAwLjcwOTE0NEMxMi4wNzMyIDAuNzI0ODUgMTIuMDczNyAwLjc0MDU4MyAxMi4wNzM3IDAuNzU2MzJWMTQuMjg2MUMxMi4wNzM3IDE0LjcwMzggMTEuNzM1MSAxNS4wNDI0IDExLjMxNzQgMTUuMDQyNEMxMS4zMDYgMTUuMDQyNCAxMS4yOTQ3IDE1LjA0MjIgMTEuMjgzNCAxNS4wNDE3TDEuMTg4NDIgMTQuNTg4M0MwLjc5NTI2MyAxNC41NzA2IDAuNDgxMzU0IDE0LjI1NDQgMC40NjY1OTUgMTMuODYxMVoiIGZpbGw9IiNGRjQ3ODUiLz4KPGcgaWQ9Ik1hc2sgZ3JvdXAiPgo8bWFzayBpZD0ibWFzazBfMF80IiBzdHlsZT0ibWFzay10eXBlOmx1bWluYW5jZSIgbWFza1VuaXRzPSJ1c2VyU3BhY2VPblVzZSIgeD0iMCIgeT0iMCIgd2lkdGg9IjEzIiBoZWlnaHQ9IjE2Ij4KPGcgaWQ9Ikdyb3VwXzIiPgo8cGF0aCBpZD0iVmVjdG9yXzIiIGQ9Ik0wLjQ2NjU5NSAxMy44NjExTDAuMDAwNjEwNjk2IDEuNDQ0NzVDLTAuMDE0Nzc4OSAxLjAzNDY4IDAuMjk5NjQzIDAuNjg3MTU3IDAuNzA5MTk3IDAuNjYxNTZMMTEuMjcwMiAwLjAwMTQ5ODQ5QzExLjY4NzEgLTAuMDI0NTU2MyAxMi4wNDYxIDAuMjkyMjY3IDEyLjA3MjIgMC43MDkxNDRDMTIuMDczMiAwLjcyNDg1IDEyLjA3MzcgMC43NDA1ODMgMTIuMDczNyAwLjc1NjMyVjE0LjI4NjFDMTIuMDczNyAxNC43MDM4IDExLjczNTEgMTUuMDQyNCAxMS4zMTc0IDE1LjA0MjRDMTEuMzA2IDE1LjA0MjQgMTEuMjk0NyAxNS4wNDIyIDExLjI4MzQgMTUuMDQxN0wxLjE4ODQyIDE0LjU4ODNDMC43OTUyNjMgMTQuNTcwNiAwLjQ4MTM1NCAxNC4yNTQ0IDAuNDY2NTk1IDEzLjg2MTFaIiBmaWxsPSJ3aGl0ZSIvPgo8L2c+CjwvbWFzaz4KPGcgbWFzaz0idXJsKCNtYXNrMF8wXzQpIj4KPHBhdGggaWQ9IlZlY3Rvcl8zIiBkPSJNOC45MTU1MSAxLjg0ODk2TDguOTg3NjUgMC4xMTM5NTlMMTAuNDM4IDMuMTc4NzVlLTA2TDEwLjUwMDUgMS43ODkyNUMxMC41MDI2IDEuODUxNTIgMTAuNDUzOSAxLjkwMzc2IDEwLjM5MTcgMS45MDU5NEMxMC4zNjUgMS45MDY4NyAxMC4zMzg5IDEuODk4MzIgMTAuMzE3OSAxLjg4MTgxTDkuNzU4NjEgMS40NDEyMUw5LjA5NjQyIDEuOTQzNTNDOS4wNDY3NyAxLjk4MTE5IDguOTc2IDEuOTcxNDcgOC45MzgzNSAxLjkyMTgzQzguOTIyNSAxLjkwMDkzIDguOTE0NDIgMS44NzUxNiA4LjkxNTUxIDEuODQ4OTZaTTcuMDYwNjYgNS42Njk3MUM3LjA2MDY2IDUuOTYzOTUgOS4wNDI2NCA1LjgyMjkyIDkuMzA4NzEgNS42MTYyNEM5LjMwODcxIDMuNjEyNTIgOC4yMzM1NiAyLjU1OTU5IDYuMjY0NzcgMi41NTk1OUM0LjI5NTk5IDIuNTU5NTkgMy4xOTI5MSAzLjYyODkgMy4xOTI5MSA1LjIzMjg2QzMuMTkyOTEgOC4wMjY0MyA2Ljk2MjkyIDguMDc5ODkgNi45NjI5MiA5LjYwMzY1QzYuOTYyOTIgMTAuMDMxNCA2Ljc1MzQ4IDEwLjI4NTMgNi4yOTI3IDEwLjI4NTNDNS42OTIyOSAxMC4yODUzIDUuNDU0OTIgOS45Nzg3MSA1LjQ4Mjg1IDguOTM2MTNDNS40ODI4NSA4LjcwOTk2IDMuMTkyOTEgOC42Mzk0NSAzLjEyMzEgOC45MzYxM0MyLjk0NTMyIDExLjQ2MjcgNC41MTk0IDEyLjE5MTQgNi4zMjA2MyAxMi4xOTE0QzguMDY2IDEyLjE5MTQgOS40MzQzNyAxMS4yNjExIDkuNDM0MzcgOS41NzY5MkM5LjQzNDM3IDYuNTgyODYgNS42MDg1MSA2LjY2MzA2IDUuNjA4NTEgNS4xNzkzOUM1LjYwODUxIDQuNTc3OTEgNi4wNTUzMyA0LjQ5NzcxIDYuMzIwNjMgNC40OTc3MUM2LjU5OTg5IDQuNDk3NzEgNy4xMDI1NSA0LjU0NjkzIDcuMDYwNjYgNS42Njk3MVoiIGZpbGw9IndoaXRlIi8+CjwvZz4KPC9nPgo8L2c+Cjwvc3ZnPgo=',
+} as const;
 
 export function Plugin(): h.JSX.Element {
   const [view, setView] = useState<'connect' | 'help'>('connect');
@@ -974,30 +982,33 @@ function ConnectionReferencesPanel(props: {
           ) : null}
           {references.sourceUrl ? (
             <ReferenceUrlRow
-              label="Source"
+              label="Source URL"
               target="source"
               url={references.sourceUrl}
             />
           ) : null}
           {references.sourcePath ? (
             <div class="reference-row">
-              <dt class="reference-label-row">
-                <span>Source path</span>
-                <CopyButton text={references.sourcePath} title="source path" />
-              </dt>
-              <dd class="reference-value reference-path">{references.sourcePath}</dd>
+              <ReferenceIcon source="folder" />
+              <div class="reference-copy">
+                <dt class="reference-label">Source path</dt>
+                <dd class="reference-value reference-path">{references.sourcePath}</dd>
+              </div>
             </div>
           ) : null}
           {references.updatedAt ? (
             <div class="reference-row">
-              <dt class="reference-label">Last updated</dt>
-              <dd class="reference-value">
-                {updatedAt ? (
-                  <time dateTime={updatedAt.dateTime}>{updatedAt.label}</time>
-                ) : (
-                  'Not available'
-                )}
-              </dd>
+              <ReferenceIcon source="time" />
+              <div class="reference-copy">
+                <dt class="reference-label">Last updated</dt>
+                <dd class="reference-value reference-date">
+                  {updatedAt ? (
+                    <time dateTime={updatedAt.dateTime}>{updatedAt.label}</time>
+                  ) : (
+                    'Not available'
+                  )}
+                </dd>
+              </div>
             </div>
           ) : null}
         </dl>
@@ -1017,29 +1028,55 @@ function ReferenceUrlRow(props: {
 
   return (
     <div class="reference-row">
-      <dt class="reference-label">{props.label}</dt>
-      <dd class="reference-value">
-        <span class="reference-url">{props.url}</span>
-        {url ? (
-          <button
-            class="reference-open-button"
-            onClick={() => {
-              emit<OpenExternalHandler>('OPEN_EXTERNAL', {
-                target: props.target,
-                url,
-              });
-            }}
-            type="button"
-          >
-            Open {props.label} in browser
-          </button>
-        ) : (
-          <span class="reference-warning">
-            This saved URL is not a valid HTTP(S) address. Update it in Connect Component.
-          </span>
-        )}
-      </dd>
+      <ReferenceIcon source={props.target} />
+      <div class="reference-copy">
+        <dt class="reference-label">{props.label}</dt>
+        <dd class="reference-value">
+          <span class="reference-url">{props.url}</span>
+          {!url ? (
+            <span class="reference-warning">
+              This saved URL is not a valid HTTP(S) address. Update it in Connect Component.
+            </span>
+          ) : null}
+        </dd>
+      </div>
+      {url ? (
+        <button
+          aria-label={`Open ${props.label} in browser`}
+          class="reference-open-button"
+          onClick={() => {
+            emit<OpenExternalHandler>('OPEN_EXTERNAL', {
+              target: props.target,
+              url,
+            });
+          }}
+          title={`Open ${props.label} in browser`}
+          type="button"
+        >
+          <IconNewTab24 />
+        </button>
+      ) : null}
     </div>
+  );
+}
+
+function ReferenceIcon(props: {
+  source: 'folder' | 'source' | 'storybook' | 'time';
+}): h.JSX.Element {
+  if (props.source === 'folder') {
+    return <span aria-hidden="true" class="reference-icon"><IconFolder24 /></span>;
+  }
+  if (props.source === 'time') {
+    return <span aria-hidden="true" class="reference-icon"><IconTimeSmall24 /></span>;
+  }
+
+  return (
+    <span
+      aria-hidden="true"
+      class={`reference-icon reference-icon-${props.source}`}
+    >
+      <img alt="" src={REFERENCE_ICONS[props.source]} />
+    </span>
   );
 }
 
