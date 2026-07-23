@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { CURRENT_SCHEMA_VERSION, type UiSelectionState } from './types';
+import { CURRENT_SCHEMA_VERSION, type UiTargetState } from './types';
 import {
   clearFormDraft,
   createFormDraft,
@@ -11,8 +11,8 @@ import {
   getConnectionStatusSummary,
   getCopyFeedback,
   getFirstInvalidField,
-  getPendingMutationForSelection,
-  getSelectionStatusAnnouncement,
+  getPendingMutationForTarget,
+  getTargetStatusAnnouncement,
   markFormDraftSaved,
   selectFormDraft,
   startPendingMutation,
@@ -38,13 +38,13 @@ const EMPTY_FORM: ConnectionFormValues = {
 };
 
 function readyState(
-  selectionToken: string,
+  targetToken: string,
   componentName: string,
   importPath = '',
-): UiSelectionState {
+): UiTargetState {
   return {
     status: 'ready',
-    selectionToken,
+    targetToken,
     componentName,
     existingConnection: importPath === '' ? undefined : {
       schemaVersion: CURRENT_SCHEMA_VERSION,
@@ -356,14 +356,14 @@ describe('connection status presentation', () => {
 
 describe('selection status announcements', () => {
   it('announces an invalid or empty selection without inventing connection state', () => {
-    expect(getSelectionStatusAnnouncement({
+    expect(getTargetStatusAnnouncement({
       status: 'empty',
       message: 'Select a single component.',
     })).toBe('Select a single component.');
   });
 
   it('includes the selected component and the main-process connection message', () => {
-    expect(getSelectionStatusAnnouncement({
+    expect(getTargetStatusAnnouncement({
       ...readyState('A', 'Button', 'tashil-ui'),
       message: 'This component already has a Storybook connection.',
     })).toBe('Button selected. This component already has a Storybook connection.');
@@ -467,7 +467,7 @@ describe('mutation result correlation', () => {
     const first = startPendingMutation(createPendingMutationState(), {
       operation: 'save',
       operationId: 'save-1',
-      selectionToken: 'A',
+      targetToken: 'A',
       submittedValues,
     });
     expect(first.started).toBe(true);
@@ -476,28 +476,28 @@ describe('mutation result correlation', () => {
     const blocked = startPendingMutation(first.state, {
       operation: 'clear',
       operationId: 'clear-1',
-      selectionToken: 'A',
+      targetToken: 'A',
     });
     expect(blocked.started).toBe(false);
 
     const completed = finishPendingMutation(first.state, {
       operation: 'save',
       operationId: 'save-1',
-      selectionToken: 'A',
+      targetToken: 'A',
     });
     const second = startPendingMutation(completed.state, {
       operation: 'clear',
       operationId: 'clear-2',
-      selectionToken: 'A',
+      targetToken: 'A',
     });
     const lateFirstResult = finishPendingMutation(second.state, {
       operation: 'save',
       operationId: 'save-1',
-      selectionToken: 'A',
+      targetToken: 'A',
     });
 
     expect(lateFirstResult.mutation).toBeUndefined();
-    expect(getPendingMutationForSelection(lateFirstResult.state, 'A')).toMatchObject({
+    expect(getPendingMutationForTarget(lateFirstResult.state, 'A')).toMatchObject({
       operation: 'clear',
       operationId: 'clear-2',
     });
@@ -507,13 +507,13 @@ describe('mutation result correlation', () => {
     const pending = startPendingMutation(createPendingMutationState(), {
       operation: 'scaffold',
       operationId: 'scaffold-1',
-      selectionToken: 'A',
+      targetToken: 'A',
     }).state;
 
     const mismatched = finishPendingMutation(pending, {
       operation: 'clear',
       operationId: 'scaffold-1',
-      selectionToken: 'A',
+      targetToken: 'A',
     });
 
     expect(mismatched.mutation).toBeUndefined();

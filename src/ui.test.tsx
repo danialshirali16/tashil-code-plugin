@@ -16,7 +16,7 @@ import {
   type ConnectionMetadata,
   type InspectCodeState,
   type MappingDocument,
-  type UiSelectionState,
+  type UiTargetState,
 } from './types';
 
 type MessageHandler = (payload: unknown) => void;
@@ -78,11 +78,11 @@ function readySelection(
   message = connection
     ? 'This component already has a Storybook connection.'
     : 'This component is ready to connect.',
-  selectionToken = 'selection-a',
-): UiSelectionState {
+  targetToken = 'selection-a',
+): UiTargetState {
   return {
     status: 'ready',
-    selectionToken,
+    targetToken,
     componentName: 'Button',
     existingConnection: connection,
     message,
@@ -90,14 +90,38 @@ function readySelection(
 }
 
 function receive(name: string, payload: unknown): void {
-  const handlers = messageBus.handlers.get(name);
+  let eventName = name;
+  let eventPayload = payload;
+
+  if (name === 'SELECTION_STATE') {
+    const state = payload as UiTargetState & { selectionToken?: string };
+    eventName = 'CANVAS_TARGET_STATE';
+    eventPayload = {
+      source: 'selectionchange',
+      state: state.status === 'ready' && !state.targetToken
+        ? { ...state, targetToken: state.selectionToken }
+        : state,
+    };
+  } else if (
+    typeof payload === 'object'
+    && payload !== null
+    && 'selectionToken' in payload
+    && !('targetToken' in payload)
+  ) {
+    eventPayload = {
+      ...payload,
+      targetToken: payload.selectionToken,
+    };
+  }
+
+  const handlers = messageBus.handlers.get(eventName);
   if (!handlers || handlers.size === 0) {
-    throw new Error(`No UI handler registered for ${name}.`);
+    throw new Error(`No UI handler registered for ${eventName}.`);
   }
 
   act(() => {
     for (const handler of handlers) {
-      handler(payload);
+      handler(eventPayload);
     }
   });
 }
@@ -105,7 +129,14 @@ function receive(name: string, payload: unknown): void {
 function emittedPayloads<T>(name: string): T[] {
   return messageBus.emit.mock.calls
     .filter(([eventName]) => eventName === name)
-    .map(([, payload]) => payload as T);
+    .map(([, payload]) => (
+      typeof payload === 'object'
+      && payload !== null
+      && 'targetToken' in payload
+      && !('selectionToken' in payload)
+        ? { ...payload, selectionToken: payload.targetToken } as T
+        : payload as T
+    ));
 }
 
 function renderPlugin(): void {
@@ -124,10 +155,135 @@ afterEach(() => {
 });
 
 describe('Plugin rendered interactions', () => {
+  it('keeps the inventory visible when the initial canvas selection is empty', () => {
+    renderPlugin();
+
+    receive('CANVAS_TARGET_STATE', {
+      source: 'initial',
+      state: {
+        message: 'Select a component instance, main component, or component set to connect it.',
+        status: 'empty',
+      },
+    });
+
+    expect(screen.getByRole('main', { name: 'Scanning components' })).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Back to components' })).toBeNull();
+  });
+
+  it('renders, filters, searches, and opens the file-wide component inventory', async () => {
+    renderPlugin();
+    const scanRequest = emittedPayloads<{ scanId: string }>('SCAN_COMPONENTS')[0];
+
+    receive('COMPONENT_INVENTORY_STATE', {
+      scanId: scanRequest.scanId,
+      state: {
+        items: [
+          {
+            componentName: '.InternalButton',
+            nodeType: 'COMPONENT',
+            pageName: 'Components',
+            status: 'not-connected',
+            targetToken: 'internal-button',
+          },
+          {
+            componentName: 'Button',
+            nodeType: 'COMPONENT',
+            pageName: 'Components',
+            status: 'not-connected',
+            targetToken: 'button',
+          },
+          {
+            componentName: 'Slider',
+            nodeType: 'COMPONENT_SET',
+            pageName: 'Inputs',
+            status: 'needs-attention',
+            targetToken: 'slider',
+          },
+          {
+            componentName: 'TextField',
+            nodeType: 'COMPONENT',
+            pageName: 'Inputs',
+            status: 'connected',
+            targetToken: 'text-field',
+          },
+        ],
+        scannedPages: 2,
+        status: 'ready',
+        totalPages: 2,
+      },
+    });
+
+    expect(screen.getByRole('button', { name: /All/ }).getAttribute('aria-pressed'))
+      .toBe('true');
+    expect(screen.getByText('Button')).toBeTruthy();
+    expect(screen.getByText('Needs attention')).toBeTruthy();
+    expect(screen.queryByText('.InternalButton')).toBeNull();
+
+    const dotFilter = screen.getByRole('button', {
+      name: /Hide names starting with \./,
+    });
+    expect(dotFilter.getAttribute('aria-pressed')).toBe('true');
+    fireEvent.click(dotFilter);
+    expect(screen.getByText('.InternalButton')).toBeTruthy();
+    expect(screen.getByRole('button', { name: /4 All/ })).toBeTruthy();
+    fireEvent.click(dotFilter);
+    expect(screen.queryByText('.InternalButton')).toBeNull();
+
+    fireEvent.click(screen.getByRole('button', { name: /Not connected/ }));
+    expect(screen.getByText('Button')).toBeTruthy();
+    expect(screen.getByText('Slider')).toBeTruthy();
+    expect(screen.queryByText('TextField')).toBeNull();
+
+    fireEvent.input(screen.getByLabelText('Search components'), {
+      target: { value: 'components' },
+    });
+    expect(screen.getByText('Button')).toBeTruthy();
+    expect(screen.queryByText('Slider')).toBeNull();
+
+    fireEvent.click(screen.getByRole('button', { name: /Button Components/ }));
+    const openRequest = emittedPayloads<{
+      requestId: string;
+      targetToken: string;
+    }>('OPEN_COMPONENT_TARGET')[0];
+    expect(openRequest.targetToken).toBe('button');
+
+    receive('COMPONENT_TARGET_STATE', {
+      requestId: openRequest.requestId,
+      state: {
+        componentName: 'Button',
+        message: 'This component is ready to connect.',
+        status: 'ready',
+        targetToken: 'button',
+      },
+    });
+
+    expect((screen.getByLabelText('Component name') as HTMLInputElement).value)
+      .toBe('Button');
+
+    receive('CANVAS_TARGET_STATE', {
+      source: 'selectionchange',
+      state: {
+        componentName: 'Other component',
+        message: 'This component is ready to connect.',
+        status: 'ready',
+        targetToken: 'other',
+      },
+    });
+    expect((screen.getByLabelText('Component name') as HTMLInputElement).value)
+      .toBe('Button');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Back to components' }));
+    await waitFor(() => {
+      expect(document.activeElement?.id).toBe('tashil-component-button');
+    });
+    expect((screen.getByLabelText('Search components') as HTMLInputElement).value)
+      .toBe('components');
+  });
+
   it('renders through the real Preact component library and moves tab focus with arrows/Home/End', () => {
     renderPlugin();
 
-    const connectTab = screen.getByRole('tab', { name: 'Connect Component' });
+    const connectTab = screen.getByRole('tab', { name: 'Components' });
     const inspectTab = screen.getByRole('tab', { name: 'Inspect Code' });
     connectTab.focus();
 
@@ -561,17 +717,13 @@ describe('Plugin rendered interactions', () => {
       status: 'empty',
       message: 'Select a component instance to continue.',
     });
-    expect(screen.getByRole('status').textContent).toBe(
-      'Select a component instance to continue.',
-    );
+    expect(screen.getByText(
+      'Button selected. This component already has a Storybook connection.',
+    )).toBeTruthy();
+    expect(screen.getByLabelText('Component name')).toBeTruthy();
   });
 
-  it('opens final reference URLs and copies the source path', async () => {
-    const writeText = vi.fn().mockResolvedValue(undefined);
-    Object.defineProperty(navigator, 'clipboard', {
-      configurable: true,
-      value: { writeText },
-    });
+  it('renders the redesigned references and opens final reference URLs', () => {
     renderPlugin();
     const inspectState: InspectCodeState = {
       status: 'connected',
@@ -586,7 +738,7 @@ describe('Plugin rendered interactions', () => {
     fireEvent.click(screen.getByRole('tab', { name: 'Inspect Code' }));
 
     fireEvent.click(screen.getByRole('button', { name: 'Open Storybook in browser' }));
-    fireEvent.click(screen.getByRole('button', { name: 'Open Source in browser' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Open Source URL in browser' }));
     expect(emittedPayloads('OPEN_EXTERNAL')).toEqual([
       {
         target: 'storybook',
@@ -597,12 +749,36 @@ describe('Plugin rendered interactions', () => {
         url: 'https://github.example/components/Button.tsx',
       },
     ]);
+    expect(screen.getByText('Source URL')).toBeTruthy();
+    expect(screen.getByText('Source path')).toBeTruthy();
+    expect(screen.getByText('src/Button.tsx')).toBeTruthy();
+  });
 
-    fireEvent.click(screen.getByRole('button', { name: 'Copy source path' }));
-    await waitFor(() => {
-      expect(writeText).toHaveBeenCalledWith('src/Button.tsx');
+  it('highlights JSX nested inside prop expressions as structured TSX', () => {
+    renderPlugin();
+    receive('INSPECT_CODE_STATE', {
+      status: 'connected',
+      code: [
+        '<Button',
+        '  color={"primary"}',
+        '  renderLeftIcon={<Icon name="chevron-left" />}',
+        '/>',
+      ].join('\n'),
     });
-    expect(screen.getByText('source path copied to clipboard.')).toBeTruthy();
+    fireEvent.click(screen.getByRole('tab', { name: 'Inspect Code' }));
+
+    const nestedTag = screen.getByText('<Icon');
+    const nestedString = screen.getByText('"chevron-left"');
+    const scalarExpression = screen.getByText('"primary"');
+    const nestedLine = nestedTag.parentElement;
+
+    expect(nestedTag.classList.contains('syntax-tag')).toBe(true);
+    expect(nestedString.classList.contains('syntax-string')).toBe(true);
+    expect(scalarExpression.classList.contains('syntax-expression')).toBe(true);
+    expect(
+      Array.from(nestedLine?.querySelectorAll('.syntax-expression') || [])
+        .map((token) => token.textContent),
+    ).toEqual(['{', '}']);
   });
 
   it('blocks a scaffold request while a save is pending on the same selection, then allows it once the save resolves', () => {

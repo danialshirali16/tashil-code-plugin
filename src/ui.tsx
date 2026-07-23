@@ -5,7 +5,10 @@ import {
   IconCheck24,
   IconButton,
   IconCopySmall24,
+  IconFolder24,
   IconHelp16,
+  IconNewTab24,
+  IconTimeSmall24,
   render,
   Stack,
   Text,
@@ -33,37 +36,56 @@ import {
   type PendingMutation,
 } from './ui-state';
 import {
+  type ComponentInventoryState,
   type ConnectionIssue,
   type ConnectionReferences,
   type InspectCodeState,
   type OpenExternalHandler,
   type ResizeWindowHandler,
-  type UiSelectionState,
+  type UiTargetState,
 } from './types';
+
+const REFERENCE_ICONS = {
+  source: 'data:image/svg+xml;base64,PHN2ZyBwcmVzZXJ2ZUFzcGVjdFJhdGlvPSJub25lIiB3aWR0aD0iMTAwJSIgaGVpZ2h0PSIxMDAlIiBvdmVyZmxvdz0idmlzaWJsZSIgc3R5bGU9ImRpc3BsYXk6IGJsb2NrOyIgdmlld0JveD0iMCAwIDE2IDE2IiBmaWxsPSJub25lIiB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciPgo8ZyBpZD0iR3JvdXAgMSI+CjxwYXRoIGlkPSJWZWN0b3IiIGQ9Ik0wLjMzNDQ5MiA4LjgwNzU1Qy0wLjExMTQ5NyA4LjM2MTU1IC0wLjExMTQ5NyA3LjYzODQ2IDAuMzM0NDkyIDcuMTkyNDZMNy4xOTI0NiAwLjMzNDQ5MkM3LjYzODQ2IC0wLjExMTQ5NyA4LjM2MTU1IC0wLjExMTQ5NyA4LjgwNzU1IDAuMzM0NDkyTDE1LjY2NTUgNy4xOTI0NkMxNi4xMTE1IDcuNjM4NDYgMTYuMTExNSA4LjM2MTU1IDE1LjY2NTUgOC44MDc1NUw4LjgwNzU1IDE1LjY2NTVDOC4zNjE1NSAxNi4xMTE1IDcuNjM4NDYgMTYuMTExNSA3LjE5MjQ2IDE1LjY2NTVMMC4zMzQ0OTIgOC44MDc1NVoiIGZpbGw9IiNFRTUxM0IiLz4KPHBhdGggaWQ9IlZlY3Rvcl8yIiBkPSJNNS43OTk0NCAxLjc0OTQzTDUuMTA0OTggMi40NDM5MUw2Ljg5ODY0IDQuMjM3NTdDNi44MjYwNyA0LjM5MzI0IDYuNzg1NTUgNC41NjY4NiA2Ljc4NTU1IDQuNzQ5OTRDNi43ODU1NSA1LjI2OTcxIDcuMTEyMTIgNS43MTMxOSA3LjU3MTI3IDUuODg2MzlWMTAuMjc0MkM3LjExMjEyIDEwLjQ0NzQgNi43ODU1NSAxMC44OTA5IDYuNzg1NTUgMTEuNDEwNkM2Ljc4NTU1IDEyLjA4MTMgNy4zMjkyMSAxMi42MjQ5IDcuOTk5ODQgMTIuNjI0OUM4LjY3MDQ3IDEyLjYyNDkgOS4yMTQxMyAxMi4wODEzIDkuMjE0MTMgMTEuNDEwNkM5LjIxNDEzIDEwLjkzOTQgOC45NDU3MyAxMC41MzA5IDguNTUzNDQgMTAuMzI5NlY1Ljg5MjM5TDEwLjI2OCA3LjYwNjk3QzEwLjE5OSA3Ljc1OTQ4IDEwLjE2MDYgNy45Mjg4IDEwLjE2MDYgOC4xMDcwOEMxMC4xNjA2IDguNzc3NzEgMTAuNzA0MiA5LjMyMTM3IDExLjM3NDkgOS4zMjEzN0MxMi4wNDU1IDkuMzIxMzcgMTIuNTg5MiA4Ljc3NzcxIDEyLjU4OTIgOC4xMDcwOEMxMi41ODkyIDcuNDM2NDUgMTIuMDQ1NSA2Ljg5Mjc5IDExLjM3NDkgNi44OTI3OUMxMS4yNDQ1IDYuODkyNzkgMTEuMTE5IDYuOTEzMzEgMTEuMDAxMyA2Ljk1MTMxTDkuMTU5OSA1LjEwOTg4QzkuMTk1MTUgNC45OTYxNiA5LjIxNDEzIDQuODc1MjUgOS4yMTQxMyA0Ljc0OTk0QzkuMjE0MTMgNC4wNzkyOSA4LjY3MDQ3IDMuNTM1NjQgNy45OTk4NCAzLjUzNTY0QzcuODc0NTIgMy41MzU2NCA3Ljc1MzY3IDMuNTU0NjMgNy42Mzk5IDMuNTg5ODhMNS43OTk0NCAxLjc0OTQzWiIgZmlsbD0id2hpdGUiLz4KPC9nPgo8L3N2Zz4=',
+  storybook: 'data:image/svg+xml;base64,PHN2ZyBwcmVzZXJ2ZUFzcGVjdFJhdGlvPSJub25lIiB3aWR0aD0iMTAwJSIgaGVpZ2h0PSIxMDAlIiBvdmVyZmxvdz0idmlzaWJsZSIgc3R5bGU9ImRpc3BsYXk6IGJsb2NrOyIgdmlld0JveD0iMCAwIDEyLjA3MzcgMTUuMDQyNSIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj4KPGcgaWQ9Ikdyb3VwIj4KPHBhdGggaWQ9IlZlY3RvciIgZD0iTTAuNDY2NTk1IDEzLjg2MTFMMC4wMDA2MTA2OTYgMS40NDQ3NUMtMC4wMTQ3Nzg5IDEuMDM0NjggMC4yOTk2NDMgMC42ODcxNTcgMC43MDkxOTcgMC42NjE1NkwxMS4yNzAyIDAuMDAxNDk4NDlDMTEuNjg3MSAtMC4wMjQ1NTYzIDEyLjA0NjEgMC4yOTIyNjcgMTIuMDcyMiAwLjcwOTE0NEMxMi4wNzMyIDAuNzI0ODUgMTIuMDczNyAwLjc0MDU4MyAxMi4wNzM3IDAuNzU2MzJWMTQuMjg2MUMxMi4wNzM3IDE0LjcwMzggMTEuNzM1MSAxNS4wNDI0IDExLjMxNzQgMTUuMDQyNEMxMS4zMDYgMTUuMDQyNCAxMS4yOTQ3IDE1LjA0MjIgMTEuMjgzNCAxNS4wNDE3TDEuMTg4NDIgMTQuNTg4M0MwLjc5NTI2MyAxNC41NzA2IDAuNDgxMzU0IDE0LjI1NDQgMC40NjY1OTUgMTMuODYxMVoiIGZpbGw9IiNGRjQ3ODUiLz4KPGcgaWQ9Ik1hc2sgZ3JvdXAiPgo8bWFzayBpZD0ibWFzazBfMF80IiBzdHlsZT0ibWFzay10eXBlOmx1bWluYW5jZSIgbWFza1VuaXRzPSJ1c2VyU3BhY2VPblVzZSIgeD0iMCIgeT0iMCIgd2lkdGg9IjEzIiBoZWlnaHQ9IjE2Ij4KPGcgaWQ9Ikdyb3VwXzIiPgo8cGF0aCBpZD0iVmVjdG9yXzIiIGQ9Ik0wLjQ2NjU5NSAxMy44NjExTDAuMDAwNjEwNjk2IDEuNDQ0NzVDLTAuMDE0Nzc4OSAxLjAzNDY4IDAuMjk5NjQzIDAuNjg3MTU3IDAuNzA5MTk3IDAuNjYxNTZMMTEuMjcwMiAwLjAwMTQ5ODQ5QzExLjY4NzEgLTAuMDI0NTU2MyAxMi4wNDYxIDAuMjkyMjY3IDEyLjA3MjIgMC43MDkxNDRDMTIuMDczMiAwLjcyNDg1IDEyLjA3MzcgMC43NDA1ODMgMTIuMDczNyAwLjc1NjMyVjE0LjI4NjFDMTIuMDczNyAxNC43MDM4IDExLjczNTEgMTUuMDQyNCAxMS4zMTc0IDE1LjA0MjRDMTEuMzA2IDE1LjA0MjQgMTEuMjk0NyAxNS4wNDIyIDExLjI4MzQgMTUuMDQxN0wxLjE4ODQyIDE0LjU4ODNDMC43OTUyNjMgMTQuNTcwNiAwLjQ4MTM1NCAxNC4yNTQ0IDAuNDY2NTk1IDEzLjg2MTFaIiBmaWxsPSJ3aGl0ZSIvPgo8L2c+CjwvbWFzaz4KPGcgbWFzaz0idXJsKCNtYXNrMF8wXzQpIj4KPHBhdGggaWQ9IlZlY3Rvcl8zIiBkPSJNOC45MTU1MSAxLjg0ODk2TDguOTg3NjUgMC4xMTM5NTlMMTAuNDM4IDMuMTc4NzVlLTA2TDEwLjUwMDUgMS43ODkyNUMxMC41MDI2IDEuODUxNTIgMTAuNDUzOSAxLjkwMzc2IDEwLjM5MTcgMS45MDU5NEMxMC4zNjUgMS45MDY4NyAxMC4zMzg5IDEuODk4MzIgMTAuMzE3OSAxLjg4MTgxTDkuNzU4NjEgMS40NDEyMUw5LjA5NjQyIDEuOTQzNTNDOS4wNDY3NyAxLjk4MTE5IDguOTc2IDEuOTcxNDcgOC45MzgzNSAxLjkyMTgzQzguOTIyNSAxLjkwMDkzIDguOTE0NDIgMS44NzUxNiA4LjkxNTUxIDEuODQ4OTZaTTcuMDYwNjYgNS42Njk3MUM3LjA2MDY2IDUuOTYzOTUgOS4wNDI2NCA1LjgyMjkyIDkuMzA4NzEgNS42MTYyNEM5LjMwODcxIDMuNjEyNTIgOC4yMzM1NiAyLjU1OTU5IDYuMjY0NzcgMi41NTk1OUM0LjI5NTk5IDIuNTU5NTkgMy4xOTI5MSAzLjYyODkgMy4xOTI5MSA1LjIzMjg2QzMuMTkyOTEgOC4wMjY0MyA2Ljk2MjkyIDguMDc5ODkgNi45NjI5MiA5LjYwMzY1QzYuOTYyOTIgMTAuMDMxNCA2Ljc1MzQ4IDEwLjI4NTMgNi4yOTI3IDEwLjI4NTNDNS42OTIyOSAxMC4yODUzIDUuNDU0OTIgOS45Nzg3MSA1LjQ4Mjg1IDguOTM2MTNDNS40ODI4NSA4LjcwOTk2IDMuMTkyOTEgOC42Mzk0NSAzLjEyMzEgOC45MzYxM0MyLjk0NTMyIDExLjQ2MjcgNC41MTk0IDEyLjE5MTQgNi4zMjA2MyAxMi4xOTE0QzguMDY2IDEyLjE5MTQgOS40MzQzNyAxMS4yNjExIDkuNDM0MzcgOS41NzY5MkM5LjQzNDM3IDYuNTgyODYgNS42MDg1MSA2LjY2MzA2IDUuNjA4NTEgNS4xNzkzOUM1LjYwODUxIDQuNTc3OTEgNi4wNTUzMyA0LjQ5NzcxIDYuMzIwNjMgNC40OTc3MUM2LjU5OTg5IDQuNDk3NzEgNy4xMDI1NSA0LjU0NjkzIDcuMDYwNjYgNS42Njk3MVoiIGZpbGw9IndoaXRlIi8+CjwvZz4KPC9nPgo8L2c+Cjwvc3ZnPgo=',
+} as const;
 
 export function Plugin(): h.JSX.Element {
   const [view, setView] = useState<'connect' | 'help'>('connect');
   const [workflowTab, setWorkflowTab] = useState<'connect' | 'generate'>('connect');
+  const [inventoryFilter, setInventoryFilter] = useState<
+    'all' | 'not-connected' | 'connected'
+  >('all');
+  const [inventoryQuery, setInventoryQuery] = useState('');
+  const [hideDotPrefixedComponents, setHideDotPrefixedComponents] = useState(true);
+  const inventoryScrollRef = useRef<HTMLDivElement>(null);
+  const inventoryScrollPositionRef = useRef(0);
+  const returnTargetTokenRef = useRef<string>();
   const {
     activePendingOperation,
     cancelClear: handleCancelClear,
     clear: handleClear,
     clearCancelButtonRef,
+    closeTarget,
     errorMessage,
     fieldErrors,
     formValues,
     inspectCodeState,
+    inventoryState,
     isClearConfirmationOpen,
     isDirty,
     isReady,
     isSourceUploading,
     connectionHealth,
+    openInventoryTarget,
     reconcileFigma,
     removeStaleMapping,
+    rescanComponents,
     save: handleSave,
     scaffold: handleScaffold,
-    selectionState,
-    selectionStatusAnnouncement,
+    targetOrigin,
+    targetState,
+    targetStatusAnnouncement,
     setCustomPropMappings,
     setFormField,
     setMappedProperty,
@@ -71,6 +93,25 @@ export function Plugin(): h.JSX.Element {
     statusMessage,
     uploadSourceFiles,
   } = useConnectionController();
+
+  function handleOpenInventoryTarget(targetToken: string): void {
+    inventoryScrollPositionRef.current = inventoryScrollRef.current?.scrollTop ?? 0;
+    returnTargetTokenRef.current = targetToken;
+    openInventoryTarget(targetToken);
+  }
+
+  function handleBackToInventory(): void {
+    const targetToken = returnTargetTokenRef.current;
+    closeTarget();
+    window.setTimeout(() => {
+      if (inventoryScrollRef.current) {
+        inventoryScrollRef.current.scrollTop = inventoryScrollPositionRef.current;
+      }
+      if (targetToken) {
+        document.getElementById(`tashil-component-${targetToken}`)?.focus();
+      }
+    }, 0);
+  }
 
   useEffect(() => {
     document.documentElement.lang = 'en';
@@ -130,7 +171,10 @@ export function Plugin(): h.JSX.Element {
     }, 0);
   }
 
-  const hasFooter = view === 'connect' && workflowTab === 'connect' && isReady;
+  const hasFooter = view === 'connect'
+    && workflowTab === 'connect'
+    && isReady
+    && targetOrigin !== undefined;
 
   return (
     <div class={hasFooter ? 'root' : 'root root-no-footer'}>
@@ -161,7 +205,7 @@ export function Plugin(): h.JSX.Element {
                   tabIndex={workflowTab === 'connect' ? 0 : -1}
                   type="button"
                 >
-                  Connect Component
+                  Components
                 </button>
                 <button
                   aria-controls="tashil-tabpanel-generate"
@@ -197,7 +241,7 @@ export function Plugin(): h.JSX.Element {
         class="visually-hidden"
         role="status"
       >
-        {selectionStatusAnnouncement}
+        {targetStatusAnnouncement}
       </div>
 
       {view === 'connect' && workflowTab === 'connect' ? (
@@ -207,7 +251,22 @@ export function Plugin(): h.JSX.Element {
           id="tashil-tabpanel-connect"
           role="tabpanel"
         >
-          <ConnectComponentView
+          {targetOrigin ? (
+            <Fragment>
+              <div class="detail-navigation">
+                <button
+                  class="detail-back"
+                  onClick={handleBackToInventory}
+                  type="button"
+                >
+                  <IconBackwardSmall24 />
+                  <span>Back to components</span>
+                </button>
+                {targetState.status === 'ready' ? (
+                  <span class="detail-component-name">{targetState.componentName}</span>
+                ) : null}
+              </div>
+              <ConnectComponentView
             componentName={formValues.componentName}
             connectionHealth={connectionHealth}
             customPropMappings={formValues.customPropMappings}
@@ -228,7 +287,7 @@ export function Plugin(): h.JSX.Element {
             pendingOperation={activePendingOperation}
             mappingDocument={formValues.mappingDocument}
             propMappings={formValues.propMappings}
-            selectionState={selectionState}
+            targetState={targetState}
             setCustomPropMappings={setCustomPropMappings}
             setComponentName={(value) => setFormField('componentName', value)}
             setImportPath={(value) => setFormField('importPath', value)}
@@ -244,8 +303,23 @@ export function Plugin(): h.JSX.Element {
             sourceUrl={formValues.sourceUrl}
             statusMessage={statusMessage}
             storybookUrl={formValues.storybookUrl}
-            uploadSourceFiles={uploadSourceFiles}
-          />
+                uploadSourceFiles={uploadSourceFiles}
+              />
+            </Fragment>
+          ) : (
+            <ComponentInventoryView
+              filter={inventoryFilter}
+              hideDotPrefixed={hideDotPrefixedComponents}
+              inventoryState={inventoryState}
+              onFilterChange={setInventoryFilter}
+              onHideDotPrefixedChange={setHideDotPrefixedComponents}
+              onOpenTarget={handleOpenInventoryTarget}
+              onQueryChange={setInventoryQuery}
+              onRescan={rescanComponents}
+              query={inventoryQuery}
+              scrollRef={inventoryScrollRef}
+            />
+          )}
         </div>
       ) : null}
       {view === 'connect' && workflowTab === 'generate' ? (
@@ -269,6 +343,253 @@ export function Plugin(): h.JSX.Element {
   );
 }
 
+type InventoryFilter = 'all' | 'not-connected' | 'connected';
+
+function ComponentInventoryView(props: {
+  filter: InventoryFilter;
+  hideDotPrefixed: boolean;
+  inventoryState: ComponentInventoryState;
+  onFilterChange: (filter: InventoryFilter) => void;
+  onHideDotPrefixedChange: (hide: boolean) => void;
+  onOpenTarget: (targetToken: string) => void;
+  onQueryChange: (query: string) => void;
+  onRescan: () => void;
+  query: string;
+  scrollRef: { current: HTMLDivElement | null };
+}): h.JSX.Element {
+  const state = props.inventoryState;
+
+  if (state.status === 'scanning') {
+    const progress = state.totalPages > 0
+      ? Math.round((state.scannedPages / state.totalPages) * 100)
+      : 0;
+    return (
+      <main
+        aria-busy="true"
+        aria-label="Scanning components"
+        class="inventory-state"
+      >
+        <div aria-hidden="true" class="inventory-spinner" />
+        <h1 class="inventory-state-title">Scanning main components of this file…</h1>
+        <p class="inventory-state-copy">
+          {state.totalPages > 0
+            ? `Page ${state.scannedPages} of ${state.totalPages}`
+            : 'Preparing scan…'}
+        </p>
+        <div
+          aria-label={`${progress}% complete`}
+          aria-valuemax={100}
+          aria-valuemin={0}
+          aria-valuenow={progress}
+          class="inventory-progress"
+          role="progressbar"
+        >
+          <span style={{ width: `${progress}%` }} />
+        </div>
+        <div aria-live="polite" class="visually-hidden" role="status">
+          {state.totalPages > 0
+            ? `Scanned ${state.scannedPages} of ${state.totalPages} pages.`
+            : 'Scanning started.'}
+        </div>
+      </main>
+    );
+  }
+
+  if (state.status === 'error') {
+    return (
+      <InventoryMessage
+        actionLabel="Scan again"
+        message={state.message}
+        onAction={props.onRescan}
+        title="Components could not be scanned"
+      />
+    );
+  }
+
+  const hiddenDotPrefixedCount = state.items.filter(
+    (item) => item.componentName.startsWith('.'),
+  ).length;
+  const items = props.hideDotPrefixed
+    ? state.items.filter((item) => !item.componentName.startsWith('.'))
+    : state.items;
+  const counts = {
+    all: items.length,
+    connected: items.filter((item) => item.status === 'connected').length,
+    notConnected: items.filter((item) => item.status !== 'connected').length,
+  };
+  const normalizedQuery = props.query.trim().toLocaleLowerCase();
+  const visibleItems = items.filter((item) => {
+    const matchesFilter = props.filter === 'all'
+      || (props.filter === 'connected' && item.status === 'connected')
+      || (props.filter === 'not-connected' && item.status !== 'connected');
+    const matchesQuery = normalizedQuery === ''
+      || item.componentName.toLocaleLowerCase().includes(normalizedQuery)
+      || item.pageName.toLocaleLowerCase().includes(normalizedQuery);
+    return matchesFilter && matchesQuery;
+  });
+
+  return (
+    <main aria-label="Components inventory" class="inventory" ref={props.scrollRef}>
+      <Container space="medium">
+        <VerticalSpace space="medium" />
+        <div class="inventory-heading-row">
+          <div>
+            <h1 class="inventory-heading">Main components</h1>
+            <p class="inventory-subheading">Choose a component to connect it to code.</p>
+          </div>
+          <Button onClick={props.onRescan} secondary>Rescan</Button>
+        </div>
+
+        {state.status === 'partial' ? (
+          <div class="inventory-notice" role="status">
+            <strong>Partial scan.</strong> {state.message}
+          </div>
+        ) : null}
+
+        {items.length > 0 ? (
+          <Fragment>
+            <div aria-label="Filter components" class="inventory-filters" role="group">
+              <InventoryFilterButton
+                count={counts.all}
+                label="All"
+                onClick={() => props.onFilterChange('all')}
+                pressed={props.filter === 'all'}
+              />
+              <InventoryFilterButton
+                count={counts.notConnected}
+                label="Not connected"
+                onClick={() => props.onFilterChange('not-connected')}
+                pressed={props.filter === 'not-connected'}
+              />
+              <InventoryFilterButton
+                count={counts.connected}
+                label="Connected"
+                onClick={() => props.onFilterChange('connected')}
+                pressed={props.filter === 'connected'}
+              />
+            </div>
+            <label class="visually-hidden" htmlFor="tashil-component-search">
+              Search components
+            </label>
+            <input
+              class="inventory-search"
+              id="tashil-component-search"
+              onInput={(event) => {
+                props.onQueryChange(event.currentTarget.value);
+              }}
+              placeholder="Search components or pages"
+              type="search"
+              value={props.query}
+            />
+            <button
+              aria-pressed={props.hideDotPrefixed}
+              class={props.hideDotPrefixed
+                ? 'inventory-dot-filter inventory-dot-filter-active'
+                : 'inventory-dot-filter'}
+              onClick={() => {
+                props.onHideDotPrefixedChange(!props.hideDotPrefixed);
+              }}
+              type="button"
+            >
+              <span aria-hidden="true" class="inventory-dot-filter-check">
+                {props.hideDotPrefixed ? '✓' : ''}
+              </span>
+              <span>Hide names starting with .</span>
+              {hiddenDotPrefixedCount > 0 ? (
+                <span class="inventory-dot-filter-count">
+                  {hiddenDotPrefixedCount}
+                </span>
+              ) : null}
+            </button>
+
+            {visibleItems.length > 0 ? (
+              <div class="inventory-list" role="list">
+                {visibleItems.map((item) => (
+                  <div key={item.targetToken} role="listitem">
+                    <button
+                      class="inventory-row"
+                      id={`tashil-component-${item.targetToken}`}
+                      onClick={() => props.onOpenTarget(item.targetToken)}
+                      type="button"
+                    >
+                      <span
+                        aria-hidden="true"
+                        class={`inventory-status inventory-status-${item.status}`}
+                      >
+                        {item.status === 'connected'
+                          ? '✓'
+                          : item.status === 'needs-attention' ? '!' : '○'}
+                      </span>
+                      <span class="inventory-row-copy">
+                        <span class="inventory-component-name">{item.componentName}</span>
+                        <span class="inventory-page-name">{item.pageName}</span>
+                      </span>
+                      {item.status === 'needs-attention' ? (
+                        <span class="inventory-warning-badge">Needs attention</span>
+                      ) : null}
+                      <span aria-hidden="true" class="inventory-chevron">›</span>
+                    </button>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div class="inventory-no-results" role="status">
+                <strong>No matching components</strong>
+                <span>Try another search or filter.</span>
+              </div>
+            )}
+            <div aria-live="polite" class="visually-hidden" role="status">
+              {`${visibleItems.length} component${visibleItems.length === 1 ? '' : 's'} shown.`}
+            </div>
+          </Fragment>
+        ) : (
+          <div class="inventory-no-results" role="status">
+            <strong>No local main components found</strong>
+            <span>This file does not contain any standalone components or component sets.</span>
+          </div>
+        )}
+        <VerticalSpace space="medium" />
+      </Container>
+    </main>
+  );
+}
+
+function InventoryFilterButton(props: {
+  count: number;
+  label: string;
+  onClick: () => void;
+  pressed: boolean;
+}): h.JSX.Element {
+  return (
+    <button
+      aria-pressed={props.pressed}
+      class={props.pressed
+        ? 'inventory-filter inventory-filter-active'
+        : 'inventory-filter'}
+      onClick={props.onClick}
+      type="button"
+    >
+      <strong>{props.count}</strong>
+      <span>{props.label}</span>
+    </button>
+  );
+}
+
+function InventoryMessage(props: {
+  actionLabel: string;
+  message: string;
+  onAction: () => void;
+  title: string;
+}): h.JSX.Element {
+  return (
+    <main class="inventory-state" role="alert">
+      <h1 class="inventory-state-title">{props.title}</h1>
+      <p class="inventory-state-copy">{props.message}</p>
+      <Button onClick={props.onAction}>{props.actionLabel}</Button>
+    </main>
+  );
+}
+
 function ConnectComponentView(props: {
   clearCancelButtonRef: (element: HTMLButtonElement | null) => void;
   componentName: string;
@@ -288,7 +609,7 @@ function ConnectComponentView(props: {
   mappingDocument: string;
   pendingOperation?: PendingMutation['operation'];
   propMappings: string;
-  selectionState: UiSelectionState;
+  targetState: UiTargetState;
   setCustomPropMappings: (value: string) => void;
   setComponentName: (value: string) => void;
   setImportPath: (value: string) => void;
@@ -312,15 +633,15 @@ function ConnectComponentView(props: {
 }): h.JSX.Element {
   if (!props.isReady) {
     return (
-      <EmptyComponentSelectionState message={props.selectionState.message} />
+      <EmptyComponentSelectionState message={props.targetState.message} />
     );
   }
 
-  const existingConnection = props.selectionState.status === 'ready'
-    ? props.selectionState.existingConnection
+  const existingConnection = props.targetState.status === 'ready'
+    ? props.targetState.existingConnection
     : undefined;
-  const connectionIssue = props.selectionState.status === 'ready'
-    ? props.selectionState.connectionIssue
+  const connectionIssue = props.targetState.status === 'ready'
+    ? props.targetState.connectionIssue
     : undefined;
 
   return (
@@ -661,30 +982,33 @@ function ConnectionReferencesPanel(props: {
           ) : null}
           {references.sourceUrl ? (
             <ReferenceUrlRow
-              label="Source"
+              label="Source URL"
               target="source"
               url={references.sourceUrl}
             />
           ) : null}
           {references.sourcePath ? (
             <div class="reference-row">
-              <dt class="reference-label-row">
-                <span>Source path</span>
-                <CopyButton text={references.sourcePath} title="source path" />
-              </dt>
-              <dd class="reference-value reference-path">{references.sourcePath}</dd>
+              <ReferenceIcon source="folder" />
+              <div class="reference-copy">
+                <dt class="reference-label">Source path</dt>
+                <dd class="reference-value reference-path">{references.sourcePath}</dd>
+              </div>
             </div>
           ) : null}
           {references.updatedAt ? (
             <div class="reference-row">
-              <dt class="reference-label">Last updated</dt>
-              <dd class="reference-value">
-                {updatedAt ? (
-                  <time dateTime={updatedAt.dateTime}>{updatedAt.label}</time>
-                ) : (
-                  'Not available'
-                )}
-              </dd>
+              <ReferenceIcon source="time" />
+              <div class="reference-copy">
+                <dt class="reference-label">Last updated</dt>
+                <dd class="reference-value reference-date">
+                  {updatedAt ? (
+                    <time dateTime={updatedAt.dateTime}>{updatedAt.label}</time>
+                  ) : (
+                    'Not available'
+                  )}
+                </dd>
+              </div>
             </div>
           ) : null}
         </dl>
@@ -704,29 +1028,55 @@ function ReferenceUrlRow(props: {
 
   return (
     <div class="reference-row">
-      <dt class="reference-label">{props.label}</dt>
-      <dd class="reference-value">
-        <span class="reference-url">{props.url}</span>
-        {url ? (
-          <button
-            class="reference-open-button"
-            onClick={() => {
-              emit<OpenExternalHandler>('OPEN_EXTERNAL', {
-                target: props.target,
-                url,
-              });
-            }}
-            type="button"
-          >
-            Open {props.label} in browser
-          </button>
-        ) : (
-          <span class="reference-warning">
-            This saved URL is not a valid HTTP(S) address. Update it in Connect Component.
-          </span>
-        )}
-      </dd>
+      <ReferenceIcon source={props.target} />
+      <div class="reference-copy">
+        <dt class="reference-label">{props.label}</dt>
+        <dd class="reference-value">
+          <span class="reference-url">{props.url}</span>
+          {!url ? (
+            <span class="reference-warning">
+              This saved URL is not a valid HTTP(S) address. Update it in Connect Component.
+            </span>
+          ) : null}
+        </dd>
+      </div>
+      {url ? (
+        <button
+          aria-label={`Open ${props.label} in browser`}
+          class="reference-open-button"
+          onClick={() => {
+            emit<OpenExternalHandler>('OPEN_EXTERNAL', {
+              target: props.target,
+              url,
+            });
+          }}
+          title={`Open ${props.label} in browser`}
+          type="button"
+        >
+          <IconNewTab24 />
+        </button>
+      ) : null}
     </div>
+  );
+}
+
+function ReferenceIcon(props: {
+  source: 'folder' | 'source' | 'storybook' | 'time';
+}): h.JSX.Element {
+  if (props.source === 'folder') {
+    return <span aria-hidden="true" class="reference-icon"><IconFolder24 /></span>;
+  }
+  if (props.source === 'time') {
+    return <span aria-hidden="true" class="reference-icon"><IconTimeSmall24 /></span>;
+  }
+
+  return (
+    <span
+      aria-hidden="true"
+      class={`reference-icon reference-icon-${props.source}`}
+    >
+      <img alt="" src={REFERENCE_ICONS[props.source]} />
+    </span>
   );
 }
 
@@ -877,13 +1227,11 @@ function renderCodeLine(line: string): Array<h.JSX.Element | string> | string {
     return ' ';
   }
 
-  // ponytail: flat regex tokenizer for highlight only. The `\{[^}]*\}` group
-  // cannot match nested braces, so `raw: true` expressions like
-  // `onClick={() => doX({a:1})}` highlight incorrectly. Fine for the props this
-  // plugin emits today; if raw expressions grow complex, swap in a real TSX
-  // highlighter (e.g. Prismjs/Shiki) instead of widening this regex.
-  const tokens = /("[^"]*"|'[^']*'|\b(?:const|default|export|from|function|import|let|return|var)\b|<\/?[A-Z][A-Za-z0-9.]*(?=[\s>/])|[A-Za-z][A-Za-z0-9]*(?==)|\{[^}]*\}|\/?>)/g;
+  // Tokenize braces separately so JSX nested inside a prop expression keeps its
+  // own tag, attribute, and string colors instead of becoming one expression.
+  const tokens = /("(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|`(?:\\.|[^`\\])*`|\b(?:const|default|export|from|function|import|let|return|var)\b|<\/?[A-Z][A-Za-z0-9.:-]*(?=[\s>/])|[A-Za-z_$][A-Za-z0-9_$-]*(?=\s*=)|[{}]|\/?>)/g;
   const parts: Array<h.JSX.Element | string> = [];
+  const expressionContainsJsx: boolean[] = [];
   let cursor = 0;
   let match = tokens.exec(line);
 
@@ -894,11 +1242,28 @@ function renderCodeLine(line: string): Array<h.JSX.Element | string> | string {
       parts.push(line.slice(cursor, match.index));
     }
 
+    if (/^<\/?[A-Z]/.test(token) && expressionContainsJsx.length > 0) {
+      expressionContainsJsx[expressionContainsJsx.length - 1] = true;
+    }
+
+    const isScalarExpressionValue = expressionContainsJsx.length > 0
+      && !expressionContainsJsx[expressionContainsJsx.length - 1];
+
     parts.push(
-      <span class={getSyntaxClassName(token)} key={`${match.index}-${token}`}>
+      <span
+        class={getSyntaxClassName(token, isScalarExpressionValue)}
+        key={`${match.index}-${token}`}
+      >
         {token}
       </span>
     );
+
+    if (token === '{') {
+      expressionContainsJsx.push(false);
+    } else if (token === '}') {
+      expressionContainsJsx.pop();
+    }
+
     cursor = match.index + token.length;
     match = tokens.exec(line);
   }
@@ -910,8 +1275,11 @@ function renderCodeLine(line: string): Array<h.JSX.Element | string> | string {
   return parts;
 }
 
-function getSyntaxClassName(token: string): string {
-  if (/^["']/.test(token)) {
+function getSyntaxClassName(token: string, isScalarExpressionValue = false): string {
+  if (isScalarExpressionValue && /^["'`]/.test(token)) {
+    return 'syntax-expression';
+  }
+  if (/^["'`]/.test(token)) {
     return 'syntax-string';
   }
   if (/^(const|default|export|from|function|import|let|return|var)$/.test(token)) {
@@ -920,10 +1288,10 @@ function getSyntaxClassName(token: string): string {
   if (/^<\/?[A-Z]/.test(token)) {
     return 'syntax-tag';
   }
-  if (/^[A-Za-z][A-Za-z0-9]*$/.test(token)) {
+  if (/^[A-Za-z_$][A-Za-z0-9_$-]*$/.test(token)) {
     return 'syntax-attribute';
   }
-  if (/^\{/.test(token)) {
+  if (/^[{}]$/.test(token)) {
     return 'syntax-expression';
   }
   return 'syntax-punctuation';

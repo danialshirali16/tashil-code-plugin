@@ -6,6 +6,10 @@ import {
   type PropMapping,
 } from './types';
 import { isMappingDocument } from './mapping-document';
+import type { ComponentImport, ComponentUsage } from './layout/types';
+import { renderImportLines } from './layout/imports';
+
+export type { ComponentImport, ComponentUsage };
 
 /**
  * Pure, Figma-agnostic codegen + validation helpers. Kept separate from
@@ -103,6 +107,23 @@ export function createUsageSnippet(
   metadata: ConnectionMetadata,
   selection: SelectionLike,
 ): UsageSnippetResult {
+  const usage = createComponentUsage(metadata, selection);
+  return {
+    code: [renderComponentImports(usage.imports), '', usage.jsx].join('\n'),
+    diagnostics: usage.diagnostics,
+  };
+}
+
+/**
+ * Resolve one connected component into its structural imports and formatted
+ * JSX, separated so a layout can collect and deduplicate imports across many
+ * descendants. `createUsageSnippet` is a byte-identical compatibility wrapper
+ * around this; the layout pipeline consumes the structured form directly.
+ */
+export function createComponentUsage(
+  metadata: ConnectionMetadata,
+  selection: SelectionLike,
+): ComponentUsage {
   const validation = validateConnectionMetadata(metadata);
 
   if (!validation.ok) {
@@ -156,33 +177,10 @@ export function createUsageSnippet(
     });
   }
 
-  const lines = [
-    ...createImportLines(metadata, mappedProps.namedImports),
-    '',
-  ];
+  const imports = collectComponentImports(metadata, mappedProps.namedImports);
+  const jsx = renderComponentJsx(metadata, mappedProps.props, childrenMode, resolvedChildren);
 
-  if (childrenMode === 'none') {
-    lines.push(createSelfClosingTag(metadata.componentName, mappedProps.props));
-    return { code: lines.join('\n'), diagnostics };
-  }
-
-  if (childrenMode === 'icon-only') {
-    const iconOnlyOpenTag = createOpeningTag(metadata.componentName, [
-      ...mappedProps.props,
-      `aria-label=${formatPropValue(resolvedChildren!.text)}`,
-    ]);
-
-    lines.push(iconOnlyOpenTag);
-    lines.push(`  <${metadata.iconComponentName!} />`);
-    lines.push(`</${metadata.componentName}>`);
-    return { code: lines.join('\n'), diagnostics };
-  }
-
-  lines.push(createOpeningTag(metadata.componentName, mappedProps.props));
-  lines.push(`  ${formatJsxChildren(resolvedChildren!.text)}`);
-  lines.push(`</${metadata.componentName}>`);
-
-  return { code: lines.join('\n'), diagnostics };
+  return { imports, jsx, diagnostics };
 }
 
 export function createMappedProps(
@@ -605,15 +603,22 @@ function findTextComponentProperty(
     : undefined;
 }
 
-function createImportLines(
+/**
+ * Build the structured import list for one component usage. Order matters for
+ * byte-stable output: componentName first, then generated named imports (e.g.
+ * `Icon`), then the icon component when in icon-only mode. `renderImportLines`
+ * deduplicates and groups by path, reproducing the legacy single-line format.
+ */
+function collectComponentImports(
   metadata: ConnectionMetadata,
   generatedNamedImports: readonly string[] = [],
-): string[] {
-  const importsByPath = new Map<string, Set<string>>();
+): ComponentImport[] {
+  const imports: ComponentImport[] = [
+    { importedName: metadata.componentName, localName: metadata.componentName, modulePath: metadata.importPath },
+  ];
 
-  addNamedImport(importsByPath, metadata.importPath, metadata.componentName);
-  for (const componentName of generatedNamedImports) {
-    addNamedImport(importsByPath, metadata.importPath, componentName);
+  for (const name of generatedNamedImports) {
+    imports.push({ importedName: name, localName: name, modulePath: metadata.importPath });
   }
 
   if (
@@ -621,22 +626,50 @@ function createImportLines(
     && metadata.iconComponentName
     && metadata.iconImportPath
   ) {
-    addNamedImport(importsByPath, metadata.iconImportPath, metadata.iconComponentName);
+    imports.push({
+      importedName: metadata.iconComponentName,
+      localName: metadata.iconComponentName,
+      modulePath: metadata.iconImportPath,
+    });
   }
 
-  return Array.from(importsByPath, ([importPath, componentNames]) => {
-    return `import { ${Array.from(componentNames).join(', ')} } from ${JSON.stringify(importPath)};`;
-  });
+  return imports;
 }
 
-function addNamedImport(
-  importsByPath: Map<string, Set<string>>,
-  importPath: string,
-  componentName: string,
-): void {
-  const componentNames = importsByPath.get(importPath) ?? new Set<string>();
-  componentNames.add(componentName);
-  importsByPath.set(importPath, componentNames);
+/** Render the import block for one or more component usages. */
+function renderComponentImports(imports: readonly ComponentImport[]): string {
+  return renderImportLines(imports);
+}
+
+/** Render just the JSX element(s) for a usage, no import lines. */
+function renderComponentJsx(
+  metadata: ConnectionMetadata,
+  props: string[],
+  childrenMode: 'icon-only' | 'none' | 'text',
+  resolvedChildren: ResolvedChildrenText | undefined,
+): string {
+  if (childrenMode === 'none') {
+    return createSelfClosingTag(metadata.componentName, props);
+  }
+
+  if (childrenMode === 'icon-only') {
+    const iconOnlyOpenTag = createOpeningTag(metadata.componentName, [
+      ...props,
+      `aria-label=${formatPropValue(resolvedChildren!.text)}`,
+    ]);
+
+    return [
+      iconOnlyOpenTag,
+      `  <${metadata.iconComponentName!} />`,
+      `</${metadata.componentName}>`,
+    ].join('\n');
+  }
+
+  return [
+    createOpeningTag(metadata.componentName, props),
+    `  ${formatJsxChildren(resolvedChildren!.text)}`,
+    `</${metadata.componentName}>`,
+  ].join('\n');
 }
 
 /**

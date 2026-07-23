@@ -3,7 +3,7 @@ import {
   DEFAULT_CHILDREN_TEXT_PROPERTY,
   type ChildrenMode,
   type ConnectionMetadata,
-  type UiSelectionState,
+  type UiTargetState,
 } from './types';
 import { isPropMappings, isRecord } from './codegen';
 import { normalizeOptionalHttpUrl } from './external-url';
@@ -59,24 +59,24 @@ export type PendingMutation =
   | {
       operation: 'save';
       operationId: string;
-      selectionToken: string;
+      targetToken: string;
       submittedValues: ConnectionFormValues;
     }
   | {
       operation: 'clear' | 'scaffold';
       operationId: string;
-      selectionToken: string;
+      targetToken: string;
     };
 
 export type PendingMutationState = {
   byOperationId: ReadonlyMap<string, PendingMutation>;
-  operationIdBySelection: ReadonlyMap<string, string>;
+  operationIdByTarget: ReadonlyMap<string, string>;
 };
 
 export type MutationResultIdentity = {
   operation: MutationOperation;
   operationId: string;
-  selectionToken: string;
+  targetToken: string;
 };
 
 const COMPONENT_IDENTIFIER_PATTERN = /^[A-Z_$][A-Za-z0-9_$]*$/;
@@ -107,12 +107,12 @@ export function createMutationOperationId(): string {
 export function createPendingMutationState(): PendingMutationState {
   return {
     byOperationId: new Map(),
-    operationIdBySelection: new Map(),
+    operationIdByTarget: new Map(),
   };
 }
 
 /**
- * Register a mutation unless that selection already has one in flight. The
+ * Register a mutation unless that target already has one in flight. The
  * operation-id index is authoritative, which lets result handlers reject late
  * or duplicated messages without disturbing a newer request.
  */
@@ -122,19 +122,19 @@ export function startPendingMutation(
 ): { started: boolean; state: PendingMutationState } {
   if (
     state.byOperationId.has(mutation.operationId)
-    || state.operationIdBySelection.has(mutation.selectionToken)
+    || state.operationIdByTarget.has(mutation.targetToken)
   ) {
     return { started: false, state };
   }
 
   const byOperationId = new Map(state.byOperationId);
-  const operationIdBySelection = new Map(state.operationIdBySelection);
+  const operationIdByTarget = new Map(state.operationIdByTarget);
   byOperationId.set(mutation.operationId, mutation);
-  operationIdBySelection.set(mutation.selectionToken, mutation.operationId);
+  operationIdByTarget.set(mutation.targetToken, mutation.operationId);
 
   return {
     started: true,
-    state: { byOperationId, operationIdBySelection },
+    state: { byOperationId, operationIdByTarget },
   };
 }
 
@@ -151,32 +151,32 @@ export function finishPendingMutation(
   if (
     !mutation
     || mutation.operation !== result.operation
-    || mutation.selectionToken !== result.selectionToken
-    || state.operationIdBySelection.get(result.selectionToken) !== result.operationId
+    || mutation.targetToken !== result.targetToken
+    || state.operationIdByTarget.get(result.targetToken) !== result.operationId
   ) {
     return { state };
   }
 
   const byOperationId = new Map(state.byOperationId);
-  const operationIdBySelection = new Map(state.operationIdBySelection);
+  const operationIdByTarget = new Map(state.operationIdByTarget);
   byOperationId.delete(result.operationId);
-  operationIdBySelection.delete(result.selectionToken);
+  operationIdByTarget.delete(result.targetToken);
 
   return {
     mutation,
-    state: { byOperationId, operationIdBySelection },
+    state: { byOperationId, operationIdByTarget },
   };
 }
 
-export function getPendingMutationForSelection(
+export function getPendingMutationForTarget(
   state: PendingMutationState,
-  selectionToken: string,
+  targetToken: string,
 ): PendingMutation | undefined {
-  const operationId = state.operationIdBySelection.get(selectionToken);
+  const operationId = state.operationIdByTarget.get(targetToken);
   return operationId === undefined ? undefined : state.byOperationId.get(operationId);
 }
 
-export function getSelectionStatusAnnouncement(state: UiSelectionState): string {
+export function getTargetStatusAnnouncement(state: UiTargetState): string {
   return state.status === 'ready'
     ? `${state.componentName} selected. ${state.message}`
     : state.message;
@@ -258,23 +258,23 @@ export function createFormDraft(values: ConnectionFormValues): FormDraft {
 
 export function clearFormDraft(
   drafts: DraftStore,
-  selectionToken: string,
+  targetToken: string,
 ): { draft: FormDraft; drafts: DraftStore } {
   const draft = createFormDraft(createFormValues());
   const nextDrafts = new Map(drafts);
-  nextDrafts.set(selectionToken, draft);
+  nextDrafts.set(targetToken, draft);
   return { draft, drafts: nextDrafts };
 }
 
 export function selectFormDraft(
   drafts: DraftStore,
-  state: UiSelectionState,
+  state: UiTargetState,
 ): { draft?: FormDraft; drafts: DraftStore; restored: boolean } {
   if (state.status !== 'ready') {
     return { drafts, restored: false };
   }
 
-  const existing = drafts.get(state.selectionToken);
+  const existing = drafts.get(state.targetToken);
   if (existing?.isDirty) {
     return { draft: existing, drafts, restored: true };
   }
@@ -284,7 +284,7 @@ export function selectFormDraft(
     state.componentName,
   ));
   const nextDrafts = new Map(drafts);
-  nextDrafts.set(state.selectionToken, draft);
+  nextDrafts.set(state.targetToken, draft);
   return { draft, drafts: nextDrafts, restored: false };
 }
 

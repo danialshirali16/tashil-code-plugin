@@ -15,9 +15,14 @@ import {
   CONNECTION_KEY,
   CONNECTION_NAMESPACE,
   CURRENT_SCHEMA_VERSION,
+  type CanvasTargetStateHandler,
   type ClearConnectionHandler,
   type CloseHandler,
   type CodegenBlock,
+  type ComponentConnectionStatus,
+  type ComponentInventoryItem,
+  type ComponentInventoryStateHandler,
+  type ComponentTargetStateHandler,
   type ConnectionIssue,
   type ConnectionMetadata,
   type ConnectionReferences,
@@ -25,17 +30,18 @@ import {
   type FigmaPropertyDescriptor,
   type InspectCodeState,
   type InspectCodeStateHandler,
+  type OpenComponentTargetHandler,
   type OpenExternalHandler,
   type PropMapping,
   type PropMappings,
   type RefreshSelectionHandler,
   type ResizeWindowHandler,
+  type ScanComponentsHandler,
   type SaveConnectionHandler,
   type SaveResultHandler,
   type ScaffoldPropMappingsHandler,
   type ScaffoldResultHandler,
-  type SelectionStateHandler,
-  type UiSelectionState,
+  type UiTargetState,
 } from './types';
 
 type ConnectableComponentNode = ComponentNode | ComponentSetNode;
@@ -51,11 +57,13 @@ type ConnectionReadResult =
   | { ok: true; metadata: ConnectionMetadata }
   | { issue?: ConnectionIssue; ok: false; message: string };
 
-type MutationSelectionResult =
+type MutationTargetResult =
   | { ok: true; selection: ResolvedSelection }
   | { ok: false; message: string };
 
 let latestSelectionRefreshRequestId = 0;
+let latestComponentScanId: string | undefined;
+let latestTargetRequestId: string | undefined;
 
 function createDictionary<T>(): Record<string, T> {
   return Object.create(null) as Record<string, T>;
@@ -69,19 +77,27 @@ export default function (): void {
   showUI({ width: 480, height: 589 });
 
   on<SaveConnectionHandler>('SAVE_CONNECTION', (payload) => {
-    void saveConnection(payload.metadata, payload.selectionToken, payload.operationId);
+    void saveConnection(payload.metadata, payload.targetToken, payload.operationId);
   });
 
   on<ClearConnectionHandler>('CLEAR_CONNECTION', (payload) => {
-    void clearConnection(payload.selectionToken, payload.operationId);
+    void clearConnection(payload.targetToken, payload.operationId);
   });
 
   on<RefreshSelectionHandler>('REFRESH_SELECTION', () => {
-    runBestEffort(sendSelectionState);
+    runBestEffort(() => sendSelectionState('initial'));
+  });
+
+  on<ScanComponentsHandler>('SCAN_COMPONENTS', (payload) => {
+    void scanComponents(payload.scanId);
+  });
+
+  on<OpenComponentTargetHandler>('OPEN_COMPONENT_TARGET', (payload) => {
+    void sendComponentTargetState(payload.requestId, payload.targetToken);
   });
 
   on<ScaffoldPropMappingsHandler>('SCAFFOLD_PROP_MAPPINGS', (payload) => {
-    void scaffoldPropMappings(payload.selectionToken, payload.operationId);
+    void scaffoldPropMappings(payload.targetToken, payload.operationId);
   });
 
   on<OpenExternalHandler>('OPEN_EXTERNAL', (payload) => {
@@ -97,7 +113,7 @@ export default function (): void {
   });
 
   figma.on('selectionchange', () => {
-    runBestEffort(sendSelectionState);
+    runBestEffort(() => sendSelectionState('selectionchange'));
   });
 }
 
@@ -158,11 +174,14 @@ figma.codegen.on('generate', async (event) => {
 
 async function saveConnection(
   metadata: ConnectionMetadata,
-  selectionToken: string,
+  targetToken: string,
   operationId: string,
 ): Promise<void> {
+  let selection: ResolvedSelection;
+  let savedMetadata: ConnectionMetadata;
+
   try {
-    const result = await resolveCurrentSelection(selectionToken);
+    const result = await resolveTargetById(targetToken);
 
     if (!result.ok) {
       emit<SaveResultHandler>('SAVE_RESULT', {
@@ -170,12 +189,12 @@ async function saveConnection(
         message: result.message,
         operation: 'save',
         operationId,
-        selectionToken,
+        targetToken,
       });
       return;
     }
 
-    const { selection } = result;
+    selection = result.selection;
 
     const preflight = preflightStoredConnection(selection.mainComponent);
 
@@ -185,7 +204,7 @@ async function saveConnection(
         message: preflight.message,
         operation: 'save',
         operationId,
-        selectionToken,
+        targetToken,
       });
       return;
     }
@@ -198,7 +217,7 @@ async function saveConnection(
         message: validation.message,
         operation: 'save',
         operationId,
-        selectionToken,
+        targetToken,
       });
       return;
     }
@@ -211,13 +230,13 @@ async function saveConnection(
         message: referenceUrls.message,
         operation: 'save',
         operationId,
-        selectionToken,
+        targetToken,
       });
       return;
     }
 
     const savedAt = new Date().toISOString();
-    const connectionMetadata = {
+    const connectionMetadata: ConnectionMetadata = {
       ...metadata,
       schemaVersion: CURRENT_SCHEMA_VERSION,
       sourceUrl: referenceUrls.sourceUrl,
@@ -238,13 +257,14 @@ async function saveConnection(
       CONNECTION_KEY,
       JSON.stringify(connectionMetadata),
     );
+    savedMetadata = connectionMetadata;
   } catch (error) {
     emit<SaveResultHandler>('SAVE_RESULT', {
       ok: false,
       message: createMutationFailureMessage('save the connection', error),
       operation: 'save',
       operationId,
-      selectionToken,
+      targetToken,
     });
     return;
   }
@@ -254,17 +274,26 @@ async function saveConnection(
     message: 'Connection saved.',
     operation: 'save',
     operationId,
-    selectionToken,
+    targetState: createTargetState(
+      selection,
+      { metadata: savedMetadata, ok: true },
+    ),
+    targetToken,
   });
   runBestEffort(() => {
     figma.notify(`${metadata.componentName} connected to Storybook`);
   });
-  runBestEffort(sendSelectionState);
+  runBestEffort(() => sendSelectionState('refresh'));
 }
 
-async function clearConnection(selectionToken: string, operationId: string): Promise<void> {
+async function clearConnection(
+  targetToken: string,
+  operationId: string,
+): Promise<void> {
+  let selection: ResolvedSelection;
+
   try {
-    const result = await resolveCurrentSelection(selectionToken);
+    const result = await resolveTargetById(targetToken);
 
     if (!result.ok) {
       emit<SaveResultHandler>('SAVE_RESULT', {
@@ -272,12 +301,12 @@ async function clearConnection(selectionToken: string, operationId: string): Pro
         message: result.message,
         operation: 'clear',
         operationId,
-        selectionToken,
+        targetToken,
       });
       return;
     }
 
-    const { selection } = result;
+    selection = result.selection;
 
     const preflight = preflightStoredConnection(selection.mainComponent);
 
@@ -287,7 +316,7 @@ async function clearConnection(selectionToken: string, operationId: string): Pro
         message: preflight.message,
         operation: 'clear',
         operationId,
-        selectionToken,
+        targetToken,
       });
       return;
     }
@@ -299,7 +328,7 @@ async function clearConnection(selectionToken: string, operationId: string): Pro
       message: createMutationFailureMessage('clear the connection', error),
       operation: 'clear',
       operationId,
-      selectionToken,
+      targetToken,
     });
     return;
   }
@@ -309,12 +338,19 @@ async function clearConnection(selectionToken: string, operationId: string): Pro
     message: 'Connection cleared.',
     operation: 'clear',
     operationId,
-    selectionToken,
+    targetState: createTargetState(
+      selection,
+      {
+        ok: false,
+        message: 'This component is ready to connect.',
+      },
+    ),
+    targetToken,
   });
   runBestEffort(() => {
     figma.notify('Storybook connection cleared');
   });
-  runBestEffort(sendSelectionState);
+  runBestEffort(() => sendSelectionState('refresh'));
 }
 
 /**
@@ -325,18 +361,18 @@ async function clearConnection(selectionToken: string, operationId: string): Pro
  * the selected component name so codegen can keep resolving future swaps.
  */
 async function scaffoldPropMappings(
-  selectionToken: string,
+  targetToken: string,
   operationId: string,
 ): Promise<void> {
   try {
-    const result = await resolveCurrentSelection(selectionToken);
+    const result = await resolveTargetById(targetToken);
 
     if (!result.ok) {
       emit<ScaffoldResultHandler>('SCAFFOLD_RESULT', {
         ok: false,
         message: result.message,
         operationId,
-        selectionToken,
+        targetToken,
       });
       return;
     }
@@ -402,7 +438,7 @@ async function scaffoldPropMappings(
           'Rename them using letters or numbers, or enter mappings manually.',
         ].join(' '),
         operationId,
-        selectionToken,
+        targetToken,
       });
       return;
     }
@@ -412,7 +448,7 @@ async function scaffoldPropMappings(
         ok: false,
         message: 'No variant or active instance-swap properties found on this component to scaffold.',
         operationId,
-        selectionToken,
+        targetToken,
       });
       return;
     }
@@ -422,7 +458,7 @@ async function scaffoldPropMappings(
         ok: false,
         message: 'Generated prop mappings were invalid. Rename the Figma variant properties or enter mappings manually.',
         operationId,
-        selectionToken,
+        targetToken,
       });
       return;
     }
@@ -431,14 +467,14 @@ async function scaffoldPropMappings(
       ok: true,
       mappings,
       operationId,
-      selectionToken,
+      targetToken,
     });
   } catch (error) {
     emit<ScaffoldResultHandler>('SCAFFOLD_RESULT', {
       ok: false,
       message: createMutationFailureMessage('generate prop mappings', error),
       operationId,
-      selectionToken,
+      targetToken,
     });
   }
 }
@@ -569,42 +605,216 @@ function isIconRenderProp(prop: string): boolean {
   return prop === 'renderLeftIcon' || prop === 'renderRightIcon';
 }
 
-async function resolveCurrentSelection(
-  selectionToken: string,
-): Promise<MutationSelectionResult> {
-  const selectedNodes = figma.currentPage.selection;
+async function resolveTargetById(targetToken: string): Promise<MutationTargetResult> {
+  let node: BaseNode | null;
 
-  if (selectedNodes.length !== 1 || selectedNodes[0].id !== selectionToken) {
-    return {
-      ok: false,
-      message: 'Selection changed. Select exactly one connectable component and try again.',
-    };
+  try {
+    node = await figma.getNodeByIdAsync(targetToken);
+  } catch (_error) {
+    node = null;
   }
 
-  const selection = await resolveSelection(selectedNodes[0]);
-  const currentSelection = figma.currentPage.selection;
-
   if (
-    currentSelection.length !== 1
-    || currentSelection[0].id !== selectionToken
+    !node
+    || (node.type !== 'COMPONENT' && node.type !== 'COMPONENT_SET')
+    || node.remote
   ) {
     return {
       ok: false,
-      message: 'Selection changed. Select exactly one connectable component and try again.',
+      message: 'This component is no longer available. Scan the file again and retry.',
     };
   }
 
-  if (!selection) {
+  const selection = await resolveSelection(node);
+
+  if (
+    !selection
+    || selection.mainComponent.id !== targetToken
+    || selection.mainComponent.remote
+  ) {
     return {
       ok: false,
-      message: 'Select exactly one component instance, main component, or component set.',
+      message: 'This component changed after the last scan. Scan the file again and retry.',
     };
   }
 
   return { ok: true, selection };
 }
 
-async function sendSelectionState(): Promise<void> {
+async function sendComponentTargetState(
+  requestId: string,
+  targetToken: string,
+): Promise<void> {
+  latestTargetRequestId = requestId;
+
+  try {
+    const result = await resolveTargetById(targetToken);
+    if (latestTargetRequestId !== requestId) {
+      return;
+    }
+
+    const state = result.ok
+      ? createTargetState(
+          result.selection,
+          readConnectionMetadata(result.selection.mainComponent),
+        )
+      : { status: 'empty' as const, message: result.message };
+
+    emit<ComponentTargetStateHandler>('COMPONENT_TARGET_STATE', {
+      requestId,
+      state,
+    });
+  } catch (error) {
+    if (latestTargetRequestId !== requestId) {
+      return;
+    }
+
+    emit<ComponentTargetStateHandler>('COMPONENT_TARGET_STATE', {
+      requestId,
+      state: {
+        status: 'empty',
+        message: createTargetRefreshFailureMessage(error),
+      },
+    });
+  }
+}
+
+async function scanComponents(scanId: string): Promise<void> {
+  latestComponentScanId = scanId;
+
+  try {
+    const pages = [...figma.root.children];
+    const totalPages = pages.length;
+    const items: ComponentInventoryItem[] = [];
+    const skippedPageNames: string[] = [];
+    const seenTargetTokens = new Set<string>();
+
+    emitInventoryState(scanId, {
+      scannedPages: 0,
+      status: 'scanning',
+      totalPages,
+    });
+
+    for (let index = 0; index < pages.length; index += 1) {
+      if (latestComponentScanId !== scanId) {
+        return;
+      }
+
+      const page = pages[index];
+      try {
+        await page.loadAsync();
+        const nodes = page.findAllWithCriteria({
+          types: ['COMPONENT', 'COMPONENT_SET'],
+        });
+
+        for (const node of nodes) {
+          if (
+            node.remote
+            || (node.type === 'COMPONENT' && node.parent?.type === 'COMPONENT_SET')
+            || seenTargetTokens.has(node.id)
+          ) {
+            continue;
+          }
+
+          seenTargetTokens.add(node.id);
+          items.push({
+            componentName: node.name,
+            nodeType: node.type,
+            pageName: page.name,
+            status: getInventoryConnectionStatus(node),
+            targetToken: node.id,
+          });
+        }
+      } catch (_error) {
+        skippedPageNames.push(page.name);
+      }
+
+      emitInventoryState(scanId, {
+        scannedPages: index + 1,
+        status: 'scanning',
+        totalPages,
+      });
+    }
+
+    if (latestComponentScanId !== scanId) {
+      return;
+    }
+
+    items.sort((first, second) => (
+      first.componentName.localeCompare(second.componentName, undefined, {
+        sensitivity: 'base',
+      })
+      || first.pageName.localeCompare(second.pageName, undefined, {
+        sensitivity: 'base',
+      })
+    ));
+
+    if (skippedPageNames.length > 0) {
+      emitInventoryState(scanId, {
+        items,
+        message: [
+          `${skippedPageNames.length} page${skippedPageNames.length === 1 ? '' : 's'} could not be scanned.`,
+          `Skipped: ${skippedPageNames.join(', ')}.`,
+        ].join(' '),
+        scannedPages: totalPages,
+        skippedPageNames,
+        status: 'partial',
+        totalPages,
+      });
+      return;
+    }
+
+    emitInventoryState(scanId, {
+      items,
+      scannedPages: totalPages,
+      status: 'ready',
+      totalPages,
+    });
+  } catch (error) {
+    if (latestComponentScanId !== scanId) {
+      return;
+    }
+
+    const detail = error instanceof Error && error.message.trim() !== ''
+      ? ` ${error.message}`
+      : '';
+    emitInventoryState(scanId, {
+      message: `Could not scan this file.${detail}`,
+      status: 'error',
+    });
+  }
+}
+
+function emitInventoryState(
+  scanId: string,
+  state: Parameters<ComponentInventoryStateHandler['handler']>[0]['state'],
+): void {
+  if (latestComponentScanId !== scanId) {
+    return;
+  }
+  emit<ComponentInventoryStateHandler>('COMPONENT_INVENTORY_STATE', {
+    scanId,
+    state,
+  });
+}
+
+function getInventoryConnectionStatus(
+  component: ConnectableComponentNode,
+): ComponentConnectionStatus {
+  try {
+    const connection = readConnectionMetadata(component);
+    if (connection.ok) {
+      return 'connected';
+    }
+    return connection.issue ? 'needs-attention' : 'not-connected';
+  } catch (_error) {
+    return 'needs-attention';
+  }
+}
+
+async function sendSelectionState(
+  source: 'initial' | 'refresh' | 'selectionchange',
+): Promise<void> {
   const requestId = ++latestSelectionRefreshRequestId;
   const selectedNodes = [...figma.currentPage.selection];
 
@@ -619,10 +829,10 @@ async function sendSelectionState(): Promise<void> {
     const connection = selection
       ? readConnectionMetadata(selection.mainComponent)
       : null;
-    const state = createSelectionState(selectedNodes, selection, connection);
+    const state = createCanvasTargetState(selectedNodes, selection, connection);
     const inspectState = createInspectCodeState(selectedNodes, selection, connection);
 
-    emit<SelectionStateHandler>('SELECTION_STATE', state);
+    emitCanvasTargetState(source, state);
     emit<InspectCodeStateHandler>('INSPECT_CODE_STATE', inspectState);
   } catch (error) {
     if (!isCurrentSelectionRefresh(requestId, selectedNodes)) {
@@ -630,7 +840,7 @@ async function sendSelectionState(): Promise<void> {
     }
 
     const message = createSelectionRefreshFailureMessage(error);
-    emit<SelectionStateHandler>('SELECTION_STATE', {
+    emitCanvasTargetState(source, {
       status: 'empty',
       message,
     });
@@ -639,6 +849,13 @@ async function sendSelectionState(): Promise<void> {
       message,
     });
   }
+}
+
+function emitCanvasTargetState(
+  source: 'initial' | 'refresh' | 'selectionchange',
+  state: UiTargetState,
+): void {
+  emit<CanvasTargetStateHandler>('CANVAS_TARGET_STATE', { source, state });
 }
 
 function isCurrentSelectionRefresh(
@@ -659,6 +876,13 @@ function createSelectionRefreshFailureMessage(error: unknown): string {
     summary,
     'Try changing the selection or reopening the plugin.',
   ].join('\n');
+}
+
+function createTargetRefreshFailureMessage(error: unknown): string {
+  const detail = error instanceof Error && error.message.trim() !== ''
+    ? ` ${error.message}`
+    : '';
+  return `Could not open this component.${detail}`;
 }
 
 function matchesCurrentSelection(selectedNodes: ReadonlyArray<SceneNode>): boolean {
@@ -721,11 +945,11 @@ function createInspectCodeState(
   };
 }
 
-function createSelectionState(
+function createCanvasTargetState(
   selectedNodes: ReadonlyArray<SceneNode>,
   selection: ResolvedSelection | null,
   connection: ConnectionReadResult | null,
-): UiSelectionState {
+): UiTargetState {
   if (selectedNodes.length === 0) {
     return {
       status: 'empty',
@@ -754,20 +978,28 @@ function createSelectionState(
     };
   }
 
-  const connectionIssue = connection && !connection.ok
-    ? connection.issue
-    : undefined;
+  return createTargetState(
+    selection,
+    connection ?? readConnectionMetadata(selection.mainComponent),
+  );
+}
+
+function createTargetState(
+  selection: ResolvedSelection,
+  connection: ConnectionReadResult,
+): Extract<UiTargetState, { status: 'ready' }> {
+  const connectionIssue = !connection.ok ? connection.issue : undefined;
 
   return {
     status: 'ready',
-    selectionToken: selectedNodes[0].id,
+    targetToken: selection.mainComponent.id,
     componentName: selection.mainComponent.name,
     figmaSnapshot: createFigmaComponentSnapshot(selection.mainComponent),
-    existingConnection: connection?.ok ? connection.metadata : undefined,
+    existingConnection: connection.ok ? connection.metadata : undefined,
     connectionIssue,
     message: connectionIssue
       ? connectionIssue.message
-      : connection?.ok
+      : connection.ok
       ? 'This component already has a Storybook connection.'
       : 'This component is ready to connect.',
   };
