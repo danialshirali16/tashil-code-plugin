@@ -754,6 +754,33 @@ describe('Plugin rendered interactions', () => {
     expect(screen.getByText('src/Button.tsx')).toBeTruthy();
   });
 
+  it('highlights JSX nested inside prop expressions as structured TSX', () => {
+    renderPlugin();
+    receive('INSPECT_CODE_STATE', {
+      status: 'connected',
+      code: [
+        '<Button',
+        '  color={"primary"}',
+        '  renderLeftIcon={<Icon name="chevron-left" />}',
+        '/>',
+      ].join('\n'),
+    });
+    fireEvent.click(screen.getByRole('tab', { name: 'Inspect Code' }));
+
+    const nestedTag = screen.getByText('<Icon');
+    const nestedString = screen.getByText('"chevron-left"');
+    const scalarExpression = screen.getByText('"primary"');
+    const nestedLine = nestedTag.parentElement;
+
+    expect(nestedTag.classList.contains('syntax-tag')).toBe(true);
+    expect(nestedString.classList.contains('syntax-string')).toBe(true);
+    expect(scalarExpression.classList.contains('syntax-expression')).toBe(true);
+    expect(
+      Array.from(nestedLine?.querySelectorAll('.syntax-expression') || [])
+        .map((token) => token.textContent),
+    ).toEqual(['{', '}']);
+  });
+
   it('blocks a scaffold request while a save is pending on the same selection, then allows it once the save resolves', () => {
     renderPlugin();
     receive('SELECTION_STATE', readySelection(existingConnection({
