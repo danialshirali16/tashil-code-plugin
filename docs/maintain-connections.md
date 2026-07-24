@@ -7,6 +7,11 @@ snapshots let the plugin identify changes before they produce incorrect code.
 The goal is deliberate maintenance: review changes, keep valid mappings, and
 remove obsolete mappings only when you decide to do so.
 
+> For semantically connected components (a Figma structure that differs from the
+> source API), drift appears as a **Changes need review** panel with explicit
+> accept-remap / remove actions, and connections can carry deprecation guidance.
+> See [Connect components with a different structure](semantic-connect.md).
+
 ## Connection health
 
 | Status | Meaning | What to do |
