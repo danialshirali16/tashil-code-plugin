@@ -68,33 +68,41 @@ export function parseSourceComponent(
   const expectedInterfaceName = requestedComponentName
     ? `${requestedComponentName}Props`
     : undefined;
-  const selected = expectedInterfaceName
+  const exactMatch = expectedInterfaceName
     ? candidates.find(({ declaration }) => declaration.name.text === expectedInterfaceName)
-    : candidates.length === 1 ? candidates[0] : undefined;
+    : undefined;
+  // Fall back to the only prop interface in the upload. A Figma component name
+  // legitimately differs from its code component name (e.g. a `Dialogbox`
+  // component implemented by `InfoModalProps`), so an exact-name miss must not
+  // dead-end when the intended interface is unambiguous.
+  const selected = exactMatch ?? (candidates.length === 1 ? candidates[0] : undefined);
 
   if (!selected) {
-    if (expectedInterfaceName) {
-      return {
-        message: `Could not find an interface named ${expectedInterfaceName}.`,
-        ok: false,
-      };
-    }
+    const found = candidates.map(({ declaration }) => declaration.name.text);
 
-    if (candidates.length > 1) {
+    if (found.length === 0) {
       return {
-        message: `Multiple prop interfaces were found: ${candidates.map(({ declaration }) => declaration.name.text).join(', ')}. Choose the component explicitly.`,
+        message: 'Could not find an interface whose name ends with Props.',
         ok: false,
       };
     }
 
     return {
-      message: 'Could not find an interface whose name ends with Props.',
+      message: expectedInterfaceName
+        ? `Could not find an interface named ${expectedInterfaceName}. Found: ${found.join(', ')}. Set Component name to the one you want.`
+        : `Multiple prop interfaces were found: ${found.join(', ')}. Choose the component explicitly.`,
       ok: false,
     };
   }
 
   const aliases = collectTypeAliases(selected.file.sourceFile);
   const warnings: string[] = [];
+
+  if (expectedInterfaceName && !exactMatch) {
+    warnings.push(
+      `Used ${selected.declaration.name.text} because no ${expectedInterfaceName} was found.`,
+    );
+  }
   const props = selected.declaration.members.flatMap((member): SourcePropDescriptor[] => {
     if (!ts.isPropertySignature(member)) {
       return [];

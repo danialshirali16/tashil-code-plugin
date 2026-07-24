@@ -48,8 +48,11 @@ async function convertNode(
       if (componentKey !== undefined) {
         converted.mainComponentKey = componentKey;
       }
-      if (hasOwnConnection(mainComponent)) {
+      const connection = readOwnConnection(mainComponent);
+      if (connection) {
         converted.hasOwnConnection = true;
+        converted.connectedComponentName = connection.componentName;
+        converted.connectedImportPath = connection.importPath;
       }
     }
     converted.componentProperties = readInstanceProperties(node);
@@ -91,15 +94,48 @@ function readComponentKey(mainComponent: ComponentNode): string | undefined {
   return mainComponent.id || undefined;
 }
 
-function hasOwnConnection(mainComponent: ComponentNode): boolean {
+/**
+ * Read a nested instance's own connection identity. Only the public component
+ * name and import path are taken — enough to render it as a component value
+ * without the parent inventing a name. Returns undefined when the child is
+ * unconnected or its data is unreadable.
+ */
+function readOwnConnection(
+  mainComponent: ComponentNode,
+): { componentName: string; importPath: string } | undefined {
+  let raw: string;
   try {
     const owner = mainComponent.parent?.type === 'COMPONENT_SET'
       ? mainComponent.parent
       : mainComponent;
-    return owner.getSharedPluginData(CONNECTION_NAMESPACE, CONNECTION_KEY) !== '';
+    raw = owner.getSharedPluginData(CONNECTION_NAMESPACE, CONNECTION_KEY);
   } catch (_error) {
-    return false;
+    return undefined;
   }
+
+  if (!raw) {
+    return undefined;
+  }
+
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    if (
+      typeof parsed === 'object'
+      && parsed !== null
+      && typeof (parsed as { componentName?: unknown }).componentName === 'string'
+      && typeof (parsed as { importPath?: unknown }).importPath === 'string'
+    ) {
+      const { componentName, importPath } = parsed as {
+        componentName: string;
+        importPath: string;
+      };
+      return { componentName, importPath };
+    }
+  } catch (_error) {
+    // A malformed child connection simply yields no component identity.
+  }
+
+  return undefined;
 }
 
 function readInstanceProperties(node: InstanceNode): Record<string, string | boolean> {

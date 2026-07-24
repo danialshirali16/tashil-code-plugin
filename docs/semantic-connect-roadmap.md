@@ -264,6 +264,15 @@ Do not persist:
 | M5 — Maintenance lifecycle | Drift, reconciliation, and migration are dependable. | Source/Figma change matrix passes. |
 | M6 — Beta and GA | Feature is supportable in production. | Telemetry/privacy decision, docs, rollout, and support gates pass. |
 
+> **Scope note (2026-07-24).** This plugin is used by our own team only, not
+> distributed externally. The formal governance gates below — RFC sign-off,
+> closed beta, telemetry/privacy review, and GA release process — are
+> **intentionally relaxed**: decisions are recorded in
+> [`semantic-connect-decisions.md`](semantic-connect-decisions.md) and shipping
+> is gated on the verification suite plus manual Figma checks, not on approvals.
+> The engineering gates (tests, migration safety, no arbitrary code execution)
+> still apply in full.
+
 ## M0 — Product and technical RFC
 
 ### Product decisions
@@ -574,10 +583,11 @@ Audit of the new semantic authoring UI (2026-07-24):
 
 ### Component usage IR
 
-- [ ] Introduce a typed value IR for component props:
+- [x] Introduce a typed value IR for component props (`usage-ir.ts`):
   - primitive literal;
   - nested object;
-  - connected component usage;
+  - connected component usage — added 2026-07-24 via the `instance` binding
+    source; renders `prop={<Child />}` and merges the child's import;
   - omitted value;
   - runtime placeholder.
 - [ ] Keep imports structural and deterministic.
@@ -738,9 +748,9 @@ as an advisory `deprecation` string that never blocks generation.
 
 - [x] Add an exportable redacted connection-debug bundle. (2026-07-24)
       `src/semantic/debug-bundle.ts` — `createConnectionDebugBundle` +
-      `serializeConnectionDebugBundle`, redacted by construction. *(UI: a
-      download action can hand the serialized string to `downloadBlob`; wiring
-      deferred to coordinate with the parallel token-export download work.)*
+      `serializeConnectionDebugBundle`, redacted by construction. Wired to an
+      **Export debug bundle** action under *Support* in the Implementation
+      mapping editor, downloading JSON via `downloadBlob` (2026-07-24).
 - [x] Include schema version, hashes, diagnostics, and health state. Connection
       and recipe schema versions, source `contentHash`, binding/target counts,
       per-binding kind/requirement/transform, and a health summary
@@ -979,8 +989,9 @@ letter is cited below.
 - [x] Can multiple Figma sources assemble one array prop in version 1? → **No**;
       arrays stay visibly unsupported. *Decision H.*
 - [x] When a nested component has its own connection, who owns the decision to
-      inline it versus consume its values? → **The parent recipe consumes its
-      values**; inlining it as JSX is deferred. *Decision I.*
+      inline it versus consume its values? → **The parent recipe decides**: it
+      may consume the child's values, or use it as a whole component value via
+      the `instance` binding source. *Decision I.*
 - [x] Where should explicit semantic roles live: recipe-only metadata, Figma
       plugin data on descendants, or both? → **Recipe only.** *Decision J.*
 - [x] Should schema-v5 continue writing legacy `propMappings`, and for how many

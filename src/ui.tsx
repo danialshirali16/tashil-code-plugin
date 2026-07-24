@@ -111,6 +111,7 @@ export function Plugin(): h.JSX.Element {
     semanticRecipe,
     semanticProposals,
     applySemanticProposal,
+    exportDebugBundle,
     isSourceReplacementPending,
     sourceReplacementCancelRef,
     confirmSourceReplacement,
@@ -349,6 +350,7 @@ export function Plugin(): h.JSX.Element {
             semanticRecipe={semanticRecipe}
             semanticProposals={semanticProposals}
             applySemanticProposal={applySemanticProposal}
+            exportDebugBundle={exportDebugBundle}
             isSourceReplacementPending={isSourceReplacementPending}
             sourceReplacementCancelRef={(element) => {
               sourceReplacementCancelRef.current = element;
@@ -706,6 +708,7 @@ function ConnectComponentView(props: {
     proposal: ReconciliationProposal,
     action: ReconciliationAction,
   ) => void;
+  exportDebugBundle: () => void;
   isSourceReplacementPending: boolean;
   sourceReplacementCancelRef: (element: HTMLButtonElement | null) => void;
   confirmSourceReplacement: () => void;
@@ -877,6 +880,7 @@ function ConnectComponentView(props: {
                   : undefined}
                 importPath={props.importPath}
                 onApplyProposal={props.applySemanticProposal}
+                onExportDebugBundle={props.exportDebugBundle}
                 onOptionChange={props.setSemanticOption}
                 proposals={props.semanticProposals}
                 recipe={props.semanticRecipe}

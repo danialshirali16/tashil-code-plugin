@@ -139,6 +139,7 @@ export function resolveSemanticUsage(
       diagnostics: [],
       imports: [
         { importedName: componentName, localName: componentName, modulePath: importPath },
+        ...collectInstanceImports(recipe),
       ],
       jsx: createSelfClosingTag(componentName, props),
     },
@@ -185,6 +186,15 @@ function resolveBinding(
   binding: SemanticBinding,
   design: SemanticDesignInput,
 ): ResolvedBinding {
+  // A connected nested instance resolves to a whole component value; it is not
+  // a primitive and no declarative transform applies to it.
+  if (binding.source.kind === 'instance') {
+    return {
+      status: 'value',
+      value: { componentName: binding.source.componentName, kind: 'component' },
+    };
+  }
+
   const raw = readDesignValue(binding, design);
 
   if (raw.status !== 'value') {
@@ -263,6 +273,13 @@ function readDesignValue(
       }
       return { status: 'value', value };
     }
+    case 'instance':
+      // Unreachable: resolveBinding returns a component value before any
+      // primitive read. Kept for switch totality.
+      return {
+        reason: 'A connected component value cannot be read as a primitive.',
+        status: 'unresolved',
+      };
     case 'runtime':
       // Handled before resolveBinding; kept for exhaustiveness.
       return { reason: 'Runtime values are not design-resolved.', status: 'omitted' };
@@ -337,6 +354,36 @@ function applyTransform(
 }
 
 /**
+ * Imports for connected nested instances used as component values, in binding
+ * order and deduplicated. `renderImportLines` groups them by module path.
+ */
+function collectInstanceImports(
+  recipe: SemanticConnectionRecipe,
+): ComponentUsage['imports'] {
+  const imports: ComponentUsage['imports'] = [];
+  const seen = new Set<string>();
+
+  for (const binding of recipe.bindings) {
+    if (binding.source.kind !== 'instance') {
+      continue;
+    }
+    const { componentName, importPath } = binding.source;
+    const key = `${componentName} ${importPath}`;
+    if (seen.has(key)) {
+      continue;
+    }
+    seen.add(key);
+    imports.push({
+      importedName: componentName,
+      localName: componentName,
+      modulePath: importPath,
+    });
+  }
+
+  return imports;
+}
+
+/**
  * Build the deprecation notice for a deprecated recipe. The code is still
  * generated as usual; this is advisory guidance shown alongside it.
  */
@@ -362,6 +409,8 @@ function describeSource(binding: SemanticBinding): string {
       return `From nested text ${JSON.stringify(source.locator.namePath.join(' / '))}.`;
     case 'nested-property':
       return `From nested property ${JSON.stringify(source.propertyName)} at ${JSON.stringify(source.locator.namePath.join(' / '))}.`;
+    case 'instance':
+      return `From the connected component ${JSON.stringify(source.componentName)} at ${JSON.stringify(source.locator.namePath.join(' / '))}.`;
     case 'static':
       return 'Static value authored in the recipe.';
     case 'runtime':

@@ -93,6 +93,36 @@ describe('source schema', () => {
     }));
   });
 
+  it('uses the only prop interface when the Figma name differs from the code name', () => {
+    // The real case: a Figma component named "Dialogbox" implemented by
+    // InfoModalProps. An exact-name miss must not dead-end.
+    const result = parseSourceComponent(
+      [{ fileName: 'types.ts', contents: 'export interface InfoModalProps { title?: string }' }],
+      'Dialogbox',
+    );
+
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.snapshot.componentName).toBe('InfoModal');
+      expect(result.warnings.join(' ')).toMatch(/InfoModalProps.*DialogboxProps/);
+    }
+  });
+
+  it('lists the interfaces it found when the requested one is ambiguous', () => {
+    const result = parseSourceComponent(
+      [{
+        fileName: 'types.ts',
+        contents: 'interface InfoModalProps { a?: string } interface StyleProps { b?: string }',
+      }],
+      'Dialogbox',
+    );
+
+    expect(result).toEqual(expect.objectContaining({
+      message: expect.stringContaining('InfoModalProps, StyleProps'),
+      ok: false,
+    }));
+  });
+
   it('creates stable hashes independent of file input order', () => {
     const first = { contents: buttonTypes, fileName: 'types.ts' };
     const second = { contents: buttonImplementation, fileName: 'index.tsx' };
