@@ -3,5 +3,5 @@
   "compilerOptions": {
     "types": ["@figma/plugin-typings"]
   },
-  "include": ["src/main.test.ts", "src/inspect/inspect-frame.test.ts"]
+  "include": ["src/main.test.ts", "src/inspect/inspect-frame.test.ts", "src/inspect/semantic-inspect.test.ts"]
 }

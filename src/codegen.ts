@@ -6,6 +6,7 @@ import {
   type PropMapping,
 } from './types';
 import { isMappingDocument } from './mapping-document';
+import { isSemanticConnectionRecipe } from './semantic/schema';
 import type { ComponentImport, ComponentUsage } from './layout/types';
 import { renderImportLines } from './layout/imports';
 
@@ -859,6 +860,7 @@ function isLegacyConnectionMetadata(
     value.childrenTextProperty !== undefined
     || value.iconComponentName !== undefined
     || value.iconImportPath !== undefined
+    || value.semanticRecipe !== undefined
   ) {
     return false;
   }
@@ -875,6 +877,7 @@ function isLegacyConnectionMetadata(
 function isVersion3ConnectionMetadata(value: Record<string, unknown>): boolean {
   return value.schemaVersion === 3
     && value.mappingDocument === undefined
+    && value.semanticRecipe === undefined
     && hasValidConnectionMetadataShape(value, false);
 }
 
@@ -927,8 +930,14 @@ function hasValidConnectionMetadataShape(
     return false;
   }
 
-  if (value.mappingDocument !== undefined) {
-    return allowMappingDocument && isMappingDocument(value.mappingDocument);
+  if (value.mappingDocument !== undefined
+    && !(allowMappingDocument && isMappingDocument(value.mappingDocument))) {
+    return false;
+  }
+
+  if (value.semanticRecipe !== undefined
+    && !(allowMappingDocument && isSemanticConnectionRecipe(value.semanticRecipe))) {
+    return false;
   }
 
   return true;

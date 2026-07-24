@@ -285,6 +285,7 @@ describe('Plugin rendered interactions', () => {
 
     const connectTab = screen.getByRole('tab', { name: 'Components' });
     const inspectTab = screen.getByRole('tab', { name: 'Inspect Code' });
+    const syncTokensTab = screen.getByRole('tab', { name: 'Sync Tokens' });
     connectTab.focus();
 
     fireEvent.keyDown(connectTab, { key: 'ArrowRight' });
@@ -296,8 +297,10 @@ describe('Plugin rendered interactions', () => {
     expect(connectTab.getAttribute('aria-selected')).toBe('true');
 
     fireEvent.keyDown(connectTab, { key: 'End' });
-    expect(document.activeElement).toBe(inspectTab);
+    expect(document.activeElement).toBe(syncTokensTab);
 
+    // ArrowLeft from the Inspect Code tab returns focus to Components.
+    fireEvent.click(inspectTab);
     fireEvent.keyDown(inspectTab, { key: 'ArrowLeft' });
     expect(document.activeElement).toBe(connectTab);
   });
@@ -511,6 +514,63 @@ describe('Plugin rendered interactions', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Save' }));
     const saveRequests = emittedPayloads<{ metadata: ConnectionMetadata }>('SAVE_CONNECTION');
     expect(saveRequests[saveRequests.length - 1]?.metadata.childrenMode).toBe('none');
+  });
+
+  it('confirms before replacing source over a saved semantic connection', async () => {
+    renderPlugin();
+    const savedRecipe = {
+      bindings: [{
+        id: 'binding-variant',
+        requirement: 'optional' as const,
+        source: { kind: 'component-property' as const, propertyId: 'style-id', propertyName: 'Style' },
+        target: { path: ['variant'], typeName: 'string' },
+      }],
+      figmaSnapshot: { componentId: 'button-set', componentName: 'Button', nestedSources: [] },
+      revision: 1,
+      schemaVersion: 1 as const,
+    };
+    receive('SELECTION_STATE', {
+      ...readySelection(existingConnection({ semanticRecipe: savedRecipe })),
+      figmaSnapshot: {
+        componentId: 'button-set',
+        componentName: 'Button',
+        properties: [{
+          id: 'style-id',
+          name: 'Style',
+          options: ['Primary', 'Secondary'],
+          rawKey: 'Style#style-id',
+          type: 'VARIANT',
+        }],
+      },
+      semanticSnapshot: { componentId: 'button-set', componentName: 'Button', nestedSources: [] },
+    });
+
+    const replacement = new File([], 'Button.next.tsx', { type: 'text/typescript' });
+    Object.defineProperty(replacement, 'text', {
+      value: vi.fn().mockResolvedValue('export interface ButtonProps { variant?: string; }'),
+    });
+    fireEvent.input(screen.getByLabelText('Upload source'), {
+      target: { files: [replacement] },
+    });
+
+    // The upload is held behind an explicit confirmation, not applied yet.
+    const prompt = await screen.findByText('Replace uploaded source?');
+    expect(prompt).toBeTruthy();
+    expect(screen.queryByText('Button.next.tsx')).toBeNull();
+
+    // Cancelling keeps the current source; confirming applies it.
+    fireEvent.click(screen.getByRole('button', { name: 'Keep current' }));
+    expect(screen.queryByText('Replace uploaded source?')).toBeNull();
+    expect(screen.queryByText('Button.next.tsx')).toBeNull();
+
+    fireEvent.input(screen.getByLabelText('Upload source'), {
+      target: { files: [replacement] },
+    });
+    await screen.findByText('Replace uploaded source?');
+    fireEvent.click(screen.getByRole('button', { name: 'Replace source' }));
+    await waitFor(() => {
+      expect(screen.getByText('Button.next.tsx')).toBeTruthy();
+    });
   });
 
   it('keeps a save pending through stale results, then accepts exact success and failure', () => {
@@ -754,6 +814,25 @@ describe('Plugin rendered interactions', () => {
     expect(screen.getByText('Source URL')).toBeTruthy();
     expect(screen.getByText('Source path')).toBeTruthy();
     expect(screen.getByText('src/Button.tsx')).toBeTruthy();
+  });
+
+  it('renders semantic runtime requirements and explanation as separate blocks', () => {
+    renderPlugin();
+    receive('INSPECT_CODE_STATE', {
+      status: 'connected',
+      output: {
+        code: 'import { ConfirmationDialog } from "@tashilcar/ui";\n\n<ConfirmationDialog />',
+        explanation: 'title — From nested text "Header / Title".',
+        runtimeRequirements: 'onConfirm: () => void',
+      },
+    });
+    fireEvent.click(screen.getByRole('tab', { name: 'Inspect Code' }));
+
+    expect(screen.getByText('Set in application')).toBeTruthy();
+    expect(screen.getByText('Why this structure?')).toBeTruthy();
+    expect(document.body.textContent).toContain('onConfirm: () => void');
+    expect(document.body.textContent).toContain('title — From nested text "Header / Title".');
+    expect(screen.queryByText('Mapping diagnostics')).toBeNull();
   });
 
   it('highlights JSX nested inside prop expressions as structured TSX', () => {

@@ -8,6 +8,8 @@ import {
 import { isPropMappings, isRecord } from './codegen';
 import { normalizeOptionalHttpUrl } from './external-url';
 import { compileMappingDocument, isMappingDocument } from './mapping-document';
+import { validateRecipeDraft } from './semantic/authoring';
+import { validateSemanticRecipe } from './semantic/schema';
 import { extractAdvancedPropMappings } from './mapping-editor';
 import { findMappingConflicts } from './connection-health';
 
@@ -21,6 +23,7 @@ export type ConnectionFormValues = {
   importPath: string;
   mappingDocument: string;
   propMappings: string;
+  semanticRecipe: string;
   sourcePath: string;
   sourceUrl: string;
   storybookUrl: string;
@@ -91,6 +94,7 @@ export const FORM_FIELD_IDS: Record<FormField, string> = {
   importPath: 'tashil-import-path',
   mappingDocument: 'tashil-mapping-document',
   propMappings: 'tashil-prop-mappings',
+  semanticRecipe: 'tashil-semantic-recipe',
   sourcePath: 'tashil-source-path',
   sourceUrl: 'tashil-source-url',
   storybookUrl: 'tashil-storybook-url',
@@ -242,6 +246,9 @@ export function createFormValues(
     propMappings: connection?.propMappings
       ? JSON.stringify(connection.propMappings, null, 2)
       : '',
+    semanticRecipe: connection?.semanticRecipe
+      ? JSON.stringify(connection.semanticRecipe)
+      : '',
     sourcePath: connection?.sourcePath || '',
     sourceUrl: connection?.sourceUrl || '',
     storybookUrl: connection?.storybookUrl || '',
@@ -325,6 +332,7 @@ export function areFormValuesEqual(
     && first.importPath === second.importPath
     && first.mappingDocument === second.mappingDocument
     && first.propMappings === second.propMappings
+    && first.semanticRecipe === second.semanticRecipe
     && first.sourcePath === second.sourcePath
     && first.sourceUrl === second.sourceUrl
     && first.storybookUrl === second.storybookUrl;
@@ -343,6 +351,7 @@ void ({
   importPath: true,
   mappingDocument: true,
   propMappings: true,
+  semanticRecipe: true,
   sourcePath: true,
   sourceUrl: true,
   storybookUrl: true,
@@ -448,6 +457,26 @@ export function validateConnectionForm(
     }
   }
 
+  let semanticRecipe: ConnectionMetadata['semanticRecipe'];
+  if (values.semanticRecipe.trim() !== '') {
+    try {
+      const parsed = JSON.parse(values.semanticRecipe) as unknown;
+      const validation = validateSemanticRecipe(parsed);
+      if (validation.ok) {
+        const draftValidation = validateRecipeDraft(validation.recipe);
+        if (draftValidation.saveable) {
+          semanticRecipe = validation.recipe;
+        } else {
+          errors.semanticRecipe = draftValidation.errors[0];
+        }
+      } else {
+        errors.semanticRecipe = validation.message;
+      }
+    } catch (_error) {
+      errors.semanticRecipe = 'The semantic mapping is invalid. Upload the source files again.';
+    }
+  }
+
   if (Object.keys(errors).length > 0) {
     return {
       errors,
@@ -471,6 +500,7 @@ export function validateConnectionForm(
         : {}),
       propMappings,
       ...(mappingDocument ? { mappingDocument } : {}),
+      ...(semanticRecipe ? { semanticRecipe } : {}),
     },
     ok: true,
   };
@@ -489,6 +519,7 @@ export function getFirstInvalidField(errors: FormErrors): FormField | undefined 
     'customPropMappings',
     'mappingDocument',
     'propMappings',
+    'semanticRecipe',
   ];
   return fieldOrder.find((field) => Boolean(errors[field]));
 }

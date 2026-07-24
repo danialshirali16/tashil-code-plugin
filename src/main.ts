@@ -10,6 +10,15 @@ import {
   type ResolvedInstanceSwap,
 } from './codegen';
 import { normalizeHttpUrl, normalizeOptionalHttpUrl } from './external-url';
+import { renderImportLines } from './layout/imports';
+import { createSemanticNodeTree } from './semantic/figma-adapter';
+import { extractFigmaSemanticSnapshot } from './semantic/figma-extractor';
+import type { FigmaSemanticSnapshot } from './semantic/types';
+import {
+  resolveSemanticUsage,
+  type SemanticRuntimeRequirement,
+  type SemanticTargetExplanation,
+} from './semantic/resolver';
 import { createReactPropIdentifier } from './prop-mappings';
 import { formatCssBlock } from './inspect/css-partition';
 import { formatConnectedComponentsSnippet } from './inspect/usage-snippet';
@@ -46,7 +55,22 @@ import {
   type ScaffoldPropMappingsHandler,
   type ScaffoldResultHandler,
   type UiTargetState,
+  type LoadTokenCollectionsHandler,
+  type LoadTokenCollectionsResultHandler,
+  type ExportTokensHandler,
+  type ExportTokensResultHandler,
 } from './types';
+import { serializeCollection } from './sync-tokens/serialize';
+import type {
+  AliasValue,
+  ColorValue,
+  ExportOptions,
+  Token,
+  TokenCollection,
+  TokenCollectionSummary,
+  TokenValue,
+  VariableResolvedType,
+} from './sync-tokens/types';
 
 type ConnectableComponentNode = ComponentNode | ComponentSetNode;
 
@@ -104,6 +128,14 @@ export default function (): void {
     void scaffoldPropMappings(payload.targetToken, payload.operationId);
   });
 
+  on<LoadTokenCollectionsHandler>('LOAD_TOKEN_COLLECTIONS', () => {
+    void loadTokenCollections();
+  });
+
+  on<ExportTokensHandler>('EXPORT_TOKENS', (payload) => {
+    void exportTokens(payload.operationId, payload.collectionIds, payload.options);
+  });
+
   on<OpenExternalHandler>('OPEN_EXTERNAL', (payload) => {
     openExternalReference(payload);
   });
@@ -135,7 +167,7 @@ async function generateCodegenBlocks(node: SceneNode): Promise<CodegenBlock[]> {
     const selection = await resolveSelection(node);
 
     if (selection) {
-      return generateComponentCodegenBlocks(selection);
+      return generateComponentCodegenBlocks(selection, node);
     }
 
     return generateInspectionBlocks(await inspectSceneNode(node));
@@ -149,8 +181,15 @@ async function generateCodegenBlocks(node: SceneNode): Promise<CodegenBlock[]> {
   }
 }
 
-/** Existing connected-component branch, unchanged in output. */
-function generateComponentCodegenBlocks(selection: ResolvedSelection): CodegenBlock[] {
+/**
+ * Connected-component branch. Legacy connections stay byte-identical; a
+ * connection with a semantic recipe resolves through the semantic pipeline
+ * shared with Inspect Code, adding runtime-requirement and explanation blocks.
+ */
+async function generateComponentCodegenBlocks(
+  selection: ResolvedSelection,
+  selectedNode: SceneNode,
+): Promise<CodegenBlock[]> {
   const connection = readConnectionMetadata(selection.mainComponent);
 
   if (!connection.ok) {
@@ -162,18 +201,25 @@ function generateComponentCodegenBlocks(selection: ResolvedSelection): CodegenBl
     ];
   }
 
-  const usage = createUsageSnippet(connection.metadata, selection);
+  const output = await createConnectedOutput(connection.metadata, selection, selectedNode);
   const blocks: CodegenBlock[] = [
     {
       title: connection.metadata.componentName,
       language: 'TYPESCRIPT',
-      code: usage.code,
+      code: output.code,
     },
   ];
-  const diagnostics = formatMappingDiagnostics(usage.diagnostics);
 
-  if (diagnostics) {
-    blocks.push(createPlainTextBlock('Mapping diagnostics', diagnostics));
+  if (output.runtimeRequirements) {
+    blocks.push(createPlainTextBlock('Set in application', output.runtimeRequirements));
+  }
+
+  if (output.diagnostics) {
+    blocks.push(createPlainTextBlock('Mapping diagnostics', output.diagnostics));
+  }
+
+  if (output.explanation) {
+    blocks.push(createPlainTextBlock('Why this structure?', output.explanation));
   }
 
   const references = createReferenceText(connection.metadata);
@@ -183,6 +229,83 @@ function generateComponentCodegenBlocks(selection: ResolvedSelection): CodegenBl
   }
 
   return blocks;
+}
+
+type ConnectedOutput = {
+  code: string;
+  diagnostics?: string;
+  explanation?: string;
+  runtimeRequirements?: string;
+};
+
+/**
+ * One generation pipeline for Dev Mode and Inspect Code. A semantic recipe
+ * resolves nested design values against the selected node's own subtree (so
+ * instance overrides win); legacy connections keep `createUsageSnippet`
+ * byte-for-byte.
+ */
+async function createConnectedOutput(
+  metadata: ConnectionMetadata,
+  selection: ResolvedSelection,
+  selectedNode: SceneNode,
+): Promise<ConnectedOutput> {
+  if (metadata.semanticRecipe) {
+    const root = await createSemanticNodeTree(selectedNode);
+    const result = resolveSemanticUsage(
+      metadata.componentName,
+      metadata.importPath,
+      metadata.semanticRecipe,
+      {
+        componentProperties: selection.componentProperties,
+        root,
+      },
+    );
+
+    return {
+      code: [renderImportLines(result.usage.imports), '', result.usage.jsx].join('\n'),
+      diagnostics: result.issues.length > 0 ? result.issues.join('\n') : undefined,
+      explanation: formatSemanticExplanations(result.explanations),
+      runtimeRequirements: formatRuntimeRequirements(result.runtimeRequirements),
+    };
+  }
+
+  const usage = createUsageSnippet(metadata, selection);
+  return {
+    code: usage.code,
+    diagnostics: formatMappingDiagnostics(usage.diagnostics) || undefined,
+  };
+}
+
+function formatSemanticExplanations(
+  explanations: readonly SemanticTargetExplanation[],
+): string | undefined {
+  if (explanations.length === 0) {
+    return undefined;
+  }
+
+  return explanations
+    .map((explanation) => {
+      const status = explanation.outcome === 'emitted'
+        ? ''
+        : ` (${explanation.outcome})`;
+      return `${explanation.targetPath}${status} — ${explanation.reason}`;
+    })
+    .join('\n');
+}
+
+function formatRuntimeRequirements(
+  requirements: readonly SemanticRuntimeRequirement[],
+): string | undefined {
+  if (requirements.length === 0) {
+    return undefined;
+  }
+
+  return requirements
+    .map((requirement) => {
+      const note = requirement.note ? ` — ${requirement.note}` : '';
+      return `${requirement.targetPath}: ${requirement.typeName}${note}`;
+    })
+    .join('\n');
 }
 
 /** Inspect any single scene node through the shared inspection service. */
@@ -349,7 +472,7 @@ async function saveConnection(
     message: 'Connection saved.',
     operation: 'save',
     operationId,
-    targetState: createTargetState(
+    targetState: await createTargetState(
       selection,
       { metadata: savedMetadata, ok: true },
     ),
@@ -413,7 +536,7 @@ async function clearConnection(
     message: 'Connection cleared.',
     operation: 'clear',
     operationId,
-    targetState: createTargetState(
+    targetState: await createTargetState(
       selection,
       {
         ok: false,
@@ -567,6 +690,198 @@ function runBestEffort(effect: () => void | Promise<void>): void {
   } catch {
     // Event entry points and post-mutation effects must not leak host failures.
   }
+}
+
+// --- Sync Tokens: enumerate Variable collections and serialize to CSS. ---
+
+async function loadTokenCollections(): Promise<void> {
+  try {
+    const collections = await figma.variables.getLocalVariableCollectionsAsync();
+    const summaries: TokenCollectionSummary[] = collections.map((collection) => ({
+      id: collection.id,
+      name: collection.name,
+      modes: collection.modes.map((mode) => ({ modeId: mode.modeId, name: mode.name })),
+      defaultModeId: collection.defaultModeId,
+    }));
+    emit<LoadTokenCollectionsResultHandler>('LOAD_TOKEN_COLLECTIONS_RESULT', {
+      ok: true,
+      collections: summaries,
+    });
+  } catch (error) {
+    emit<LoadTokenCollectionsResultHandler>('LOAD_TOKEN_COLLECTIONS_RESULT', {
+      ok: false,
+      message: errorMessage(error, 'load variable collections'),
+    });
+  }
+}
+
+// ponytail: track the latest export operation so a superseded request's late
+// resolve is ignored — mirrors the scanComponents stale-guard.
+let latestTokensExportId = '';
+
+async function exportTokens(
+  operationId: string,
+  collectionIds: readonly string[],
+  options: ExportOptions,
+): Promise<void> {
+  latestTokensExportId = operationId;
+  const wantSet = new Set(collectionIds);
+  try {
+    const collections = await figma.variables.getLocalVariableCollectionsAsync();
+    const files = [];
+    for (const collection of collections) {
+      if (latestTokensExportId !== operationId) {
+        return; // superseded
+      }
+      if (!wantSet.has(collection.id)) {
+        continue;
+      }
+      const modeId = options.modeByCollection[collection.id] ?? collection.defaultModeId;
+      const tokens = await collectTokens(collection, modeId);
+      const domain: TokenCollection = {
+        id: collection.id,
+        name: collection.name,
+        modes: collection.modes.map((mode) => ({ modeId: mode.modeId, name: mode.name })),
+        defaultModeId: collection.defaultModeId,
+        tokens,
+      };
+      files.push({
+        name: `${slug(collection.name) || collection.id}.css`,
+        css: serializeCollection(domain, options),
+      });
+    }
+    if (latestTokensExportId !== operationId) {
+      return;
+    }
+    emit<ExportTokensResultHandler>('EXPORT_TOKENS_RESULT', {
+      ok: true,
+      operationId,
+      files,
+    });
+  } catch (error) {
+    if (latestTokensExportId !== operationId) {
+      return;
+    }
+    emit<ExportTokensResultHandler>('EXPORT_TOKENS_RESULT', {
+      ok: false,
+      operationId,
+      message: errorMessage(error, 'export tokens'),
+    });
+  }
+}
+
+async function collectTokens(
+  collection: VariableCollection,
+  modeId: string,
+): Promise<Token[]> {
+  const tokens: Token[] = [];
+  for (const variableId of collection.variableIds) {
+    const variable = await figma.variables.getVariableByIdAsync(variableId);
+    if (variable === null) {
+      continue;
+    }
+    const raw = variable.valuesByMode[modeId];
+    if (raw === undefined) {
+      continue;
+    }
+    const value = await normalizeValue(raw, variable.resolvedType, modeId);
+    if (value === null) {
+      continue;
+    }
+    tokens.push({
+      id: variable.id,
+      name: variable.name,
+      resolvedType: variable.resolvedType as VariableResolvedType,
+      scopes: variable.scopes as readonly string[],
+      value,
+    });
+  }
+  return tokens;
+}
+
+async function normalizeValue(
+  raw: VariableValue,
+  resolvedType: VariableResolvedDataType,
+  modeId: string,
+): Promise<TokenValue | null> {
+  if (typeof raw === 'boolean') {
+    return { kind: 'boolean', value: raw };
+  }
+  if (typeof raw === 'number') {
+    return { kind: 'number', value: raw };
+  }
+  if (typeof raw === 'string') {
+    return { kind: 'string', value: raw };
+  }
+  // Object shapes: alias, RGB, RGBA.
+  const maybeAlias = raw as { type?: string; id?: string };
+  if (maybeAlias.type === 'VARIABLE_ALIAS' && typeof maybeAlias.id === 'string') {
+    const target = await figma.variables.getVariableByIdAsync(maybeAlias.id);
+    const targetName = target?.name ?? '';
+    const alias: AliasValue = { targetName };
+    // ponytail: when the alias resolves to a color, surface the color too so
+    // 'hex'/'rgb'/'rgba' formats have something concrete to render; when the
+    // consumer wants 'variable', serialize.ts prefers the alias name.
+    if (target !== null && target.resolvedType === 'COLOR') {
+      const resolved = await resolveColorValue(target, modeId);
+      if (resolved !== null) {
+        return { kind: 'color', value: resolved };
+      }
+    }
+    return { kind: 'alias', value: alias };
+  }
+  if (resolvedType === 'COLOR' || isColorShape(raw)) {
+    const color = toColorValue(raw);
+    if (color !== null) {
+      return { kind: 'color', value: color };
+    }
+  }
+  return null;
+}
+
+async function resolveColorValue(variable: Variable, modeId: string): Promise<ColorValue | null> {
+  const raw = variable.valuesByMode[modeId];
+  if (raw === undefined) {
+    return null;
+  }
+  if (typeof raw === 'object' && raw !== null) {
+    const alias = raw as { type?: string; id?: string };
+    if (alias.type === 'VARIABLE_ALIAS' && typeof alias.id === 'string') {
+      const target = await figma.variables.getVariableByIdAsync(alias.id);
+      return target === null ? null : resolveColorValue(target, modeId);
+    }
+    return toColorValue(raw);
+  }
+  return null;
+}
+
+function isColorShape(value: unknown): value is { r: number; g: number; b: number; a?: number } {
+  if (typeof value !== 'object' || value === null) {
+    return false;
+  }
+  const { r, g, b } = value as { r?: unknown; g?: unknown; b?: unknown };
+  return typeof r === 'number' && typeof g === 'number' && typeof b === 'number';
+}
+
+function toColorValue(value: unknown): ColorValue | null {
+  if (!isColorShape(value)) {
+    return null;
+  }
+  return 'a' in value ? { r: value.r, g: value.g, b: value.b, a: value.a } : { r: value.r, g: value.g, b: value.b };
+}
+
+function slug(name: string): string {
+  return name
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+}
+
+function errorMessage(error: unknown, action: string): string {
+  return error instanceof Error
+    ? `Could not ${action}: ${error.message}`
+    : `Could not ${action}.`;
 }
 
 async function resolveSelection(node: SceneNode): Promise<ResolvedSelection | null> {
@@ -729,7 +1044,7 @@ async function sendComponentTargetState(
     }
 
     const state = result.ok
-      ? createTargetState(
+      ? await createTargetState(
           result.selection,
           readConnectionMetadata(result.selection.mainComponent),
         )
@@ -904,7 +1219,7 @@ async function sendSelectionState(
     const connection = selection
       ? readConnectionMetadata(selection.mainComponent)
       : null;
-    const state = createCanvasTargetState(selectedNodes, selection, connection);
+    const state = await createCanvasTargetState(selectedNodes, selection, connection);
     const inspectState = await createInspectCodeState(
       selectedNodes,
       selectedNode,
@@ -1012,13 +1327,19 @@ async function createInspectCodeState(
       return { status: 'not-connected' };
     }
 
-    const usage = createUsageSnippet(connection.metadata, selection);
+    const output = await createConnectedOutput(
+      connection.metadata,
+      selection,
+      selectedNode ?? selection.mainComponent,
+    );
     return {
       status: 'connected',
       output: {
-        code: usage.code,
-        diagnostics: formatMappingDiagnostics(usage.diagnostics) || undefined,
+        code: output.code,
+        diagnostics: output.diagnostics,
+        explanation: output.explanation,
         references: createConnectionReferences(connection.metadata),
+        runtimeRequirements: output.runtimeRequirements,
       },
     };
   }
@@ -1035,11 +1356,11 @@ async function createInspectCodeState(
   return { status: 'invalid-selection' };
 }
 
-function createCanvasTargetState(
+async function createCanvasTargetState(
   selectedNodes: ReadonlyArray<SceneNode>,
   selection: ResolvedSelection | null,
   connection: ConnectionReadResult | null,
-): UiTargetState {
+): Promise<UiTargetState> {
   if (selectedNodes.length === 0) {
     return {
       status: 'empty',
@@ -1074,10 +1395,11 @@ function createCanvasTargetState(
   );
 }
 
-function createTargetState(
+
+async function createTargetState(
   selection: ResolvedSelection,
   connection: ConnectionReadResult,
-): Extract<UiTargetState, { status: 'ready' }> {
+): Promise<Extract<UiTargetState, { status: 'ready' }>> {
   const connectionIssue = !connection.ok ? connection.issue : undefined;
 
   return {
@@ -1085,6 +1407,7 @@ function createTargetState(
     targetToken: selection.mainComponent.id,
     componentName: selection.mainComponent.name,
     figmaSnapshot: createFigmaComponentSnapshot(selection.mainComponent),
+    semanticSnapshot: await createTargetSemanticSnapshot(selection.mainComponent),
     existingConnection: connection.ok ? connection.metadata : undefined,
     connectionIssue,
     message: connectionIssue
@@ -1093,6 +1416,30 @@ function createTargetState(
       ? 'This component already has a Storybook connection.'
       : 'This component is ready to connect.',
   };
+}
+
+/**
+ * Bounded semantic scan of the connect target for authoring. A component set
+ * scans its default (first) variant so locators stay variant-relative. Never
+ * throws: authoring simply loses nested options when extraction fails.
+ */
+async function createTargetSemanticSnapshot(
+  component: ConnectableComponentNode,
+): Promise<FigmaSemanticSnapshot | undefined> {
+  try {
+    const scanRoot = component.type === 'COMPONENT_SET'
+      ? component.children.find((child) => child.type === 'COMPONENT')
+      : component;
+    if (!scanRoot) {
+      return undefined;
+    }
+
+    const tree = await createSemanticNodeTree(scanRoot);
+    const { snapshot } = extractFigmaSemanticSnapshot(tree, component.id);
+    return { ...snapshot, componentName: component.name };
+  } catch (_error) {
+    return undefined;
+  }
 }
 
 function createFigmaComponentSnapshot(

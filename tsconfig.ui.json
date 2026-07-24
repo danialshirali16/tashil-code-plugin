@@ -17,6 +17,19 @@
     "src/mapping-editor.ts",
     "src/mapping-editor-view.tsx",
     "src/source-schema.ts",
-    "src/types.ts"
+    "src/semantic-editor-view.tsx",
+    "src/semantic/authoring.ts",
+    "src/semantic/figma-extractor.ts",
+    "src/semantic/flags.ts",
+    "src/semantic/resolver.ts",
+    "src/semantic/schema.ts",
+    "src/semantic/reconcile.ts",
+    "src/semantic/source-contract.ts",
+    "src/semantic/types.ts",
+    "src/semantic/usage-ir.ts",
+    "src/types.ts",
+    "src/ui-download.ts",
+    "src/sync-tokens/types.ts",
+    "src/sync-tokens/serialize.ts"
   ]
 }
