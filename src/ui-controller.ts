@@ -17,6 +17,11 @@ import { mergePropMappingsJson } from './prop-mappings';
 import { parseSourceComponent } from './source-schema';
 import { createRecipeDraft, setTargetOption } from './semantic/authoring';
 import { SEMANTIC_CONNECT_AUTHORING_ENABLED } from './semantic/flags';
+import {
+  createConnectionDebugBundle,
+  serializeConnectionDebugBundle,
+} from './semantic/debug-bundle';
+import { evaluateSemanticHealth } from './semantic/health';
 import { isSemanticConnectionRecipe } from './semantic/schema';
 import { extractSourceContract } from './semantic/source-contract';
 import {
@@ -53,6 +58,7 @@ import {
   type PendingMutationState,
 } from './ui-state';
 import {
+  CURRENT_SCHEMA_VERSION,
   type ChildrenMode,
   type ClearConnectionHandler,
   type ComponentInventoryState,
@@ -115,6 +121,7 @@ export type ConnectionController = {
     proposal: ReconciliationProposal,
     action: ReconciliationAction,
   ) => void;
+  exportDebugBundle: () => void;
   isSourceReplacementPending: boolean;
   sourceReplacementCancelRef: { current: HTMLButtonElement | null };
   confirmSourceReplacement: () => void;
@@ -661,6 +668,55 @@ export function useConnectionController(): ConnectionController {
     setFormField('semanticRecipe', JSON.stringify(updated));
   }
 
+  /**
+   * Export a redacted debug bundle for the current connection. The bundle is
+   * assembled from the working recipe and current health, then downloaded as
+   * JSON. It contains no source text, reference URLs, design content, or layer
+   * names — see `debug-bundle.ts` for the data policy.
+   */
+  function exportDebugBundle(): void {
+    const target = targetStateRef.current;
+    if (target.status !== 'ready') {
+      setErrorMessage('Open a component before exporting a debug bundle.');
+      return;
+    }
+
+    const recipe = readSemanticRecipe();
+    const bundle = createConnectionDebugBundle({
+      componentName: formValuesRef.current.componentName.trim() || target.componentName,
+      connectionSchemaVersion: CURRENT_SCHEMA_VERSION,
+      importPath: formValuesRef.current.importPath.trim(),
+      ...(recipe
+        ? {
+            healthIssues: evaluateSemanticHealth(
+              recipe,
+              target.semanticSnapshot,
+              recipe.sourceContract,
+            ),
+            recipe,
+          }
+        : {}),
+      references: {
+        sourcePath: formValuesRef.current.sourcePath.trim() || undefined,
+        sourceUrl: formValuesRef.current.sourceUrl.trim() || undefined,
+        storybookUrl: formValuesRef.current.storybookUrl.trim() || undefined,
+      },
+    });
+
+    const fileName = `tashil-connection-debug-${bundle.componentName}.json`;
+    try {
+      downloadBlob(
+        new Blob([serializeConnectionDebugBundle(bundle)], { type: 'application/json' }),
+        fileName,
+      );
+      setErrorMessage('');
+      setStatusMessage(`Exported ${fileName}.`);
+    } catch (_error) {
+      setStatusMessage('');
+      setErrorMessage('Could not export the debug bundle.');
+    }
+  }
+
   function applySemanticProposal(
     proposal: ReconciliationProposal,
     action: ReconciliationAction,
@@ -1204,6 +1260,7 @@ export function useConnectionController(): ConnectionController {
     semanticRecipe: workingRecipe,
     semanticProposals,
     applySemanticProposal,
+    exportDebugBundle,
     isSourceReplacementPending,
     sourceReplacementCancelRef,
     confirmSourceReplacement,

@@ -28,6 +28,7 @@ export type SemanticMappingViewProps = {
   recipe?: SemanticConnectionRecipe;
   proposals?: readonly ReconciliationProposal[];
   onApplyProposal?: (proposal: ReconciliationProposal, action: ReconciliationAction) => void;
+  onExportDebugBundle?: () => void;
   onOptionChange: (
     targetPath: readonly string[],
     optionId: string,
@@ -136,6 +137,24 @@ export function SemanticMappingView(props: SemanticMappingViewProps): h.JSX.Elem
           <pre aria-label="Generated semantic usage preview" class="generated-json-preview">
             {preview}
           </pre>
+        </details>
+      ) : null}
+
+      {props.onExportDebugBundle ? (
+        <details class="advanced-mappings">
+          <summary>Support</summary>
+          <div class="mapping-help">
+            Export a redacted debug bundle to attach to a bug report. It records
+            schema versions, mapping structure, and health only — no source code,
+            URLs, design text, or layer names.
+          </div>
+          <button
+            disabled={props.disabled}
+            onClick={props.onExportDebugBundle}
+            type="button"
+          >
+            Export debug bundle
+          </button>
         </details>
       ) : null}
     </section>

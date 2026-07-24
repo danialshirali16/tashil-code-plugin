@@ -205,6 +205,27 @@ describe('SemanticMappingView', () => {
     );
   });
 
+  it('offers a debug-bundle export and forwards the click', () => {
+    const onExportDebugBundle = vi.fn();
+    render(
+      <SemanticMappingView
+        componentName="ConfirmationDialog"
+        disabled={false}
+        figmaSnapshot={createDialogFigmaSnapshot()}
+        importPath="@tashilcar/ui"
+        onExportDebugBundle={onExportDebugBundle}
+        onOptionChange={vi.fn()}
+        recipe={createDialogRecipeDraft()}
+      />,
+    );
+
+    const button = screen.getByRole('button', { name: 'Export debug bundle' });
+    fireEvent.click(button);
+    expect(onExportDebugBundle).toHaveBeenCalledTimes(1);
+    // The redaction promise is stated where the user acts on it.
+    expect(document.body.textContent).toContain('no source code');
+  });
+
   it('shows no reconciliation panel when there are no proposals', () => {
     render(
       <SemanticMappingView

@@ -748,9 +748,9 @@ as an advisory `deprecation` string that never blocks generation.
 
 - [x] Add an exportable redacted connection-debug bundle. (2026-07-24)
       `src/semantic/debug-bundle.ts` — `createConnectionDebugBundle` +
-      `serializeConnectionDebugBundle`, redacted by construction. *(UI: a
-      download action can hand the serialized string to `downloadBlob`; wiring
-      deferred to coordinate with the parallel token-export download work.)*
+      `serializeConnectionDebugBundle`, redacted by construction. Wired to an
+      **Export debug bundle** action under *Support* in the Implementation
+      mapping editor, downloading JSON via `downloadBlob` (2026-07-24).
 - [x] Include schema version, hashes, diagnostics, and health state. Connection
       and recipe schema versions, source `contentHash`, binding/target counts,
       per-binding kind/requirement/transform, and a health summary
