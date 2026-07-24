@@ -125,6 +125,35 @@ export interface WidgetProps {
     ]);
   });
 
+  it('uses the only prop interface when the Figma name differs from the code name', () => {
+    const result = extractSourceContract(
+      [{ fileName: 'types.ts', contents: 'export interface InfoModalProps { title?: string }' }],
+      'Dialogbox',
+    );
+
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.contract.componentName).toBe('InfoModal');
+      expect(result.warnings.join(' ')).toMatch(/InfoModalProps.*DialogboxProps/);
+      expect(result.contract.targets.map((t) => t.path.join('.'))).toEqual(['title']);
+    }
+  });
+
+  it('lists the interfaces it found when the requested one is ambiguous', () => {
+    const result = extractSourceContract(
+      [{
+        fileName: 'types.ts',
+        contents: 'interface InfoModalProps { a?: string } interface StyleProps { b?: string }',
+      }],
+      'Dialogbox',
+    );
+
+    expect(result).toEqual(expect.objectContaining({
+      message: expect.stringContaining('InfoModalProps, StyleProps'),
+      ok: false,
+    }));
+  });
+
   it('rejects files without a Props interface', () => {
     const result = extractSourceContract([
       { contents: 'export const x = 1;', fileName: 'x.ts' },

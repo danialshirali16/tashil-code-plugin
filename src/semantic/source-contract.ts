@@ -96,27 +96,28 @@ export function extractSourceContract(
   const expectedInterfaceName = requestedComponentName
     ? `${requestedComponentName}Props`
     : undefined;
-  const selected = expectedInterfaceName
+  const exactMatch = expectedInterfaceName
     ? candidates.find(({ declaration }) => declaration.name.text === expectedInterfaceName)
-    : candidates.length === 1 ? candidates[0] : undefined;
+    : undefined;
+  // Fall back to the only prop interface in the upload; see the matching note
+  // in `parseSourceComponent`. Both parsers must agree on which interface an
+  // upload describes, or the visual and semantic editors would disagree.
+  const selected = exactMatch ?? (candidates.length === 1 ? candidates[0] : undefined);
 
   if (!selected) {
-    if (expectedInterfaceName) {
-      return {
-        message: `Could not find an interface named ${expectedInterfaceName}.`,
-        ok: false,
-      };
-    }
+    const found = candidates.map(({ declaration }) => declaration.name.text);
 
-    if (candidates.length > 1) {
+    if (found.length === 0) {
       return {
-        message: `Multiple prop interfaces were found: ${candidates.map(({ declaration }) => declaration.name.text).join(', ')}. Choose the component explicitly.`,
+        message: 'Could not find an interface whose name ends with Props.',
         ok: false,
       };
     }
 
     return {
-      message: 'Could not find an interface whose name ends with Props.',
+      message: expectedInterfaceName
+        ? `Could not find an interface named ${expectedInterfaceName}. Found: ${found.join(', ')}. Set Component name to the one you want.`
+        : `Multiple prop interfaces were found: ${found.join(', ')}. Choose the component explicitly.`,
       ok: false,
     };
   }
@@ -124,6 +125,12 @@ export function extractSourceContract(
   const symbols = buildSymbolTable(parsedFiles);
   const aliases = symbols.aliases;
   const warnings: string[] = [];
+
+  if (expectedInterfaceName && !exactMatch) {
+    warnings.push(
+      `Used ${selected.declaration.name.text} because no ${expectedInterfaceName} was found.`,
+    );
+  }
   const targets: SourceTargetDescriptor[] = [];
 
   const members = collectInterfaceMembers(
