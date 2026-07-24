@@ -107,3 +107,37 @@ Before saving an updated connection, confirm:
 - Any remaining **Broken** message has been resolved.
 
 For the mapping rules themselves, see [Visual prop mappings](prop-mapping.md).
+
+## Recover a malformed or unreadable connection
+
+The plugin never rewrites connection data it cannot fully understand. When
+stored data is unreadable, the component shows **Needs attention** with the
+reason, and saving/clearing is blocked until the state is resolved — the data
+is left exactly as it was.
+
+| Message | Meaning | Recovery |
+| --- | --- | --- |
+| Malformed JSON | The stored string is not valid JSON. | Clear the connection and reconnect. The design is unaffected. |
+| Does not match schema version *N* | The data claims a version whose shape it does not have. | Clear and reconnect with a current build. |
+| Uses schema version *N*, newer than this plugin supports | The file was connected by a newer plugin build. | **Update the plugin.** Do not clear — a current build reads it correctly. |
+| Unsupported schema version | The version predates the supported range. | Clear and reconnect. |
+
+Two rules make recovery safe:
+
+- **Blocked, not destructive.** A connection that fails validation is never
+  partially migrated or silently overwritten; the only mutations are an
+  explicit Save or Clear.
+- **Newer wins by waiting.** If the data is from a newer build, updating the
+  plugin is always preferable to clearing, because clearing discards mappings
+  that a newer build could still read.
+
+### Reporting a problem
+
+For a connection that behaves unexpectedly, export a **connection debug
+bundle** and attach it to the report. The bundle records schema versions, the
+source content hash, binding kinds and counts, locator depth and fragility, and
+health severities — and is redacted by construction: it contains no source
+code, no reference URLs or paths, no design text or sample values, and no layer
+names. See the
+[architecture decisions](semantic-connect-decisions.md) for the full data
+policy.
