@@ -733,10 +733,24 @@ as an advisory `deprecation` string that never blocks generation.
 
 ### Recovery and supportability
 
-- [ ] Add an exportable redacted connection-debug bundle.
-- [ ] Include schema version, hashes, diagnostics, and health state.
-- [ ] Exclude source text, private URLs, customer content, and credentials.
+- [x] Add an exportable redacted connection-debug bundle. (2026-07-24)
+      `src/semantic/debug-bundle.ts` — `createConnectionDebugBundle` +
+      `serializeConnectionDebugBundle`, redacted by construction. *(UI: a
+      download action can hand the serialized string to `downloadBlob`; wiring
+      deferred to coordinate with the parallel token-export download work.)*
+- [x] Include schema version, hashes, diagnostics, and health state. Connection
+      and recipe schema versions, source `contentHash`, binding/target counts,
+      per-binding kind/requirement/transform, and a health summary
+      (`bySeverity` counts + affected code targets).
+- [x] Exclude source text, private URLs, customer content, and credentials.
+      The assembler only reads counts, kinds, hashes, code identifiers, and
+      severities; reference URLs/paths become booleans, and design content
+      (sample values, nested text, static literals, layer-name paths) and owner
+      are never copied. Proven by redaction tests in `debug-bundle.test.ts`.
 - [ ] Provide human-readable recovery messages for unsupported future schemas.
+      *(Partly covered: `validateSemanticRecipe` already returns an actionable
+      "newer than this plugin supports — update the plugin" message; a
+      connection-level recovery surface is pending.)*
 - [ ] Document manual recovery for malformed or legacy metadata.
 
 ### M5 exit criteria
