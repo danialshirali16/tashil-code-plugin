@@ -1360,6 +1360,14 @@ function InspectCodeView(props: {
   return (
     <main aria-labelledby="tashil-inspect-code-heading" class="inspect-content">
       <h1 class="visually-hidden" id="tashil-inspect-code-heading">Inspect code</h1>
+      {output.deprecation ? (
+        <div class="connection-health connection-health-needs-review" role="note">
+          <div class="connection-health-heading">
+            <strong>⚠️ Deprecated</strong>
+          </div>
+          <small>{output.deprecation}</small>
+        </div>
+      ) : null}
       <CodeBlock
         code={output.code}
         title="Code"
