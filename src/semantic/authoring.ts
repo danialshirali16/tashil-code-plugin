@@ -162,6 +162,12 @@ function isNestedCompatible(
   target: SourceTargetDescriptor,
   descriptor: FigmaNestedSourceDescriptor,
 ): boolean {
+  // A connected nested instance is a whole component, so it fits exactly the
+  // targets that expect one (ReactNode slots) and nothing else.
+  if (descriptor.kind === 'nested-instance') {
+    return target.kind === 'node' && descriptor.connectedComponentName !== undefined;
+  }
+
   if (target.kind !== 'visual') {
     return false;
   }
@@ -401,6 +407,8 @@ export function getTargetOptionId(
       return {
         optionId: `nested:nested-property:${locatorKey(source.locator)}:${source.propertyName}`,
       };
+    case 'instance':
+      return { optionId: `nested:nested-instance:${locatorKey(source.locator)}:` };
     case 'static':
       return { optionId: OPTION_STATIC, staticValue: source.value };
     case 'runtime':
@@ -455,6 +463,24 @@ function createBindingForOption(
     if (!descriptor) {
       return undefined;
     }
+    if (descriptor.kind === 'nested-instance') {
+      if (
+        descriptor.connectedComponentName === undefined
+        || descriptor.connectedImportPath === undefined
+      ) {
+        return undefined;
+      }
+      return {
+        ...base,
+        source: {
+          componentName: descriptor.connectedComponentName,
+          importPath: descriptor.connectedImportPath,
+          kind: 'instance',
+          locator: descriptor.locator,
+        },
+      };
+    }
+
     const source: SemanticBindingSource = descriptor.kind === 'nested-text'
       ? { kind: 'nested-text', locator: descriptor.locator }
       : {

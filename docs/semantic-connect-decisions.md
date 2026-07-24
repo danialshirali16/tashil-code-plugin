@@ -116,17 +116,30 @@ segments.)*
 *(Resolves: "Can one Figma source feed multiple code prop targets?" — yes.
 "Can multiple Figma sources assemble one array prop in version 1?" — no.)*
 
-## I. A separately connected nested instance contributes values, not JSX
+## I. A separately connected nested instance: values *and* component value
 
 When a nested instance has its own Tashil connection, the extractor records its
 **exposed component properties as semantic value sources** for the parent, then
-**stops descending** into it. It is never inlined into the parent's generated
-JSX as a component value in v1.
+**stops descending** into it (its internals are never harvested).
 
-The owning decision therefore sits with the *parent* recipe: it may consume the
-child's values, or ignore them. Emitting a connected child as a real component
-prop value requires the usage-IR "connected component usage" value kind, which
-is deferred.
+The owning decision sits with the *parent* recipe, which may:
+
+- consume the child's **values** (e.g. its `label`);
+- use the child **as a whole component value** for a target that expects one
+  (`renderLeftIcon={<TrashIcon />}`) via the `instance` binding source; or
+- ignore it.
+
+The component-value path (added 2026-07-24) exists because the legacy pipeline
+already emitted icon instance swaps as JSX, so semantic connections would
+otherwise regress on real icon props. Safety rules:
+
+- The child's identity comes **only from its own saved connection** — the
+  parent never invents a component name.
+- The component name is validated against the JSX identifier pattern both at
+  save time (schema) and at format time (usage IR), so a persisted recipe can
+  never inject text into generated JSX.
+- The child's import is merged into the parent's import list, deduplicated.
+- Only targets classified `node` (React node slots) may take a component value.
 
 *(Resolves: "When a nested component has its own connection, who owns the
 decision to inline it versus consume its values?")*

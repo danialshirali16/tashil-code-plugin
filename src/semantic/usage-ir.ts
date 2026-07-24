@@ -10,10 +10,14 @@
 import type { SourcePropValue } from '../types';
 import { formatPropValue, isPropIdentifier } from '../codegen';
 
+const COMPONENT_IDENTIFIER_PATTERN = /^[A-Z_$][A-Za-z0-9_$]*$/;
+
 export type UsageValue =
   | { kind: 'literal'; value: SourcePropValue }
   /** Ordered fields keep output deterministic and binding-order stable. */
   | { kind: 'object'; fields: Array<{ name: string; value: UsageValue }> }
+  /** A connected component rendered as a prop value, e.g. `icon={<Icon />}`. */
+  | { kind: 'component'; componentName: string }
   | { kind: 'runtime'; note?: string };
 
 export const DEFAULT_RUNTIME_NOTE = 'Set in application.';
@@ -39,6 +43,10 @@ export function formatUsageProp(name: string, value: UsageValue): string | null 
 
   if (value.kind === 'runtime') {
     return `${name}={undefined /* ${sanitizeComment(value.note ?? DEFAULT_RUNTIME_NOTE)} */}`;
+  }
+
+  if (value.kind === 'component') {
+    return `${name}={${formatComponentElement(value.componentName)}}`;
   }
 
   if (value.fields.length === 0) {
@@ -70,7 +78,19 @@ function formatExpression(value: UsageValue): string {
     return `undefined /* ${sanitizeComment(value.note ?? DEFAULT_RUNTIME_NOTE)} */`;
   }
 
+  if (value.kind === 'component') {
+    return formatComponentElement(value.componentName);
+  }
+
   return formatObjectLiteral(value);
+}
+
+/** Render a connected component as a self-closing element, validated. */
+function formatComponentElement(componentName: string): string {
+  if (!COMPONENT_IDENTIFIER_PATTERN.test(componentName)) {
+    throw new TypeError(`Invalid component identifier: ${JSON.stringify(componentName)}`);
+  }
+  return `<${componentName} />`;
 }
 
 /** Keep authored notes from breaking out of the block comment. */

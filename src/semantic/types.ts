@@ -97,10 +97,24 @@ export type RuntimeValueSource = {
   note?: string;
 };
 
+/**
+ * A separately connected nested instance used as a real component value, for
+ * source props that genuinely expect a component (e.g. `renderLeftIcon`).
+ * The child's own connection supplies the identity, so the parent never
+ * invents a component name (binding-source policy 4).
+ */
+export type InstanceSource = {
+  kind: 'instance';
+  locator: SemanticLocator;
+  componentName: string;
+  importPath: string;
+};
+
 export type SemanticBindingSource =
   | ComponentPropertySource
   | NestedTextSource
   | NestedPropertySource
+  | InstanceSource
   | StaticValueSource
   | RuntimeValueSource;
 
@@ -140,7 +154,7 @@ export type SemanticBinding = {
 
 /** A nested design value discovered by the semantic extractor. */
 export type FigmaNestedSourceDescriptor = {
-  kind: 'nested-property' | 'nested-text';
+  kind: 'nested-property' | 'nested-text' | 'nested-instance';
   locator: SemanticLocator;
   /** Human-readable path for display and diagnostics, e.g. `Header / Title`. */
   displayPath: string;
@@ -148,6 +162,9 @@ export type FigmaNestedSourceDescriptor = {
   propertyName?: string;
   /** Sample value captured at extraction time, for suggestions/review only. */
   sampleValue?: string;
+  /** Connected component identity, for `nested-instance` descriptors only. */
+  connectedComponentName?: string;
+  connectedImportPath?: string;
 };
 
 /**

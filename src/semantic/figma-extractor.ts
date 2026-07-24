@@ -30,6 +30,9 @@ export type SemanticNodeLike = {
   componentProperties?: Readonly<Record<string, string | boolean>>;
   /** True when a Tashil connection is stored on the instance's main component. */
   hasOwnConnection?: boolean;
+  /** The connected child's public component identity, when it has one. */
+  connectedComponentName?: string;
+  connectedImportPath?: string;
 };
 
 export type SemanticExtractionResult = {
@@ -116,8 +119,16 @@ export function extractFigmaSemanticSnapshot(
       }
 
       // A separately connected nested instance keeps its own public API; do
-      // not harvest its internals as parent semantic sources.
+      // not harvest its internals as parent semantic sources. It is still
+      // offered as a whole-component value for props that expect a component.
       if (node.hasOwnConnection) {
+        if (
+          node.connectedComponentName !== undefined
+          && node.connectedImportPath !== undefined
+          && nestedSources.length < SEMANTIC_LIMITS.maxNestedSources
+        ) {
+          addSource(node, namePath, 'nested-instance', nextAnchor);
+        }
         return;
       }
     }
@@ -130,7 +141,7 @@ export function extractFigmaSemanticSnapshot(
   const addSource = (
     node: SemanticNodeLike,
     namePath: string[],
-    kind: 'nested-property' | 'nested-text',
+    kind: 'nested-property' | 'nested-text' | 'nested-instance',
     componentKey: string | undefined,
     propertyName?: string,
   ): void => {
@@ -147,7 +158,9 @@ export function extractFigmaSemanticSnapshot(
 
     const sampleValue = kind === 'nested-text'
       ? node.characters
-      : formatPropertySample(node.componentProperties?.[propertyName ?? '']);
+      : kind === 'nested-instance'
+        ? node.connectedComponentName
+        : formatPropertySample(node.componentProperties?.[propertyName ?? '']);
 
     nestedSources.push({
       displayPath: propertyName === undefined
@@ -156,6 +169,12 @@ export function extractFigmaSemanticSnapshot(
       kind,
       locator,
       ...(propertyName !== undefined ? { propertyName } : {}),
+      ...(kind === 'nested-instance'
+        ? {
+            connectedComponentName: node.connectedComponentName,
+            connectedImportPath: node.connectedImportPath,
+          }
+        : {}),
       ...(sampleValue !== undefined
         ? { sampleValue: sampleValue.slice(0, SAMPLE_VALUE_MAX_LENGTH) }
         : {}),
