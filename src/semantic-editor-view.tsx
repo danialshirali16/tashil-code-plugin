@@ -30,6 +30,11 @@ export type SemanticMappingViewProps = {
   proposals?: readonly ReconciliationProposal[];
   onApplyProposal?: (proposal: ReconciliationProposal, action: ReconciliationAction) => void;
   onExportDebugBundle?: () => void;
+  onValueMappingChange?: (
+    targetPath: readonly string[],
+    sourceValue: SourcePropValue,
+    figmaOption: string,
+  ) => void;
   /** Replace the uploaded source from inside the single mapping card. */
   onFilesSelected?: (files: readonly File[]) => void;
   sourceUploading?: boolean;
@@ -156,6 +161,7 @@ export function SemanticMappingView(props: SemanticMappingViewProps): h.JSX.Elem
               <SemanticTargetRowView
                 disabled={props.disabled}
                 onOptionChange={props.onOptionChange}
+                onValueMappingChange={props.onValueMappingChange}
                 row={row}
               />
             </Fragment>
@@ -259,6 +265,7 @@ function ReconciliationPanel(props: {
 function SemanticTargetRowView(props: {
   disabled: boolean;
   onOptionChange: SemanticMappingViewProps['onOptionChange'];
+  onValueMappingChange?: SemanticMappingViewProps['onValueMappingChange'];
   row: SemanticTargetRow;
 }): h.JSX.Element {
   const { row } = props;
@@ -322,6 +329,39 @@ function SemanticTargetRowView(props: {
           </Fragment>
         ) : null}
       </div>
+
+      {row.valueMappings && row.valueMappings.length > 0 ? (
+        <div class="value-mapping-list">
+          {row.valueMappings.map((valueRow) => (
+            <div
+              class="value-mapping-row"
+              key={`${row.targetPath}-${String(valueRow.sourceValue)}`}
+            >
+              <code>{String(valueRow.sourceValue)}</code>
+              <span aria-hidden="true">←</span>
+              <label class="select-label">
+                <span class="visually-hidden">
+                  Figma option for {row.targetPath} {String(valueRow.sourceValue)}
+                </span>
+                <select
+                  disabled={props.disabled}
+                  onInput={(event) => props.onValueMappingChange?.(
+                    row.target.path,
+                    valueRow.sourceValue,
+                    event.currentTarget.value,
+                  )}
+                  value={valueRow.figmaOption}
+                >
+                  <option value="">Not mapped</option>
+                  {valueRow.options.map((option) => (
+                    <option key={option} value={option}>{option}</option>
+                  ))}
+                </select>
+              </label>
+            </div>
+          ))}
+        </div>
+      ) : null}
 
       {row.optionId === OPTION_STATIC ? (
         <div class="value-mapping-row">

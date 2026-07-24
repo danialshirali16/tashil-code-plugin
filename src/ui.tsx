@@ -121,6 +121,7 @@ export function Plugin(): h.JSX.Element {
     setMappedProperty,
     setMappedValue,
     setSemanticOption,
+    setSemanticValueMapping,
     statusMessage,
     uploadSourceFiles,
     tokenCollections,
@@ -358,6 +359,7 @@ export function Plugin(): h.JSX.Element {
             confirmSourceReplacement={confirmSourceReplacement}
             cancelSourceReplacement={cancelSourceReplacement}
             setSemanticOption={setSemanticOption}
+            setSemanticValueMapping={setSemanticValueMapping}
             reconcileFigma={reconcileFigma}
             removeStaleMapping={removeStaleMapping}
             setPropMappings={(value) => setFormField('propMappings', value)}
@@ -718,6 +720,11 @@ function ConnectComponentView(props: {
     optionId: string,
     staticValue?: string | number | boolean,
   ) => void;
+  setSemanticValueMapping: (
+    targetPath: readonly string[],
+    sourceValue: string | number | boolean,
+    figmaOption: string,
+  ) => void;
   reconcileFigma: () => void;
   removeStaleMapping: (sourcePropName: string) => void;
   setPropMappings: (value: string) => void;
@@ -923,6 +930,7 @@ function ConnectComponentView(props: {
                 onExportDebugBundle={props.exportDebugBundle}
                 onFilesSelected={(files) => { void props.uploadSourceFiles(files); }}
                 onOptionChange={props.setSemanticOption}
+                onValueMappingChange={props.setSemanticValueMapping}
                 sourceUploading={props.isSourceUploading}
                 proposals={props.semanticProposals}
                 recipe={props.semanticRecipe}

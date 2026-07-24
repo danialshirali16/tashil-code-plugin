@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { FigmaComponentSnapshot } from '../types';
 import {
+  setTargetValueMapping,
   OPTION_OMITTED,
   OPTION_RUNTIME,
   OPTION_STATIC,
@@ -313,6 +314,89 @@ describe('setTargetOption', () => {
     );
     expect(onConfirm?.requirement).toBe('runtime');
     expect(validateRecipeDraft(recipe).saveable).toBe(true);
+  });
+});
+
+describe('per-value mapping', () => {
+  function sizeInputs() {
+    const contract = {
+      componentName: 'Button',
+      contentHash: 'h',
+      fileName: 'types.ts',
+      targets: [{
+        kind: 'visual' as const,
+        ownerProp: 'size',
+        path: ['size'],
+        required: false,
+        typeName: 'ButtonSizeType',
+        values: ['small', 'medium', 'large'],
+      }],
+    };
+    const figmaSnapshot: FigmaComponentSnapshot = {
+      componentId: '1:1',
+      componentName: 'Button',
+      properties: [{
+        id: 'p-size',
+        name: 'size',
+        // Design uses abbreviations the source spells out, and one option the
+        // synonym dictionary cannot possibly know.
+        options: ['sm', 'md', 'huge'],
+        rawKey: 'size',
+        type: 'VARIANT',
+      }],
+    };
+    const semanticSnapshot = { componentId: '1:1', componentName: 'Button', nestedSources: [] };
+    return { contract, figmaSnapshot, semanticSnapshot };
+  }
+
+  it('exposes one editable pair per source value', () => {
+    const { contract, figmaSnapshot, semanticSnapshot } = sizeInputs();
+    const recipe = createRecipeDraft(contract, figmaSnapshot, semanticSnapshot);
+
+    const row = buildTargetRows(recipe, figmaSnapshot)[0];
+    expect(row.valueMappings?.map((v) => [v.sourceValue, v.figmaOption])).toEqual([
+      ['small', 'sm'],
+      ['medium', 'md'],
+      // 'large' vs 'huge' is not guessable, so it starts unmapped for the user.
+      ['large', ''],
+    ]);
+    expect(row.valueMappings?.[0].options).toEqual(['sm', 'md', 'huge']);
+  });
+
+  it('lets the user pair a value the dictionary cannot guess', () => {
+    const { contract, figmaSnapshot, semanticSnapshot } = sizeInputs();
+    let recipe = createRecipeDraft(contract, figmaSnapshot, semanticSnapshot);
+
+    recipe = setTargetValueMapping(recipe, ['size'], 'large', 'huge');
+
+    const binding = recipe.bindings[0];
+    expect(binding.transform).toEqual({
+      kind: 'enum',
+      map: { sm: 'small', md: 'medium', huge: 'large' },
+    });
+    expect(buildTargetRows(recipe, figmaSnapshot)[0].valueMappings?.[2].figmaOption).toBe('huge');
+  });
+
+  it('moves a value to a different option rather than duplicating it', () => {
+    const { contract, figmaSnapshot, semanticSnapshot } = sizeInputs();
+    let recipe = createRecipeDraft(contract, figmaSnapshot, semanticSnapshot);
+
+    recipe = setTargetValueMapping(recipe, ['size'], 'small', 'huge');
+
+    const map = recipe.bindings[0].transform?.kind === 'enum'
+      ? recipe.bindings[0].transform.map
+      : {};
+    expect(map).toEqual({ huge: 'small', md: 'medium' });
+  });
+
+  it('unmaps a pair when the option is cleared', () => {
+    const { contract, figmaSnapshot, semanticSnapshot } = sizeInputs();
+    let recipe = createRecipeDraft(contract, figmaSnapshot, semanticSnapshot);
+
+    recipe = setTargetValueMapping(recipe, ['size'], 'small', '');
+    recipe = setTargetValueMapping(recipe, ['size'], 'medium', '');
+
+    expect(recipe.bindings[0].transform).toBeUndefined();
   });
 });
 
