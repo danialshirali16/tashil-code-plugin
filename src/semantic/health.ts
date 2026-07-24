@@ -82,7 +82,11 @@ function checkDesignSource(
 ): void {
   const source = binding.source;
 
-  if (source.kind === 'nested-text' || source.kind === 'nested-property') {
+  if (
+    source.kind === 'nested-text'
+    || source.kind === 'nested-property'
+    || source.kind === 'instance'
+  ) {
     if (source.locator.fragile) {
       issues.push({
         bindingId: binding.id,
@@ -93,7 +97,9 @@ function checkDesignSource(
     }
 
     if (designKeys !== undefined) {
-      const key = `${source.kind}:${locatorKey(source.locator)}:${source.kind === 'nested-property' ? source.propertyName : ''}`;
+      // An `instance` binding corresponds to a `nested-instance` descriptor.
+      const descriptorKind = source.kind === 'instance' ? 'nested-instance' : source.kind;
+      const key = `${descriptorKind}:${locatorKey(source.locator)}:${source.kind === 'nested-property' ? source.propertyName : ''}`;
       if (!designKeys.has(key)) {
         issues.push({
           bindingId: binding.id,

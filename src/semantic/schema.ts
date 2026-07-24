@@ -179,6 +179,14 @@ function isBindingSource(value: unknown): value is SemanticBindingSource {
       return isLocator(value.locator)
         && typeof value.propertyName === 'string'
         && value.propertyName.length > 0;
+    case 'instance':
+      // The component name must be a valid JSX component identifier so a
+      // persisted recipe can never inject arbitrary text into generated JSX.
+      return isLocator(value.locator)
+        && typeof value.componentName === 'string'
+        && COMPONENT_IDENTIFIER_PATTERN.test(value.componentName)
+        && typeof value.importPath === 'string'
+        && value.importPath.length > 0;
     case 'static':
       return isSourcePropValue(value.value);
     case 'runtime':
@@ -187,6 +195,8 @@ function isBindingSource(value: unknown): value is SemanticBindingSource {
       return false;
   }
 }
+
+const COMPONENT_IDENTIFIER_PATTERN = /^[A-Z_$][A-Za-z0-9_$]*$/;
 
 export function isLocator(value: unknown): value is SemanticLocator {
   return isRecord(value)
@@ -234,11 +244,23 @@ function isFigmaSemanticSnapshot(value: unknown): value is FigmaSemanticSnapshot
 
 function isNestedSourceDescriptor(value: unknown): value is FigmaNestedSourceDescriptor {
   return isRecord(value)
-    && (value.kind === 'nested-property' || value.kind === 'nested-text')
+    && (
+      value.kind === 'nested-property'
+      || value.kind === 'nested-text'
+      || value.kind === 'nested-instance'
+    )
     && isLocator(value.locator)
     && typeof value.displayPath === 'string'
     && (value.propertyName === undefined || typeof value.propertyName === 'string')
-    && (value.sampleValue === undefined || typeof value.sampleValue === 'string');
+    && (value.sampleValue === undefined || typeof value.sampleValue === 'string')
+    && (
+      value.connectedComponentName === undefined
+      || (
+        typeof value.connectedComponentName === 'string'
+        && COMPONENT_IDENTIFIER_PATTERN.test(value.connectedComponentName)
+      )
+    )
+    && (value.connectedImportPath === undefined || typeof value.connectedImportPath === 'string');
 }
 
 /**
