@@ -209,6 +209,8 @@ export type InspectCodeComponentOutput = {
   explanation?: string;
   /** Semantic connections: props supplied by application code, one per line. */
   runtimeRequirements?: string;
+  /** Semantic connections: advisory deprecation notice; code stays available. */
+  deprecation?: string;
 };
 
 export type InspectCodeState =

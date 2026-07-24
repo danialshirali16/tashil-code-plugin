@@ -823,6 +823,23 @@ describe('Plugin rendered interactions', () => {
     expect(screen.getByText('src/Button.tsx')).toBeTruthy();
   });
 
+  it('shows a deprecation notice in Inspect without hiding the code', () => {
+    renderPlugin();
+    receive('INSPECT_CODE_STATE', {
+      status: 'connected',
+      output: {
+        code: 'import { ConfirmationDialog } from "@tashilcar/ui";\n\n<ConfirmationDialog />',
+        deprecation: 'ConfirmationDialog is deprecated. Use AlertDialog instead.',
+      },
+    });
+    fireEvent.click(screen.getByRole('tab', { name: 'Inspect Code' }));
+
+    expect(screen.getByText('⚠️ Deprecated')).toBeTruthy();
+    expect(screen.getByText('ConfirmationDialog is deprecated. Use AlertDialog instead.')).toBeTruthy();
+    // Code is still shown.
+    expect(document.body.textContent).toContain('<ConfirmationDialog');
+  });
+
   it('renders semantic runtime requirements and explanation as separate blocks', () => {
     renderPlugin();
     receive('INSPECT_CODE_STATE', {

@@ -709,16 +709,26 @@ remaining piece.
 
 ### Ownership and lifecycle
 
-- [ ] Add optional owner/team metadata.
-- [ ] Add optional component package/version metadata.
-- [ ] Add connection lifecycle state:
+Optional lifecycle metadata landed 2026-07-24: `RecipeLifecycle` on
+`SemanticConnectionRecipe` (validated in `schema.ts`), surfaced by the resolver
+as an advisory `deprecation` string that never blocks generation.
+
+- [x] Add optional owner/team metadata. `RecipeLifecycle.owner`.
+- [x] Add optional component package/version metadata.
+      `RecipeLifecycle.packageName` / `packageVersion`.
+- [x] Add connection lifecycle state:
   - draft;
   - connected;
   - needs review;
   - deprecated.
-- [ ] Add replacement guidance for deprecated source components.
-- [ ] Show deprecation guidance in Inspect without preventing code access.
+- [x] Add replacement guidance for deprecated source components.
+      `RecipeLifecycle.replacement`, folded into the deprecation notice.
+- [x] Show deprecation guidance in Inspect without preventing code access.
+      Dev Mode adds a **⚠️ Deprecated** block and Inspect a `role="note"`
+      banner above the code; the production TSX is still emitted in full.
 - [ ] Decide whether multiple source API versions can coexist temporarily.
+      *(open decision; `packageVersion` records the authored version but no
+      multi-version coexistence yet.)*
 - [ ] Document the supported plugin/schema compatibility matrix.
 
 ### Recovery and supportability

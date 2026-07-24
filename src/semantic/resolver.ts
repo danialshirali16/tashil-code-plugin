@@ -56,6 +56,8 @@ export type SemanticUsageResult = {
   runtimeRequirements: SemanticRuntimeRequirement[];
   /** Human-readable problems (broken locators, missing required values). */
   issues: string[];
+  /** Deprecation notice when the recipe is marked deprecated; never blocks code. */
+  deprecation?: string;
 };
 
 type ResolvedBinding =
@@ -126,10 +128,13 @@ export function resolveSemanticUsage(
     }
   }
 
+  const deprecation = describeDeprecation(recipe, componentName);
+
   return {
     explanations,
     issues,
     runtimeRequirements,
+    ...(deprecation !== undefined ? { deprecation } : {}),
     usage: {
       diagnostics: [],
       imports: [
@@ -329,6 +334,23 @@ function applyTransform(
     };
   }
   return { status: 'value', value: { kind: 'literal', value: transform.map[key] } };
+}
+
+/**
+ * Build the deprecation notice for a deprecated recipe. The code is still
+ * generated as usual; this is advisory guidance shown alongside it.
+ */
+function describeDeprecation(
+  recipe: SemanticConnectionRecipe,
+  componentName: string,
+): string | undefined {
+  if (recipe.lifecycle?.state !== 'deprecated') {
+    return undefined;
+  }
+  const replacement = recipe.lifecycle.replacement?.trim();
+  return replacement
+    ? `${componentName} is deprecated. ${replacement}`
+    : `${componentName} is deprecated.`;
 }
 
 function describeSource(binding: SemanticBinding): string {

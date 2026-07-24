@@ -161,6 +161,29 @@ export type FigmaSemanticSnapshot = {
   nestedSources: FigmaNestedSourceDescriptor[];
 };
 
+export type RecipeLifecycleState =
+  | 'draft'
+  | 'connected'
+  | 'needs-review'
+  | 'deprecated';
+
+/**
+ * Optional ownership and lifecycle metadata. All fields are advisory: a
+ * `deprecated` state surfaces replacement guidance in Inspect but never blocks
+ * code generation (roadmap M5 §"Ownership and lifecycle").
+ */
+export type RecipeLifecycle = {
+  state?: RecipeLifecycleState;
+  /** Team or person that owns this connection. */
+  owner?: string;
+  /** Source package identifier, e.g. `@tashilcar/ui`. */
+  packageName?: string;
+  /** Source package version this connection was authored against. */
+  packageVersion?: string;
+  /** Replacement guidance shown when the state is `deprecated`. */
+  replacement?: string;
+};
+
 export type SemanticConnectionRecipe = {
   schemaVersion: typeof SEMANTIC_RECIPE_SCHEMA_VERSION;
   figmaSnapshot: FigmaSemanticSnapshot;
@@ -169,6 +192,7 @@ export type SemanticConnectionRecipe = {
   bindings: SemanticBinding[];
   revision: number;
   lastValidatedAt?: string;
+  lifecycle?: RecipeLifecycle;
 };
 
 /** Render a target path for humans (`confirmAction.label`). Display only. */

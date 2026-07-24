@@ -118,4 +118,20 @@ describe('validateSemanticRecipe', () => {
 
     expect(validateSemanticRecipe(value).ok).toBe(false);
   });
+
+  it('accepts valid lifecycle metadata and rejects an unknown state', () => {
+    const valid = asUnknown(createRecipe());
+    valid.lifecycle = {
+      owner: 'Design systems',
+      packageName: '@tashilcar/ui',
+      packageVersion: '2.1.0',
+      replacement: 'Use AlertDialog.',
+      state: 'deprecated',
+    };
+    expect(validateSemanticRecipe(valid)).toMatchObject({ ok: true });
+
+    const invalid = asUnknown(createRecipe());
+    invalid.lifecycle = { state: 'archived' };
+    expect(validateSemanticRecipe(invalid).ok).toBe(false);
+  });
 });
