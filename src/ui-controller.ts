@@ -1,4 +1,5 @@
 import { emit, on } from '@create-figma-plugin/utilities';
+import JSZip from 'jszip';
 import { useEffect, useRef, useState } from 'preact/hooks';
 import { isPropMappings, isRecord } from './codegen';
 import {
@@ -14,6 +15,17 @@ import {
 } from './mapping-editor';
 import { mergePropMappingsJson } from './prop-mappings';
 import { parseSourceComponent } from './source-schema';
+import { createRecipeDraft, setTargetOption } from './semantic/authoring';
+import { SEMANTIC_CONNECT_AUTHORING_ENABLED } from './semantic/flags';
+import { isSemanticConnectionRecipe } from './semantic/schema';
+import { extractSourceContract } from './semantic/source-contract';
+import {
+  applyProposal,
+  planReconciliation,
+  type ReconciliationAction,
+  type ReconciliationProposal,
+} from './semantic/reconcile';
+import type { SemanticConnectionRecipe } from './semantic/types';
 import {
   FORM_FIELD_IDS,
   clearFormDraft,
@@ -46,8 +58,12 @@ import {
   type ComponentInventoryState,
   type ComponentInventoryStateHandler,
   type ComponentTargetStateHandler,
+  type ExportTokensHandler,
+  type ExportTokensResultHandler,
   type InspectCodeState,
   type InspectCodeStateHandler,
+  type LoadTokenCollectionsHandler,
+  type LoadTokenCollectionsResultHandler,
   type MappingDocument,
   type OpenComponentTargetHandler,
   type PropMappings,
@@ -61,6 +77,12 @@ import {
   type SourcePropValue,
   type UiTargetState,
 } from './types';
+import type {
+  ExportFile,
+  ExportOptions,
+  TokenCollectionSummary,
+} from './sync-tokens/types';
+import { downloadBlob } from './ui-download';
 
 export type ConnectionController = {
   activePendingOperation?: PendingMutation['operation'];
@@ -87,6 +109,15 @@ export type ConnectionController = {
   targetOrigin?: 'inventory' | 'canvas';
   targetState: UiTargetState;
   targetStatusAnnouncement: string;
+  semanticRecipe?: SemanticConnectionRecipe;
+  semanticProposals: ReconciliationProposal[];
+  applySemanticProposal: (
+    proposal: ReconciliationProposal,
+    action: ReconciliationAction,
+  ) => void;
+  isSourceReplacementPending: boolean;
+  confirmSourceReplacement: () => void;
+  cancelSourceReplacement: () => void;
   setChildrenMode: (value: ChildrenMode) => void;
   setCustomPropMappings: (value: string) => void;
   setFormField: (field: FormField, value: string) => void;
@@ -96,8 +127,21 @@ export type ConnectionController = {
     sourceValue: SourcePropValue,
     figmaValue: string,
   ) => void;
+  setSemanticOption: (
+    targetPath: readonly string[],
+    optionId: string,
+    staticValue?: SourcePropValue,
+  ) => void;
   statusMessage: string;
   uploadSourceFiles: (files: readonly File[]) => Promise<void>;
+  /** Sync Tokens tab. */
+  tokenCollections: readonly TokenCollectionSummary[];
+  tokenCollectionsStatus: 'idle' | 'loading' | 'error';
+  tokenCollectionsError: string;
+  tokensExportStatus: 'idle' | 'exporting' | 'error';
+  tokensExportError: string;
+  loadTokenCollections: () => void;
+  exportTokens: (collectionIds: readonly string[], options: ExportOptions) => void;
 };
 
 export function useConnectionController(): ConnectionController {
@@ -137,7 +181,18 @@ export function useConnectionController(): ConnectionController {
   const [inspectCodeState, setInspectCodeState] = useState<InspectCodeState>({
     status: 'invalid-selection',
   });
+  // --- Sync Tokens state ---
+  const [tokenCollections, setTokenCollections] = useState<readonly TokenCollectionSummary[]>([]);
+  const [tokenCollectionsStatus, setTokenCollectionsStatus] =
+    useState<'idle' | 'loading' | 'error'>('idle');
+  const [tokenCollectionsError, setTokenCollectionsError] = useState('');
+  const [tokensExportStatus, setTokensExportStatus] = useState<'idle' | 'exporting' | 'error'>('idle');
+  const [tokensExportError, setTokensExportError] = useState('');
+  const latestTokensExportIdRef = useRef('');
+  const tokensExportSequenceRef = useRef(0);
   const [isSourceUploading, setIsSourceUploading] = useState(false);
+  const [isSourceReplacementPending, setIsSourceReplacementPending] = useState(false);
+  const pendingSourceFilesRef = useRef<readonly File[]>();
   const sourceUploadIdRef = useRef(0);
   const sourceVerifiedSelectionsRef = useRef<Set<string>>(new Set());
   const savedMappingDocumentsRef = useRef<Map<string, MappingDocument>>(new Map());
@@ -218,6 +273,32 @@ export function useConnectionController(): ConnectionController {
       mergePropMappings(targetToken, result.mappings ?? {});
     });
 
+    const offTokenCollections = on<LoadTokenCollectionsResultHandler>('LOAD_TOKEN_COLLECTIONS_RESULT', (result) => {
+      if (result.ok) {
+        setTokenCollections(result.collections ?? []);
+        setTokenCollectionsError('');
+        setTokenCollectionsStatus('idle');
+      } else {
+        setTokenCollectionsError(result.message || 'Could not load variable collections.');
+        setTokenCollectionsStatus('error');
+      }
+    });
+
+    const offTokensExport = on<ExportTokensResultHandler>('EXPORT_TOKENS_RESULT', (result) => {
+      if (result.operationId !== latestTokensExportIdRef.current) {
+        return; // superseded
+      }
+      if (!result.ok) {
+        setTokensExportError(result.message || 'Could not export tokens.');
+        setTokensExportStatus('error');
+        return;
+      }
+      setTokensExportError('');
+      setTokensExportStatus('idle');
+      // Deliver files to the user. Deferred so we keep the message handler cheap.
+      void deliverTokenFiles(result.files ?? []);
+    });
+
     rescanComponents();
     emit<RefreshSelectionHandler>('REFRESH_SELECTION');
 
@@ -228,6 +309,8 @@ export function useConnectionController(): ConnectionController {
       offSaveResult();
       offInspectCodeState();
       offScaffoldResult();
+      offTokenCollections();
+      offTokensExport();
     };
   }, []);
 
@@ -532,6 +615,59 @@ export function useConnectionController(): ConnectionController {
     }
   }
 
+  function readSemanticRecipe(
+    value = formValuesRef.current.semanticRecipe,
+  ): SemanticConnectionRecipe | undefined {
+    if (value.trim() === '') {
+      return undefined;
+    }
+
+    try {
+      const parsed = JSON.parse(value) as unknown;
+      return isSemanticConnectionRecipe(parsed) ? parsed : undefined;
+    } catch (_error) {
+      return undefined;
+    }
+  }
+
+  function setSemanticOption(
+    targetPath: readonly string[],
+    optionId: string,
+    staticValue?: string | number | boolean,
+  ): void {
+    const recipe = readSemanticRecipe();
+    const currentTarget = targetStateRef.current;
+    if (!recipe || currentTarget.status !== 'ready') {
+      return;
+    }
+
+    const updated = setTargetOption(
+      recipe,
+      currentTarget.figmaSnapshot,
+      targetPath,
+      optionId,
+      staticValue,
+    );
+    setFormField('semanticRecipe', JSON.stringify(updated));
+  }
+
+  function applySemanticProposal(
+    proposal: ReconciliationProposal,
+    action: ReconciliationAction,
+  ): void {
+    const recipe = readSemanticRecipe();
+    if (!recipe) {
+      return;
+    }
+    const updated = applyProposal(recipe, proposal, action);
+    setFormField('semanticRecipe', JSON.stringify(updated));
+    setStatusMessage(
+      action === 'remove'
+        ? `Removed the stale mapping for ${proposal.targetPath}.`
+        : `Remapped ${proposal.targetPath}.`,
+    );
+  }
+
   function readPropMappings(): PropMappings {
     try {
       const parsed = JSON.parse(formValuesRef.current.propMappings || '{}') as unknown;
@@ -618,7 +754,53 @@ export function useConnectionController(): ConnectionController {
     setIsClearConfirmationOpen(false);
   }
 
+  /**
+   * Entry point for a source upload. When replacing source would invalidate
+   * existing mappings (a saved semantic recipe with bindings, or a visual
+   * mapping document), confirm first so the user does not silently lose work.
+   */
   async function uploadSourceFiles(files: readonly File[]): Promise<void> {
+    if (files.length === 0) {
+      return;
+    }
+    if (sourceReplacementWouldInvalidate()) {
+      pendingSourceFilesRef.current = files;
+      setIsSourceReplacementPending(true);
+      return;
+    }
+    await runSourceUpload(files);
+  }
+
+  /**
+   * Replacing source only needs confirmation when it would discard *saved*
+   * work: a persisted semantic recipe with bindings. A first-time in-session
+   * draft (nothing saved yet) and legacy connections replace freely, so the
+   * quick connect flow is never interrupted.
+   */
+  function sourceReplacementWouldInvalidate(): boolean {
+    const target = targetStateRef.current;
+    if (target.status !== 'ready') {
+      return false;
+    }
+    const savedRecipe = target.existingConnection?.semanticRecipe;
+    return Boolean(savedRecipe && savedRecipe.bindings.length > 0);
+  }
+
+  function confirmSourceReplacement(): void {
+    const files = pendingSourceFilesRef.current;
+    pendingSourceFilesRef.current = undefined;
+    setIsSourceReplacementPending(false);
+    if (files) {
+      void runSourceUpload(files);
+    }
+  }
+
+  function cancelSourceReplacement(): void {
+    pendingSourceFilesRef.current = undefined;
+    setIsSourceReplacementPending(false);
+  }
+
+  async function runSourceUpload(files: readonly File[]): Promise<void> {
     const currentTarget = targetStateRef.current;
     if (currentTarget.status !== 'ready' || !currentTarget.figmaSnapshot) {
       setErrorMessage('Select a Figma component with component properties first.');
@@ -668,6 +850,27 @@ export function useConnectionController(): ConnectionController {
           ? `Source analyzed with ${result.warnings.length} warning${result.warnings.length === 1 ? '' : 's'}.`
           : `Found ${result.snapshot.props.length} props in ${result.snapshot.fileName}.`,
       );
+
+      if (SEMANTIC_CONNECT_AUTHORING_ENABLED) {
+        const contractResult = extractSourceContract(
+          inputs,
+          formValuesRef.current.componentName.trim() || currentTarget.componentName,
+        );
+        if (contractResult.ok) {
+          const semanticSnapshot = currentTarget.semanticSnapshot ?? {
+            componentId: targetToken,
+            componentName: currentTarget.componentName,
+            nestedSources: [],
+          };
+          const recipe = createRecipeDraft(
+            contractResult.contract,
+            currentTarget.figmaSnapshot,
+            semanticSnapshot,
+            readSemanticRecipe(),
+          );
+          setFormField('semanticRecipe', JSON.stringify(recipe));
+        }
+      }
     } catch (_error) {
       if (
         sourceUploadIdRef.current === uploadId
@@ -905,6 +1108,64 @@ export function useConnectionController(): ConnectionController {
       )
     : undefined;
 
+  const workingRecipe = readSemanticRecipe(formValues.semanticRecipe);
+  const semanticProposals: ReconciliationProposal[] = SEMANTIC_CONNECT_AUTHORING_ENABLED
+    && workingRecipe
+    && targetState.status === 'ready'
+    ? planReconciliation(
+        workingRecipe,
+        targetState.semanticSnapshot,
+        workingRecipe.sourceContract,
+      )
+    : [];
+
+  function loadTokenCollections(): void {
+    setTokenCollectionsStatus('loading');
+    setTokenCollectionsError('');
+    emit<LoadTokenCollectionsHandler>('LOAD_TOKEN_COLLECTIONS');
+  }
+
+  function exportTokensAction(
+    collectionIds: readonly string[],
+    options: ExportOptions,
+  ): void {
+    if (collectionIds.length === 0) {
+      setTokensExportError('Select at least one collection to export.');
+      setTokensExportStatus('error');
+      return;
+    }
+    const operationId = `tokens-${Date.now()}-${++tokensExportSequenceRef.current}`;
+    latestTokensExportIdRef.current = operationId;
+    setTokensExportError('');
+    setTokensExportStatus('exporting');
+    emit<ExportTokensHandler>('EXPORT_TOKENS', { operationId, collectionIds, options });
+  }
+
+  // ponytail: single-file fast path avoids jszip overhead when there's one
+  // collection; otherwise zip into one archive (user's chosen delivery).
+  async function deliverTokenFiles(files: readonly ExportFile[]): Promise<void> {
+    if (files.length === 0) {
+      setTokensExportError('No exportable tokens found for the selected collections.');
+      setTokensExportStatus('error');
+      return;
+    }
+    try {
+      if (files.length === 1) {
+        downloadBlob(new Blob([files[0].css], { type: 'text/css' }), files[0].name);
+        return;
+      }
+      const zip = new JSZip();
+      for (const file of files) {
+        zip.file(file.name, file.css);
+      }
+      const bytes = await zip.generateAsync({ type: 'blob' });
+      downloadBlob(bytes, 'sync-tokens.zip');
+    } catch {
+      setTokensExportError('Could not package the export for download.');
+      setTokensExportStatus('error');
+    }
+  }
+
   return {
     activePendingOperation: activePendingMutation?.operation,
     cancelClear,
@@ -930,12 +1191,26 @@ export function useConnectionController(): ConnectionController {
     targetOrigin,
     targetState,
     targetStatusAnnouncement,
+    semanticRecipe: workingRecipe,
+    semanticProposals,
+    applySemanticProposal,
+    isSourceReplacementPending,
+    confirmSourceReplacement,
+    cancelSourceReplacement,
     setChildrenMode,
     setCustomPropMappings,
     setFormField,
+    setSemanticOption,
     setMappedProperty,
     setMappedValue,
     statusMessage,
     uploadSourceFiles,
+    tokenCollections,
+    tokenCollectionsStatus,
+    tokenCollectionsError,
+    tokensExportStatus,
+    tokensExportError,
+    loadTokenCollections,
+    exportTokens: exportTokensAction,
   };
 }

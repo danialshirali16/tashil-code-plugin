@@ -15,12 +15,16 @@ import {
   migratePersistedConnectionMetadata,
   validatePersistedConnectionMetadata,
   type MappingDiagnostic,
+  type SelectionLike,
 } from '../codegen';
 import {
   CONNECTION_KEY,
   CONNECTION_NAMESPACE,
   type ConnectionIssue,
+  type ConnectionMetadata,
 } from '../types';
+import { resolveSemanticUsage } from '../semantic/resolver';
+import type { ComponentUsage } from './types';
 import {
   type ConnectionReadResult,
   type GenerationContext,
@@ -123,7 +127,7 @@ function buildComponentNode(
 ): ResolvedInstance {
   const selection = buildSelectionLike(instance, mainComponent);
   try {
-    const usage = createComponentUsage(connection.metadata, selection);
+    const usage = createConnectedUsage(connection.metadata, selection);
     return {
       kind: 'component',
       node: { kind: 'component', nodeId: instance.id, layerPath, usage },
@@ -137,6 +141,35 @@ function buildComponentNode(
       layerPath,
     });
   }
+}
+
+/**
+ * Turn a connected instance into its production `ComponentUsage`. A semantic
+ * recipe resolves through the shared semantic pipeline; the instance's live
+ * top-level component properties drive variant/enum values, while nested design
+ * values come from the recipe's captured snapshot — Layout Composer never
+ * traverses the connected component's internal design layers (roadmap M4
+ * "Do not expose internal semantic Figma locators to layout traversal").
+ * Legacy connections keep `createComponentUsage` byte-for-byte.
+ */
+function createConnectedUsage(
+  metadata: ConnectionMetadata,
+  selection: SelectionLike,
+): ComponentUsage {
+  if (metadata.semanticRecipe) {
+    const result = resolveSemanticUsage(
+      metadata.componentName,
+      metadata.importPath,
+      metadata.semanticRecipe,
+      {
+        componentProperties: selection.componentProperties,
+        samples: metadata.semanticRecipe.figmaSnapshot,
+      },
+    );
+    return result.usage;
+  }
+
+  return createComponentUsage(metadata, selection);
 }
 
 async function resolveMainComponent(

@@ -426,6 +426,62 @@ Do not persist:
       binding when the stable identity remains.
 - [ ] Extractors remain within documented performance limits.
 
+### M2 source-contract robustness (real-world gaps)
+
+Found 2026-07-24 by running the shipped `extractSourceContract` against a real
+production modal: `swiss-army-knife/.../tashil-info-modal/types.ts`
+(`InfoModalProps`) connected to the Figma `Dialogbox` component set (variant
+`Size = Small | Medium | Large | xLarge`). The generation pipeline is sound,
+but the source parser drops or misclassifies most of this component's real
+props. These items block production use for any component beyond a clean, flat,
+self-contained interface. Priority order reflects observed impact.
+
+- [x] **Resolve `extends` / `Omit<>` / `Pick<>` on the props interface.**
+      (2026-07-24) `source-contract.ts` now builds a cross-file symbol table
+      and `collectInterfaceMembers` walks heritage clauses — plain `extends`,
+      `Omit<Base, keys>`, `Pick<Base, keys>` — with own members overriding
+      inherited ones. `InfoModalProps` now exposes `size` (`sm|md|lg|xl`) and
+      `dir` (`rtl|ltr`); the Figma `Size` variant is connectable.
+- [x] **Resolve imported type aliases to their underlying union.**
+      (2026-07-24) The symbol table spans every uploaded file, so `dealias`
+      resolves `ButtonVariantType`/`ButtonSizeType` from a sibling
+      `button/types.ts` to their literal unions when that file is uploaded.
+      `CancelVariant`, `cancelSize`, `submitSize` now extract as visual enums.
+      Unresolvable external bases (e.g. `ComponentPropsWithoutRef`) warn and are
+      skipped rather than failing the scan.
+- [x] **Treat `string | ReactNode` as text-bindable.** (2026-07-24) A union
+      that admits a bare `string` (e.g. `title: string | React.ReactNode`) now
+      classifies as free-text `visual`; `null`/`undefined` union members are
+      ignored. **Still pending:** a lone `React.ReactNode` that is really text
+      (`description`) stays a `node`/slot — needs Figma-side evidence before we
+      can offer it a text binding safely.
+- [x] **Assemble `Omit<ButtonProps, …>` nested-object props** the same way as
+      `confirmAction.label`. (2026-07-24) The main loop and `extractObjectLeaves`
+      now resolve object-shaped props via `resolveObjectMembers`
+      (type literal, interface ref, or `Omit`/`Pick` of one), flattening one
+      level and honouring each prop's own `Omit`/`Pick` key list. `submitProps`
+      and `cancelProps` now expose `.color`, `.variant`, `.fullWidth`,
+      `.iconOnly` (etc.) as nested visual targets; nested `className` stays
+      excluded and deeper-than-one-level members stay `unsupported`.
+- [x] **Value-alias enum options across casing/abbreviation.** (2026-07-24)
+      Replaced the one-directional alias dictionary with canonical equivalence
+      groups (`VALUE_ALIAS_GROUPS`) — bidirectional by construction, and now
+      including the size scale (`sm↔small`, `md↔medium`, `lg↔large`,
+      `xl↔xlarge`, plus `xs`/`xxl`). `deriveTransform` now produces a complete
+      `{ Small: 'sm', Medium: 'md', Large: 'lg', xLarge: 'xl' }` map for the
+      Figma `Size` variant. Unlisted pairings stay unmapped and surface as a
+      review warning — never auto-applied fuzzily. **Follow-up (optional):** a
+      per-option override control in the editor for the long tail a dictionary
+      can't cover (e.g. project-specific `tiny/regular/huge`).
+- [ ] **Array-of-object props** (`actionButtons?: InfoModalActionButtons[]`)
+      remain out of scope for v1 (see open decision on array assembly); keep
+      them visibly `unsupported` with an explanation, not dropped.
+- [ ] Add parser fixtures mirroring `InfoModalProps`: interface `extends
+      Omit<Base, …>`, imported alias unions, `string | ReactNode`, `Omit<>`
+      object prop, and an array-of-object prop.
+- [ ] Re-run the `InfoModalProps` ↔ `Dialogbox` case as an acceptance check once
+      the above land.
+
 ## M3 — Authoring UI
 
 ### Components inventory
@@ -467,8 +523,11 @@ Do not persist:
 - [ ] Block duplicate ownership of the same non-repeatable code prop target.
 - [ ] Require an explicit transform when source and Figma value types differ.
 - [ ] Preserve unsaved changes when switching between Components and Inspect.
-- [ ] Confirm before replacing uploaded source when doing so would invalidate
-      bindings.
+- [x] Confirm before replacing uploaded source when doing so would invalidate
+      bindings. (2026-07-24) `uploadSourceFiles` gates behind a **Replace
+      uploaded source?** confirmation when re-uploading over a *saved* semantic
+      recipe that has bindings; a first-time in-session draft and legacy
+      connections replace freely so the quick connect flow is uninterrupted.
 
 ### Accessibility
 
@@ -543,11 +602,28 @@ Do not persist:
 
 ### Layout Composer compatibility
 
-- [ ] Feed resolved semantic component usage into Layout Composer's existing
-      component boundary.
-- [ ] Do not expose internal semantic Figma locators to layout traversal.
-- [ ] Confirm nested design regions never become additional layout nodes.
-- [ ] Add a golden layout fixture containing a semantically connected Dialog.
+- [x] Feed resolved semantic component usage into Layout Composer's existing
+      component boundary. (2026-07-24) `figma-component-resolver.buildComponentNode`
+      now routes a `semanticRecipe` connection through `createConnectedUsage`,
+      which calls the shared semantic resolver; legacy connections keep
+      `createComponentUsage` byte-for-byte. This automatically covers frame
+      inspection, since `inspectFrame` enumerates connected instances through
+      the same resolver.
+- [x] Do not expose internal semantic Figma locators to layout traversal.
+      (2026-07-24) The composition path resolves the recipe from the instance's
+      **live top-level component properties** (variant/enum values reflect the
+      instance) plus the recipe's **captured nested-source snapshot** — the
+      resolver's `samples` fallback — so no internal design layers are
+      traversed. Per-instance nested-text override reflection inside a layout is
+      a documented future enhancement.
+- [x] Confirm nested design regions never become additional layout nodes.
+      (2026-07-24) Unchanged atomic-boundary traversal: `inspectFrame` /
+      `resolveInstance` still stop at every INSTANCE boundary; the semantic
+      recipe only changes how the single component node's usage is computed.
+- [x] Add a golden layout fixture containing a semantically connected Dialog.
+      (2026-07-24) `src/inspect/semantic-inspect.test.ts`: a nested semantic
+      Dialog resolves to the approved `ConfirmationDialog` usage, reflects a
+      live `intent` variant change, and never emits `Dialog.Header`/`.Footer`.
 
 ### M4 exit criteria
 
@@ -577,14 +653,41 @@ Do not persist:
 
 ### Reconciliation
 
-- [ ] Match by stable identity before attempting rename heuristics.
-- [ ] Present suggested remaps separately from confirmed bindings.
-- [ ] Never auto-delete stale bindings.
-- [ ] Provide explicit **Remove stale mapping** actions.
-- [ ] Provide a one-click safe rename migration when identity and type match.
-- [ ] Save reconciliation only after explicit confirmation.
-- [ ] Record revision and validation time only after a successful save.
-- [ ] Keep a pre-save in-memory snapshot so cancel restores the previous recipe.
+Pure model landed 2026-07-24 in `src/semantic/reconcile.ts` (`planReconciliation`,
+`applyProposal`, `markRecipeReconciled`), covered by `reconcile.test.ts` across
+the design/source change matrix. UI wiring into the component-detail page is the
+remaining piece.
+
+- [x] Match by stable identity before attempting rename heuristics.
+      `planReconciliation` matches a moved nested source by its component key
+      first (disambiguating sibling instances that share a key by the surviving
+      leaf name), and only falls back to a single-type-compatible-target rename
+      heuristic for source props.
+- [x] Present suggested remaps separately from confirmed bindings. (2026-07-24)
+      `SemanticMappingView` renders a **Changes need review** panel above the
+      mapping rows; the controller feeds it `planReconciliation(recipe,
+      semanticSnapshot, sourceContract)` so design *and* source drift surface.
+      `createRecipeDraft` now preserves bindings orphaned by a re-upload instead
+      of dropping them, so source renames/removals reach the panel.
+- [x] Never auto-delete stale bindings. Planning only proposes; `applyProposal`
+      removes a binding solely under an explicit `remove` action.
+- [x] Provide explicit **Remove stale mapping** actions. `design-removed` /
+      `source-removed` proposals are remove-only (`isRemoveOnly`); `accept` on
+      them is a deliberate no-op so nothing is silently guessed.
+- [x] Provide a one-click safe rename migration when identity and type match.
+      `locator-moved` (design identity survives) and `source-renamed` (single
+      type-compatible target) proposals apply in one accept.
+- [x] Save reconciliation only after explicit confirmation. (2026-07-24)
+      Accepting/removing a proposal edits the in-memory form draft only;
+      persistence still goes through the existing Save button and its recipe
+      validation, so nothing is written to plugin data without confirmation.
+- [x] Record revision and validation time only after a successful save.
+      `markRecipeReconciled` is the only path that bumps `revision` and stamps
+      `lastValidatedAt`; planning and applying never touch them.
+- [x] Keep a pre-save in-memory snapshot so cancel restores the previous recipe.
+      (2026-07-24) Reconciliation edits flow through the existing form-draft
+      system, whose `baseline` is the pre-edit snapshot; abandoning the edit
+      (no Save) never persists it. `applyProposal` never mutates its input.
 
 ### Ownership and lifecycle
 
@@ -842,3 +945,57 @@ Build the smallest vertical slice that proves the architecture:
 
 Do not begin with generalized arbitrary transforms or a reusable semantic role
 system. Prove the Dialog flow end to end, then generalize from tested patterns.
+
+### Slice status (2026-07-24)
+
+Implemented in `src/semantic/` behind `SEMANTIC_CONNECT_AUTHORING_ENABLED`
+(off; nothing is wired into the plugin runtime yet):
+
+1. ~~Recipe types and schema-v5 validation~~ — `types.ts`, `schema.ts`,
+   `flags.ts`.
+2. ~~Nested source target paths one level deep~~ — `source-contract.ts`
+   (visual/event/node/excluded/unsupported classification, optional-parent
+   tracking).
+3. ~~Nested Figma text/property extraction~~ — `figma-extractor.ts` (bounded
+   traversal, fragile-locator marking, partial results with diagnostics,
+   connected-instance boundary).
+4. ~~Authoring UI (first pass)~~ — `src/semantic/authoring.ts` (pure draft/
+   suggestion/validation model) + `src/semantic-editor-view.tsx`
+   (**Implementation mapping** section, flag-gated by
+   `SEMANTIC_CONNECT_AUTHORING_ENABLED`, currently on for local development).
+   Uploading source now also builds a semantic recipe draft: code targets are
+   the primary column grouped into Content / Variants & states / Actions /
+   Slots / Application behavior; each target has one control offering
+   type-compatible Figma values (top-level and nested, fragile ones flagged),
+   Static value, Set in application, and Omitted; suggestions carry reasons
+   (`confirmAction.label` → `Footer / Primary action / label` via the synonym
+   dictionary); required unresolved visual targets block save while runtime
+   callbacks do not; an inline preview renders from captured sample values.
+   Still pending from M3: reconciliation UI for semantic locators, replace-
+   source confirmation for invalidated bindings, accessibility audit.
+5. ~~Typed `ComponentUsage` resolution~~ — `resolver.ts`, `usage-ir.ts`
+   (object assembly, runtime placeholders, per-target explanations).
+6. ~~Dev Mode and Inspect wiring with parity~~ — `ConnectionMetadata` gains an
+   optional `semanticRecipe` (still schema v4; validated on read/save),
+   `main.ts` resolves both surfaces through one `createConnectedOutput`
+   pipeline using the selected node's own subtree (instance overrides win),
+   and `figma-adapter.ts` bridges Figma nodes to the pure extractor shape.
+   Inspect and Dev Mode show **Set in application** and **Why this
+   structure?** separately from mapping diagnostics. Runtime props emit
+   `prop={undefined /* Set in application. */}` so copied TSX stays valid —
+   revisit under Open decisions. Layout Composer / frame-inspection now route
+   semantic connections through the shared resolver too (see M4 Layout Composer
+   compatibility) — nested values from the recipe's captured snapshot, live
+   top-level variant props from the instance.
+7. ~~Schema-v4 migration with output compatibility~~ — `migrate.ts`
+   (`PropMappings` round-trip proven against `compileMappingDocument`).
+8. ~~Health checks for removed nested sources and renamed source props~~ —
+   `health.ts`.
+
+Verified end to end in a real Figma file on 2026-07-24 (built a Dialog fixture,
+uploaded matching source, confirmed suggestions + Inspect/Dev Mode parity).
+A second pass against a real production component (`InfoModalProps` ↔ Figma
+`Dialogbox`) surfaced source-parser gaps now tracked under
+[M2 source-contract robustness](#m2-source-contract-robustness-real-world-gaps);
+those are the current top priority — the generation pipeline is proven, but the
+parser cannot yet model an inheriting, alias-heavy real-world interface.

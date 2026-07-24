@@ -12,6 +12,7 @@ export const CONNECTION_NAMESPACE = 'tashil_storybook';
 export const CONNECTION_KEY = 'connection';
 
 import type { FrameInspection } from './inspect/types';
+import type { FigmaSemanticSnapshot, SemanticConnectionRecipe } from './semantic/types';
 
 export type PropMapping = {
   prop: string;
@@ -113,6 +114,12 @@ export type ConnectionMetadata = {
   propMappings?: PropMappings;
   /** Optional authoring state; codegen continues to consume propMappings. */
   mappingDocument?: MappingDocument;
+  /**
+   * Optional semantic connection recipe (independently versioned). When
+   * present, Dev Mode and Inspect Code resolve usage through the semantic
+   * pipeline instead of `propMappings`.
+   */
+  semanticRecipe?: SemanticConnectionRecipe;
 };
 
 export type ConnectionIssueReason =
@@ -179,6 +186,8 @@ export type UiTargetState =
       targetToken: string;
       componentName: string;
       figmaSnapshot?: FigmaComponentSnapshot;
+      /** Nested design values eligible for semantic connect authoring. */
+      semanticSnapshot?: FigmaSemanticSnapshot;
       existingConnection?: ConnectionMetadata;
       connectionIssue?: ConnectionIssue;
       message: string;
@@ -196,6 +205,10 @@ export type InspectCodeComponentOutput = {
   code: string;
   diagnostics?: string;
   references?: ConnectionReferences;
+  /** Semantic connections: which design values produced each code prop. */
+  explanation?: string;
+  /** Semantic connections: props supplied by application code, one per line. */
+  runtimeRequirements?: string;
 };
 
 export type InspectCodeState =
@@ -320,5 +333,42 @@ export type ScaffoldResultHandler = {
     ok: boolean;
     operationId: string;
     targetToken: string;
+  }) => void;
+};
+
+/** UI -> main: request the list of local Variable collections for Sync Tokens. */
+export type LoadTokenCollectionsHandler = {
+  name: 'LOAD_TOKEN_COLLECTIONS';
+  handler: () => void;
+};
+
+/** main -> UI: the available Variable collections (id, name, modes). */
+export type LoadTokenCollectionsResultHandler = {
+  name: 'LOAD_TOKEN_COLLECTIONS_RESULT';
+  handler: (result: {
+    ok: boolean;
+    collections?: ReadonlyArray<import('./sync-tokens/types').TokenCollectionSummary>;
+    message?: string;
+  }) => void;
+};
+
+/** UI -> main: export the selected collections as CSS. */
+export type ExportTokensHandler = {
+  name: 'EXPORT_TOKENS';
+  handler: (payload: {
+    operationId: string;
+    collectionIds: readonly string[];
+    options: import('./sync-tokens/types').ExportOptions;
+  }) => void;
+};
+
+/** main -> UI: the generated CSS files (one per collection), or a failure. */
+export type ExportTokensResultHandler = {
+  name: 'EXPORT_TOKENS_RESULT';
+  handler: (result: {
+    ok: boolean;
+    operationId: string;
+    files?: ReadonlyArray<import('./sync-tokens/types').ExportFile>;
+    message?: string;
   }) => void;
 };

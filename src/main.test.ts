@@ -11,6 +11,7 @@ import {
   type ScaffoldResultHandler,
   type UiTargetState,
 } from './types';
+import { createDialogRecipe } from './semantic/fixtures';
 
 type MessageHandler = (payload: unknown) => void;
 
@@ -2117,5 +2118,204 @@ describe('prop mapping scaffolding', () => {
         }),
       ]);
     });
+  });
+});
+
+describe('semantic connection generation', () => {
+  const APPROVED_DIALOG_CODE = [
+    'import { ConfirmationDialog } from "@tashilcar/ui";',
+    '',
+    '<ConfirmationDialog',
+    '  intent={"danger"}',
+    '  title={"Delete account?"}',
+    '  description={"This action cannot be undone."}',
+    '  cancelAction={{ label: "Cancel" }}',
+    '  confirmAction={{ label: "Delete" }}',
+    '  onConfirm={undefined /* Set in application. */}',
+    '/>',
+  ].join('\n');
+
+  function createButtonMain(): ComponentNode {
+    return {
+      getSharedPluginData: vi.fn(() => ''),
+      id: 'button-main',
+      key: 'button-main-key',
+      name: 'Button',
+      parent: { type: 'PAGE' },
+      type: 'COMPONENT',
+    } as unknown as ComponentNode;
+  }
+
+  function createDialogChildren(overrides?: { title?: string }): SceneNode[] {
+    const buttonMain = createButtonMain();
+    return [
+      {
+        children: [
+          {
+            characters: overrides?.title ?? 'Delete account?',
+            name: 'Title',
+            type: 'TEXT',
+          },
+          {
+            characters: 'This action cannot be undone.',
+            name: 'Description',
+            type: 'TEXT',
+          },
+        ],
+        name: 'Header',
+        type: 'FRAME',
+      },
+      {
+        children: [
+          {
+            componentProperties: {
+              'label#1:0': { type: 'TEXT', value: 'Cancel' },
+            },
+            getMainComponentAsync: vi.fn(() => Promise.resolve(buttonMain)),
+            name: 'Secondary action',
+            type: 'INSTANCE',
+          },
+          {
+            componentProperties: {
+              'label#1:0': { type: 'TEXT', value: 'Delete' },
+            },
+            getMainComponentAsync: vi.fn(() => Promise.resolve(buttonMain)),
+            name: 'Primary action',
+            type: 'INSTANCE',
+          },
+        ],
+        name: 'Footer',
+        type: 'FRAME',
+      },
+    ] as unknown as SceneNode[];
+  }
+
+  function createSemanticDialogComponent(): ComponentDouble {
+    const component = createComponent('dialog-main', 'Dialog', {
+      componentProperties: {
+        intent: { type: 'VARIANT', value: 'Danger' },
+      } as unknown as InstanceNode['componentProperties'],
+      sharedPluginData: JSON.stringify({
+        componentName: 'ConfirmationDialog',
+        importPath: '@tashilcar/ui',
+        schemaVersion: CURRENT_SCHEMA_VERSION,
+        semanticRecipe: createDialogRecipe(),
+      }),
+    });
+    (component as unknown as { children: SceneNode[] }).children = createDialogChildren();
+    return component;
+  }
+
+  it('generates the approved semantic TSX with runtime and explanation blocks in Dev Mode', async () => {
+    const { codegenEvents } = await startPlugin();
+    const component = createSemanticDialogComponent();
+
+    const blocks = await codegenEvents.get('generate')?.({ node: component });
+
+    expect(blocks?.[0]).toEqual({
+      title: 'ConfirmationDialog',
+      language: 'TYPESCRIPT',
+      code: APPROVED_DIALOG_CODE,
+    });
+
+    const titles = blocks?.map((block) => block.title);
+    expect(titles).toContain('Set in application');
+    expect(titles).toContain('Why this structure?');
+    expect(titles).not.toContain('Mapping diagnostics');
+
+    const runtimeBlock = blocks?.find((block) => block.title === 'Set in application');
+    expect(runtimeBlock?.code).toBe('onConfirm: () => void');
+
+    const explanationBlock = blocks?.find((block) => block.title === 'Why this structure?');
+    expect(explanationBlock?.code).toContain('title — From nested text "Header / Title".');
+  });
+
+  it('returns the identical semantic result through Inspect Code', async () => {
+    const { codegenEvents, selection } = await startPlugin();
+    const component = createSemanticDialogComponent();
+    selection.push(component);
+
+    utilityMocks.handlers.get('REFRESH_SELECTION')?.(undefined);
+
+    await vi.waitFor(async () => {
+      const connectedState = emittedPayloads<InspectCodeState>('INSPECT_CODE_STATE')
+        .find((state) => state.status === 'connected');
+      expect(connectedState).toBeDefined();
+
+      const devBlocks = await codegenEvents.get('generate')?.({ node: component });
+      const output = (connectedState as Extract<InspectCodeState, { status: 'connected' }>).output;
+
+      expect(output.code).toBe(devBlocks?.[0].code);
+      expect(output.code).toBe(APPROVED_DIALOG_CODE);
+      expect(output.diagnostics).toBeUndefined();
+      expect(output.runtimeRequirements).toBe('onConfirm: () => void');
+      expect(output.explanation).toContain('onConfirm (runtime) — Provided by application code.');
+    });
+  });
+
+  it('resolves nested text from the selected instance so overrides win', async () => {
+    const { codegenEvents } = await startPlugin();
+    const component = createSemanticDialogComponent();
+    const instance = createInstance(
+      'dialog-instance',
+      Promise.resolve(component as unknown as ComponentNode),
+      {
+        intent: { type: 'VARIANT', value: 'Danger' },
+      } as unknown as InstanceNode['componentProperties'],
+    );
+    (instance as unknown as { children: SceneNode[] }).children = createDialogChildren({
+      title: 'Remove file?',
+    });
+
+    const blocks = await codegenEvents.get('generate')?.({ node: instance });
+
+    expect(blocks?.[0].code).toContain('title={"Remove file?"}');
+    expect(blocks?.[0].code).not.toContain('Delete account?');
+  });
+
+  it('reports a broken required locator as a mapping diagnostic without hiding the rest', async () => {
+    const { codegenEvents } = await startPlugin();
+    const component = createSemanticDialogComponent();
+    const children = (component as unknown as { children: SceneNode[] }).children;
+    (component as unknown as { children: SceneNode[] }).children = children.filter(
+      (child) => child.name !== 'Header',
+    );
+
+    const blocks = await codegenEvents.get('generate')?.({ node: component });
+
+    const diagnosticsBlock = blocks?.find((block) => block.title === 'Mapping diagnostics');
+    expect(diagnosticsBlock?.code).toContain('"title"');
+    expect(blocks?.[0].code).toContain('cancelAction={{ label: "Cancel" }}');
+    expect(blocks?.[0].code).not.toContain('title=');
+  });
+
+  it('rejects saving metadata whose semantic recipe is malformed', async () => {
+    const { selection } = await startPlugin();
+    const component = createComponent('dialog-main', 'Dialog');
+    selection.push(component);
+
+    const recipe = createDialogRecipe();
+    (recipe.bindings[0].target.path as string[]) = ['not a valid segment'];
+
+    utilityMocks.handlers.get('SAVE_CONNECTION')?.({
+      metadata: {
+        componentName: 'ConfirmationDialog',
+        importPath: '@tashilcar/ui',
+        schemaVersion: CURRENT_SCHEMA_VERSION,
+        semanticRecipe: recipe,
+      },
+      operationId: 'save-semantic-invalid',
+      targetToken: component.id,
+    });
+
+    await vi.waitFor(() => {
+      const results = utilityMocks.emit.mock.calls
+        .filter(([name]) => name === 'SAVE_RESULT')
+        .map(([, payload]) => payload as { ok: boolean; operationId: string });
+      expect(results).toContainEqual(
+        expect.objectContaining({ ok: false, operationId: 'save-semantic-invalid' }),
+      );
+    });
+    expect(component.setSharedPluginData).not.toHaveBeenCalled();
   });
 });
