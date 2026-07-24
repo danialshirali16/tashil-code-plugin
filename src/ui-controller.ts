@@ -15,7 +15,11 @@ import {
 } from './mapping-editor';
 import { mergePropMappingsJson } from './prop-mappings';
 import { parseSourceComponent } from './source-schema';
-import { createRecipeDraft, setTargetOption } from './semantic/authoring';
+import {
+  createRecipeDraft,
+  setTargetOption,
+  setTargetValueMapping,
+} from './semantic/authoring';
 import { SEMANTIC_CONNECT_AUTHORING_ENABLED } from './semantic/flags';
 import {
   createConnectionDebugBundle,
@@ -139,6 +143,11 @@ export type ConnectionController = {
     targetPath: readonly string[],
     optionId: string,
     staticValue?: SourcePropValue,
+  ) => void;
+  setSemanticValueMapping: (
+    targetPath: readonly string[],
+    sourceValue: SourcePropValue,
+    figmaOption: string,
   ) => void;
   statusMessage: string;
   uploadSourceFiles: (files: readonly File[]) => Promise<void>;
@@ -717,6 +726,21 @@ export function useConnectionController(): ConnectionController {
     }
   }
 
+  function setSemanticValueMapping(
+    targetPath: readonly string[],
+    sourceValue: SourcePropValue,
+    figmaOption: string,
+  ): void {
+    const recipe = readSemanticRecipe();
+    if (!recipe) {
+      return;
+    }
+    setFormField(
+      'semanticRecipe',
+      JSON.stringify(setTargetValueMapping(recipe, targetPath, sourceValue, figmaOption)),
+    );
+  }
+
   function applySemanticProposal(
     proposal: ReconciliationProposal,
     action: ReconciliationAction,
@@ -1269,6 +1293,7 @@ export function useConnectionController(): ConnectionController {
     setCustomPropMappings,
     setFormField,
     setSemanticOption,
+    setSemanticValueMapping,
     setMappedProperty,
     setMappedValue,
     statusMessage,

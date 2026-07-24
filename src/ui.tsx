@@ -121,6 +121,7 @@ export function Plugin(): h.JSX.Element {
     setMappedProperty,
     setMappedValue,
     setSemanticOption,
+    setSemanticValueMapping,
     statusMessage,
     uploadSourceFiles,
     tokenCollections,
@@ -358,6 +359,7 @@ export function Plugin(): h.JSX.Element {
             confirmSourceReplacement={confirmSourceReplacement}
             cancelSourceReplacement={cancelSourceReplacement}
             setSemanticOption={setSemanticOption}
+            setSemanticValueMapping={setSemanticValueMapping}
             reconcileFigma={reconcileFigma}
             removeStaleMapping={removeStaleMapping}
             setPropMappings={(value) => setFormField('propMappings', value)}
@@ -718,6 +720,11 @@ function ConnectComponentView(props: {
     optionId: string,
     staticValue?: string | number | boolean,
   ) => void;
+  setSemanticValueMapping: (
+    targetPath: readonly string[],
+    sourceValue: string | number | boolean,
+    figmaOption: string,
+  ) => void;
   reconcileFigma: () => void;
   removeStaleMapping: (sourcePropName: string) => void;
   setPropMappings: (value: string) => void;
@@ -735,6 +742,12 @@ function ConnectComponentView(props: {
       <EmptyComponentSelectionState message={props.targetState.message} />
     );
   }
+
+  // One mapping card, never two: the semantic editor takes over completely
+  // once a source contract exists, otherwise the legacy editor is the upload
+  // entry point and mapping surface.
+  const semanticOwnsMapping = SEMANTIC_CONNECT_AUTHORING_ENABLED
+    && props.semanticRecipe?.sourceContract !== undefined;
 
   const existingConnection = props.targetState.status === 'ready'
     ? props.targetState.existingConnection
@@ -759,6 +772,17 @@ function ConnectComponentView(props: {
             updatedAt={existingConnection?.updatedAt}
           />
           <VerticalSpace space="medium" />
+
+          <section class="setup-step" aria-labelledby="tashil-step-code-target">
+            <div class="setup-step-heading">
+              <span class="setup-step-number" aria-hidden="true">1</span>
+              <div>
+                <h2 class="setup-step-title" id="tashil-step-code-target">Code component</h2>
+                <p class="setup-step-help">
+                  The exported React component this Figma component becomes.
+                </p>
+              </div>
+            </div>
           <div class="form-stack">
             <Field
               error={props.fieldErrors.componentName}
@@ -776,6 +800,10 @@ function ConnectComponentView(props: {
                 value={props.componentName}
               />
             </Field>
+            <small class="field-hint">
+              Also selects the props interface read from uploaded source
+              (<code>Button</code> → <code>ButtonProps</code>).
+            </small>
 
             <Field
               error={props.fieldErrors.importPath}
@@ -793,7 +821,23 @@ function ConnectComponentView(props: {
                 value={props.importPath}
               />
             </Field>
+          </div>
+          </section>
 
+          <section class="setup-step" aria-labelledby="tashil-step-mapping">
+            <div class="setup-step-heading">
+              <span class="setup-step-number" aria-hidden="true">2</span>
+              <div>
+                <h2 class="setup-step-title" id="tashil-step-mapping">Props &amp; mapping</h2>
+                <p class="setup-step-help">
+                  Upload the component source, then connect each code prop to the
+                  design value that feeds it.
+                </p>
+              </div>
+            </div>
+          <div class="form-stack">
+            <details class="advanced-mappings">
+              <summary>References (optional)</summary>
             <Field
               error={props.fieldErrors.storybookUrl}
               id={FORM_FIELD_IDS.storybookUrl}
@@ -835,7 +879,9 @@ function ConnectComponentView(props: {
                 value={props.sourceUrl}
               />
             </Field>
+            </details>
 
+            {semanticOwnsMapping ? null : (
             <MappingEditorView
               disabled={!props.isReady || props.pendingOperation !== undefined}
               connectionHealth={props.connectionHealth}
@@ -856,6 +902,7 @@ function ConnectComponentView(props: {
               scaffoldPending={props.pendingOperation === 'scaffold'}
               sourceUploading={props.isSourceUploading}
             />
+            )}
 
             {props.isSourceReplacementPending ? (
               <div class="connection-health connection-health-needs-review" role="alertdialog" aria-labelledby="tashil-replace-source-heading">
@@ -870,7 +917,7 @@ function ConnectComponentView(props: {
               </div>
             ) : null}
 
-            {SEMANTIC_CONNECT_AUTHORING_ENABLED ? (
+            {semanticOwnsMapping ? (
               <SemanticMappingView
                 componentName={props.componentName}
                 disabled={!props.isReady || props.pendingOperation !== undefined}
@@ -881,12 +928,16 @@ function ConnectComponentView(props: {
                 importPath={props.importPath}
                 onApplyProposal={props.applySemanticProposal}
                 onExportDebugBundle={props.exportDebugBundle}
+                onFilesSelected={(files) => { void props.uploadSourceFiles(files); }}
                 onOptionChange={props.setSemanticOption}
+                onValueMappingChange={props.setSemanticValueMapping}
+                sourceUploading={props.isSourceUploading}
                 proposals={props.semanticProposals}
                 recipe={props.semanticRecipe}
               />
             ) : null}
           </div>
+          </section>
           {props.errorMessage ? (
             <Fragment>
               <VerticalSpace space="small" />

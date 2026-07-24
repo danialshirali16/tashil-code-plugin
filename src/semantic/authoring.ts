@@ -59,6 +59,14 @@ export type SemanticValueOption = {
   fragile?: boolean;
 };
 
+/** One source value and the Figma option that should produce it. */
+export type SemanticValueMappingRow = {
+  sourceValue: SourcePropValue;
+  /** Figma option currently mapped to this source value; '' when unmapped. */
+  figmaOption: string;
+  options: string[];
+};
+
 export type SemanticTargetRow = {
   target: SourceTargetDescriptor;
   targetPath: string;
@@ -67,6 +75,12 @@ export type SemanticTargetRow = {
   staticValue?: SourcePropValue;
   options: SemanticValueOption[];
   suggestion?: { optionId: string; reason: string };
+  /**
+   * Present when the target is an enum bound to a Figma variant: the user must
+   * be able to pair each source value with a Figma option directly, because no
+   * synonym dictionary can cover every design system's naming.
+   */
+  valueMappings?: SemanticValueMappingRow[];
 };
 
 export type RecipeDraftValidation = {
@@ -149,8 +163,10 @@ function isPropertyCompatible(
   const isBoolean = values.length === 2 && values.every((value) => typeof value === 'boolean');
 
   if (isBoolean) {
-    return property.type === 'BOOLEAN'
-      || (property.type === 'VARIANT' && property.options.length === 2);
+    // A boolean prop is often driven by one option of a multi-option variant
+    // (`disabled` ← `State=Disabled`), so accept any variant and let the
+    // per-value rows decide which options mean true and false.
+    return property.type === 'BOOLEAN' || property.type === 'VARIANT';
   }
   if (values.length > 0) {
     return property.type === 'VARIANT';
@@ -368,7 +384,7 @@ export function setTargetOption(
     (binding) => formatTargetPath(binding.target) !== targetPath.join('.'),
   );
 
-  if (!target || optionId === OPTION_UNSET || optionId === OPTION_OMITTED) {
+  if (!target || optionId === OPTION_UNSET) {
     return { ...recipe, bindings: remaining };
   }
 
@@ -413,6 +429,8 @@ export function getTargetOptionId(
       return { optionId: OPTION_STATIC, staticValue: source.value };
     case 'runtime':
       return { optionId: OPTION_RUNTIME };
+    case 'omitted':
+      return { optionId: OPTION_OMITTED };
   }
 }
 
@@ -435,6 +453,13 @@ function createBindingForOption(
 
   if (optionId === OPTION_RUNTIME) {
     return { ...base, requirement: 'runtime', source: { kind: 'runtime' } };
+  }
+
+  if (optionId === OPTION_OMITTED) {
+    // Only optional targets may be omitted; a required prop must be provided.
+    return target.required
+      ? undefined
+      : { ...base, source: { kind: 'omitted' } };
   }
 
   if (optionId === OPTION_STATIC) {
@@ -595,9 +620,15 @@ export function buildTargetRows(
 
   const rows = contract.targets.map((target): SemanticTargetRow => {
     const { optionId, staticValue } = getTargetOptionId(recipe, target);
+    const binding = recipe.bindings.find(
+      (candidate) => formatTargetPath(candidate.target) === target.path.join('.'),
+    );
+    const valueMappings = buildValueMappings(binding, target, figmaSnapshot);
+
     return {
       optionId,
       options: buildValueOptions(target, figmaSnapshot, recipe.figmaSnapshot),
+      ...(valueMappings ? { valueMappings } : {}),
       section: getTargetSection(target),
       ...(staticValue !== undefined ? { staticValue } : {}),
       suggestion: suggestOption(target, figmaSnapshot, recipe.figmaSnapshot),
@@ -609,6 +640,72 @@ export function buildTargetRows(
   return rows.sort((first, second) => (
     sectionOrder.indexOf(first.section) - sectionOrder.indexOf(second.section)
   ));
+}
+
+function buildValueMappings(
+  binding: SemanticBinding | undefined,
+  target: SourceTargetDescriptor,
+  figmaSnapshot: FigmaComponentSnapshot | undefined,
+): SemanticValueMappingRow[] | undefined {
+  if (!binding || binding.source.kind !== 'component-property') {
+    return undefined;
+  }
+  const values = target.values ?? [];
+  if (values.length === 0) {
+    return undefined;
+  }
+  const property = figmaSnapshot?.properties.find(
+    (candidate) => candidate.id === (binding.source as { propertyId: string }).propertyId,
+  );
+  if (!property || property.type !== 'VARIANT' || property.options.length === 0) {
+    return undefined;
+  }
+
+  const map = binding.transform?.kind === 'enum' ? binding.transform.map : {};
+  return values.map((sourceValue) => ({
+    figmaOption: Object.entries(map).find(([, mapped]) => mapped === sourceValue)?.[0] ?? '',
+    options: [...property.options],
+    sourceValue,
+  }));
+}
+
+/**
+ * Pair one source value with a Figma option. Each source value is produced by
+ * at most one option, so setting a pair clears any previous option for that
+ * value; passing an empty option unmaps it.
+ */
+export function setTargetValueMapping(
+  recipe: SemanticConnectionRecipe,
+  targetPath: readonly string[],
+  sourceValue: SourcePropValue,
+  figmaOption: string,
+): SemanticConnectionRecipe {
+  const path = targetPath.join('.');
+
+  return {
+    ...recipe,
+    bindings: recipe.bindings.map((binding) => {
+      if (formatTargetPath(binding.target) !== path) {
+        return binding;
+      }
+
+      const existing = binding.transform?.kind === 'enum' ? binding.transform.map : {};
+      const map: Record<string, SourcePropValue> = {};
+      for (const [option, mapped] of Object.entries(existing)) {
+        if (mapped !== sourceValue) {
+          map[option] = mapped;
+        }
+      }
+      if (figmaOption !== '') {
+        map[figmaOption] = sourceValue;
+      }
+
+      const { transform: _dropped, ...rest } = binding;
+      return Object.keys(map).length > 0
+        ? { ...rest, transform: { kind: 'enum', map } }
+        : rest;
+    }),
+  };
 }
 
 /** Roadmap validation rules: what blocks save, what only warns. */
@@ -631,8 +728,11 @@ export function validateRecipeDraft(
 
     if (target.kind === 'visual' && target.required) {
       total += 1;
-      if (binding) {
+      // An explicit omission never satisfies a required prop.
+      if (binding && binding.source.kind !== 'omitted') {
         completed += 1;
+      } else if (binding?.source.kind === 'omitted') {
+        errors.push(`"${targetPath}" is required and cannot be omitted.`);
       } else {
         errors.push(`Map, set, or mark "${targetPath}" before saving — it is required.`);
       }

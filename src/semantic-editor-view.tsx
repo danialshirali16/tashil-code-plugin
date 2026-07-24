@@ -1,4 +1,5 @@
 import { Fragment, h } from 'preact';
+import { useState } from 'preact/hooks';
 import { renderImportLines } from './layout/imports';
 import {
   OPTION_OMITTED,
@@ -29,6 +30,14 @@ export type SemanticMappingViewProps = {
   proposals?: readonly ReconciliationProposal[];
   onApplyProposal?: (proposal: ReconciliationProposal, action: ReconciliationAction) => void;
   onExportDebugBundle?: () => void;
+  onValueMappingChange?: (
+    targetPath: readonly string[],
+    sourceValue: SourcePropValue,
+    figmaOption: string,
+  ) => void;
+  /** Replace the uploaded source from inside the single mapping card. */
+  onFilesSelected?: (files: readonly File[]) => void;
+  sourceUploading?: boolean;
   onOptionChange: (
     targetPath: readonly string[],
     optionId: string,
@@ -45,6 +54,7 @@ export type SemanticMappingViewProps = {
  * error. A live preview shows the generated usage before save.
  */
 export function SemanticMappingView(props: SemanticMappingViewProps): h.JSX.Element | null {
+  const [isDragging, setIsDragging] = useState(false);
   const recipe = props.recipe;
   if (!recipe?.sourceContract) {
     return null;
@@ -54,11 +64,34 @@ export function SemanticMappingView(props: SemanticMappingViewProps): h.JSX.Elem
   const validation = validateRecipeDraft(recipe);
   const contract = recipe.sourceContract;
   const preview = createPreview(props.componentName, props.importPath, recipe);
+  const uploadDisabled = props.disabled || props.sourceUploading === true;
+
+  function submitFiles(files: readonly File[]): void {
+    if (!uploadDisabled && files.length > 0) {
+      props.onFilesSelected?.(files);
+    }
+  }
 
   let previousSection: SemanticTargetRow['section'] | undefined;
 
   return (
-    <section aria-labelledby="tashil-semantic-heading" class="mapping-editor">
+    <section
+      aria-labelledby="tashil-semantic-heading"
+      class={isDragging ? 'mapping-editor mapping-editor-dragging' : 'mapping-editor'}
+      onDragEnter={(event) => {
+        event.preventDefault();
+        if (!uploadDisabled && props.onFilesSelected) setIsDragging(true);
+      }}
+      onDragLeave={(event) => {
+        if (event.currentTarget === event.target) setIsDragging(false);
+      }}
+      onDragOver={(event) => event.preventDefault()}
+      onDrop={(event) => {
+        event.preventDefault();
+        setIsDragging(false);
+        submitFiles(Array.from(event.dataTransfer?.files ?? []));
+      }}
+    >
       <div class="mapping-editor-heading-row">
         <div>
           <div class="field-label" id="tashil-semantic-heading">Implementation mapping</div>
@@ -66,6 +99,24 @@ export function SemanticMappingView(props: SemanticMappingViewProps): h.JSX.Elem
             Connect each code prop of the public API to the design value that feeds it.
           </div>
         </div>
+        {props.onFilesSelected ? (
+          <label class={uploadDisabled ? 'file-button file-button-disabled' : 'file-button'}>
+            {props.sourceUploading ? 'Analyzing…' : 'Replace source'}
+            <input
+              accept=".ts,.tsx"
+              disabled={uploadDisabled}
+              multiple
+              onInput={(event) => {
+                const files = Array.from(event.currentTarget.files ?? []);
+                if (!uploadDisabled && files.length > 0) {
+                  props.onFilesSelected?.(files);
+                }
+                event.currentTarget.value = '';
+              }}
+              type="file"
+            />
+          </label>
+        ) : null}
       </div>
 
       <div class="source-summary">
@@ -73,7 +124,7 @@ export function SemanticMappingView(props: SemanticMappingViewProps): h.JSX.Elem
         <span>
           <strong>{contract.componentName}</strong>
           <small>
-            Code target · {contract.fileName}
+            Code target · <span class="source-file">{contract.fileName}</span>
             {validation.progress.total > 0
               ? ` · ${validation.progress.completed}/${validation.progress.total} required values resolved`
               : ''}
@@ -110,6 +161,7 @@ export function SemanticMappingView(props: SemanticMappingViewProps): h.JSX.Elem
               <SemanticTargetRowView
                 disabled={props.disabled}
                 onOptionChange={props.onOptionChange}
+                onValueMappingChange={props.onValueMappingChange}
                 row={row}
               />
             </Fragment>
@@ -141,21 +193,18 @@ export function SemanticMappingView(props: SemanticMappingViewProps): h.JSX.Elem
       ) : null}
 
       {props.onExportDebugBundle ? (
-        <details class="advanced-mappings">
-          <summary>Support</summary>
-          <div class="mapping-help">
-            Export a redacted debug bundle to attach to a bug report. It records
-            schema versions, mapping structure, and health only — no source code,
-            URLs, design text, or layer names.
-          </div>
+        <div class="mapping-card-footer">
           <button
+            class="link-button"
             disabled={props.disabled}
             onClick={props.onExportDebugBundle}
+            title="Records schema versions, mapping structure, and health only — no source code, URLs, design text, or layer names."
             type="button"
           >
             Export debug bundle
           </button>
-        </details>
+          <small>Redacted: structure and health only.</small>
+        </div>
       ) : null}
     </section>
   );
@@ -216,6 +265,7 @@ function ReconciliationPanel(props: {
 function SemanticTargetRowView(props: {
   disabled: boolean;
   onOptionChange: SemanticMappingViewProps['onOptionChange'];
+  onValueMappingChange?: SemanticMappingViewProps['onValueMappingChange'];
   row: SemanticTargetRow;
 }): h.JSX.Element {
   const { row } = props;
@@ -279,6 +329,39 @@ function SemanticTargetRowView(props: {
           </Fragment>
         ) : null}
       </div>
+
+      {row.valueMappings && row.valueMappings.length > 0 ? (
+        <div class="value-mapping-list">
+          {row.valueMappings.map((valueRow) => (
+            <div
+              class="value-mapping-row"
+              key={`${row.targetPath}-${String(valueRow.sourceValue)}`}
+            >
+              <code>{String(valueRow.sourceValue)}</code>
+              <span aria-hidden="true">←</span>
+              <label class="select-label">
+                <span class="visually-hidden">
+                  Figma option for {row.targetPath} {String(valueRow.sourceValue)}
+                </span>
+                <select
+                  disabled={props.disabled}
+                  onInput={(event) => props.onValueMappingChange?.(
+                    row.target.path,
+                    valueRow.sourceValue,
+                    event.currentTarget.value,
+                  )}
+                  value={valueRow.figmaOption}
+                >
+                  <option value="">Not mapped</option>
+                  {valueRow.options.map((option) => (
+                    <option key={option} value={option}>{option}</option>
+                  ))}
+                </select>
+              </label>
+            </div>
+          ))}
+        </div>
+      ) : null}
 
       {row.optionId === OPTION_STATIC ? (
         <div class="value-mapping-row">

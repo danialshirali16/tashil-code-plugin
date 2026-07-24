@@ -187,6 +187,8 @@ function isBindingSource(value: unknown): value is SemanticBindingSource {
         && COMPONENT_IDENTIFIER_PATTERN.test(value.componentName)
         && typeof value.importPath === 'string'
         && value.importPath.length > 0;
+    case 'omitted':
+      return true;
     case 'static':
       return isSourcePropValue(value.value);
     case 'runtime':

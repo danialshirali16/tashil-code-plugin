@@ -36,6 +36,7 @@ declare const styles: {
   readonly "eyebrow": string;
   readonly "field": string;
   readonly "field-error": string;
+  readonly "field-hint": string;
   readonly "field-label": string;
   readonly "field-label-row": string;
   readonly "fields": string;
@@ -107,7 +108,9 @@ declare const styles: {
   readonly "layout-status-pill": string;
   readonly "layout-summary-row": string;
   readonly "layout-summary-value": string;
+  readonly "link-button": string;
   readonly "mapping-arrow": string;
+  readonly "mapping-card-footer": string;
   readonly "mapping-column-labels": string;
   readonly "mapping-editor": string;
   readonly "mapping-editor-dragging": string;
@@ -143,8 +146,14 @@ declare const styles: {
   readonly "root-no-footer": string;
   readonly "section-heading": string;
   readonly "select-label": string;
+  readonly "setup-step": string;
+  readonly "setup-step-heading": string;
+  readonly "setup-step-help": string;
+  readonly "setup-step-number": string;
+  readonly "setup-step-title": string;
   readonly "slot-guard": string;
   readonly "source-empty": string;
+  readonly "source-file": string;
   readonly "source-icon": string;
   readonly "source-prop": string;
   readonly "source-summary": string;

@@ -201,7 +201,33 @@ function resolveBinding(
     return raw;
   }
 
-  return applyTransform(binding.transform, raw.value);
+  const resolved = applyTransform(binding.transform, raw.value);
+  return checkTargetType(binding, resolved);
+}
+
+/**
+ * Guard the emitted literal against the target's declared type. A boolean prop
+ * bound to a multi-option variant needs each option mapped to true or false;
+ * without that mapping the raw option string would be emitted into a boolean
+ * prop, so report it instead of generating type-incorrect code.
+ */
+function checkTargetType(
+  binding: SemanticBinding,
+  resolved: ResolvedBinding,
+): ResolvedBinding {
+  if (resolved.status !== 'value' || resolved.value.kind !== 'literal') {
+    return resolved;
+  }
+
+  const expectsBoolean = binding.target.typeName.trim() === 'boolean';
+  if (expectsBoolean && typeof resolved.value.value !== 'boolean') {
+    return {
+      reason: `Design value ${JSON.stringify(String(resolved.value.value))} is not a boolean. Map each option to true or false.`,
+      status: 'unresolved',
+    };
+  }
+
+  return resolved;
 }
 
 type RawDesignValue =
@@ -273,6 +299,8 @@ function readDesignValue(
       }
       return { status: 'value', value };
     }
+    case 'omitted':
+      return { reason: 'Intentionally omitted.', status: 'omitted' };
     case 'instance':
       // Unreachable: resolveBinding returns a component value before any
       // primitive read. Kept for switch totality.
@@ -409,6 +437,8 @@ function describeSource(binding: SemanticBinding): string {
       return `From nested text ${JSON.stringify(source.locator.namePath.join(' / '))}.`;
     case 'nested-property':
       return `From nested property ${JSON.stringify(source.propertyName)} at ${JSON.stringify(source.locator.namePath.join(' / '))}.`;
+    case 'omitted':
+      return 'Intentionally omitted.';
     case 'instance':
       return `From the connected component ${JSON.stringify(source.componentName)} at ${JSON.stringify(source.locator.namePath.join(' / '))}.`;
     case 'static':
