@@ -296,7 +296,10 @@ Do not persist:
 - [ ] Define limits for traversal depth, node count, binding count, and persisted
       metadata size.
 - [ ] Define a structured `ComponentUsage` value IR before JSX formatting.
-- [ ] Record decisions in a dedicated ADR or decisions section in this document.
+- [x] Record decisions in a dedicated ADR or decisions section in this document.
+      (2026-07-24) [`semantic-connect-decisions.md`](semantic-connect-decisions.md)
+      records the decisions as implemented, including how the Open decisions
+      below were resolved.
 
 ### M0 exit criteria
 
@@ -751,7 +754,10 @@ as an advisory `deprecation` string that never blocks generation.
       *(Partly covered: `validateSemanticRecipe` already returns an actionable
       "newer than this plugin supports — update the plugin" message; a
       connection-level recovery surface is pending.)*
-- [ ] Document manual recovery for malformed or legacy metadata.
+- [x] Document manual recovery for malformed or legacy metadata. (2026-07-24)
+      [Maintain a connection §"Recover a malformed or unreadable connection"](maintain-connections.md)
+      documents each validation message, its recovery, and the
+      blocked-not-destructive guarantee.
 
 ### M5 exit criteria
 
@@ -955,21 +961,34 @@ modules incrementally and keep compatibility wrappers during migration.
 
 ## Open decisions
 
-- [ ] Should a runtime prop be copied as a comment, omitted, or represented in a
-      second non-copyable requirements section?
-- [ ] Should static values be first-class in M3 or deferred?
-- [ ] What is the maximum supported nested code prop depth?
-- [ ] How should discriminated-union prop objects be authored?
-- [ ] Can one Figma source feed multiple code prop targets?
-- [ ] Can multiple Figma sources assemble one array prop in version 1?
-- [ ] When a nested component has its own connection, who owns the decision to
-      inline it versus consume its values?
-- [ ] Where should explicit semantic roles live: recipe-only metadata, Figma
-      plugin data on descendants, or both?
-- [ ] Should schema-v5 continue writing legacy `propMappings`, and for how many
-      releases?
-- [ ] What compatibility promise applies when a file is opened with an older
-      plugin build after a v5 save?
+Resolved decisions are recorded in
+[`semantic-connect-decisions.md`](semantic-connect-decisions.md); the section
+letter is cited below.
+
+- [x] Should a runtime prop be copied as a comment, omitted, or represented in a
+      second non-copyable requirements section? → **Both** (inline comment plus
+      a separate section). *Decision E.*
+- [x] Should static values be first-class in M3 or deferred? → **First-class.**
+      *Decision F.*
+- [x] What is the maximum supported nested code prop depth? → **Two path
+      segments** (one level of nesting). *Decision G.*
+- [ ] How should discriminated-union prop objects be authored? → **Still open by
+      choice**; surfaced as `unsupported` for now. *Decision N.*
+- [x] Can one Figma source feed multiple code prop targets? → **Yes**; a target
+      still has exactly one binding. *Decision H.*
+- [x] Can multiple Figma sources assemble one array prop in version 1? → **No**;
+      arrays stay visibly unsupported. *Decision H.*
+- [x] When a nested component has its own connection, who owns the decision to
+      inline it versus consume its values? → **The parent recipe consumes its
+      values**; inlining it as JSX is deferred. *Decision I.*
+- [x] Where should explicit semantic roles live: recipe-only metadata, Figma
+      plugin data on descendants, or both? → **Recipe only.** *Decision J.*
+- [x] Should schema-v5 continue writing legacy `propMappings`, and for how many
+      releases? → **Moot**: there is no v5 bump; semantic recipes do not write
+      legacy `propMappings`. *Decisions A and C.*
+- [x] What compatibility promise applies when a file is opened with an older
+      plugin build after a v5 save? → **Degraded output, not corruption or data
+      loss** (older builds ignore the unknown recipe field). *Decision B.*
 
 ## Recommended first implementation slice
 
