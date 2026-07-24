@@ -110,12 +110,20 @@ export type InstanceSource = {
   importPath: string;
 };
 
+/**
+ * An intentional decision to leave an optional prop out of generated code.
+ * Distinct from "not yet decided" (no binding at all), so the editor can show
+ * the choice back to the user and review can tell them apart.
+ */
+export type OmittedValueSource = { kind: 'omitted' };
+
 export type SemanticBindingSource =
   | ComponentPropertySource
   | NestedTextSource
   | NestedPropertySource
   | InstanceSource
   | StaticValueSource
+  | OmittedValueSource
   | RuntimeValueSource;
 
 /** Map each Figma enum/variant option to a source literal. */

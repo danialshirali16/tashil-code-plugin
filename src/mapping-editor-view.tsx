@@ -34,12 +34,6 @@ export type MappingEditorViewProps = {
   propMappingsError?: string;
   scaffoldPending: boolean;
   sourceUploading: boolean;
-  /**
-   * Hide the per-prop mapping rows when the semantic Implementation mapping
-   * editor owns them. Upload, source summary, health, and advanced JSON stay,
-   * so the page never shows the same props twice with two different controls.
-   */
-  hideVisualRows?: boolean;
 };
 
 function parseDocument(value: string): MappingDocument | undefined {
@@ -263,8 +257,6 @@ export function MappingEditorView(props: MappingEditorViewProps): h.JSX.Element 
             </div>
           ) : null}
 
-          {props.hideVisualRows ? null : (
-          <Fragment>
           <div class="mapping-column-labels" aria-hidden="true">
             <span>Code prop</span>
             <span>Figma property</span>
@@ -372,8 +364,6 @@ export function MappingEditorView(props: MappingEditorViewProps): h.JSX.Element 
               );
             })}
           </div>
-          </Fragment>
-          )}
         </Fragment>
       ) : (
         <div class="source-empty">

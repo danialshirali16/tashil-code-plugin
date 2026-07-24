@@ -368,7 +368,7 @@ export function setTargetOption(
     (binding) => formatTargetPath(binding.target) !== targetPath.join('.'),
   );
 
-  if (!target || optionId === OPTION_UNSET || optionId === OPTION_OMITTED) {
+  if (!target || optionId === OPTION_UNSET) {
     return { ...recipe, bindings: remaining };
   }
 
@@ -413,6 +413,8 @@ export function getTargetOptionId(
       return { optionId: OPTION_STATIC, staticValue: source.value };
     case 'runtime':
       return { optionId: OPTION_RUNTIME };
+    case 'omitted':
+      return { optionId: OPTION_OMITTED };
   }
 }
 
@@ -435,6 +437,13 @@ function createBindingForOption(
 
   if (optionId === OPTION_RUNTIME) {
     return { ...base, requirement: 'runtime', source: { kind: 'runtime' } };
+  }
+
+  if (optionId === OPTION_OMITTED) {
+    // Only optional targets may be omitted; a required prop must be provided.
+    return target.required
+      ? undefined
+      : { ...base, source: { kind: 'omitted' } };
   }
 
   if (optionId === OPTION_STATIC) {
@@ -631,8 +640,11 @@ export function validateRecipeDraft(
 
     if (target.kind === 'visual' && target.required) {
       total += 1;
-      if (binding) {
+      // An explicit omission never satisfies a required prop.
+      if (binding && binding.source.kind !== 'omitted') {
         completed += 1;
+      } else if (binding?.source.kind === 'omitted') {
+        errors.push(`"${targetPath}" is required and cannot be omitted.`);
       } else {
         errors.push(`Map, set, or mark "${targetPath}" before saving — it is required.`);
       }

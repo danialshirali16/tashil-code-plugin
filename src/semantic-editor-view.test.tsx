@@ -223,7 +223,8 @@ describe('SemanticMappingView', () => {
     fireEvent.click(button);
     expect(onExportDebugBundle).toHaveBeenCalledTimes(1);
     // The redaction promise is stated where the user acts on it.
-    expect(document.body.textContent).toContain('no source code');
+    expect(document.body.textContent).toContain('Redacted: structure and health only.');
+    expect(button.getAttribute('title')).toContain('no source code');
   });
 
   it('shows no reconciliation panel when there are no proposals', () => {

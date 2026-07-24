@@ -1675,3 +1675,39 @@ body {
   line-height: 1.4;
   margin-top: 4px;
 }
+
+/* Compact footer for a mapping card: rare actions stay reachable without
+   spending a whole disclosure on them. */
+.mapping-card-footer {
+  align-items: baseline;
+  border-top: 1px solid var(--figma-color-border);
+  display: flex;
+  gap: 8px;
+  justify-content: space-between;
+  padding-top: 10px;
+}
+
+.mapping-card-footer small {
+  color: var(--figma-color-text-secondary);
+  font-size: 11px;
+}
+
+.link-button {
+  background: none;
+  border: none;
+  color: var(--figma-color-text-brand, #18a0fb);
+  cursor: pointer;
+  font-size: 11px;
+  padding: 0;
+  text-decoration: underline;
+}
+
+.link-button:disabled {
+  color: var(--figma-color-text-disabled);
+  cursor: default;
+}
+
+.source-file {
+  color: var(--figma-color-text);
+  font-weight: 500;
+}

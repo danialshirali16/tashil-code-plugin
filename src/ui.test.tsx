@@ -489,8 +489,10 @@ describe('Plugin rendered interactions', () => {
 
     await waitFor(() => {
       expect(screen.getByText('Button.types.ts')).toBeTruthy();
-      expect(screen.getByText('Healthy')).toBeTruthy();
     });
+    // One mapping card: the Implementation mapping editor takes over once a
+    // source contract exists, so the legacy card is gone.
+    expect(screen.queryByText('Source & prop mappings')).toBeNull();
     // The Implementation mapping editor owns the per-prop controls; the legacy
     // visual rows are hidden so the same prop is never shown twice.
     expect(screen.getByLabelText('Value for variant')).toBeTruthy();
@@ -503,7 +505,7 @@ describe('Plugin rendered interactions', () => {
         'export interface ButtonProps { variant?: ButtonVariant; }',
       ].join('\n')),
     });
-    const dropZone = screen.getByText('Source & prop mappings').closest('section');
+    const dropZone = screen.getByText('Implementation mapping').closest('section');
     expect(dropZone).not.toBeNull();
     fireEvent.drop(dropZone!, { dataTransfer: { files: [replacement] } });
 

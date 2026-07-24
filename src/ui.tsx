@@ -736,6 +736,12 @@ function ConnectComponentView(props: {
     );
   }
 
+  // One mapping card, never two: the semantic editor takes over completely
+  // once a source contract exists, otherwise the legacy editor is the upload
+  // entry point and mapping surface.
+  const semanticOwnsMapping = SEMANTIC_CONNECT_AUTHORING_ENABLED
+    && props.semanticRecipe?.sourceContract !== undefined;
+
   const existingConnection = props.targetState.status === 'ready'
     ? props.targetState.existingConnection
     : undefined;
@@ -868,6 +874,7 @@ function ConnectComponentView(props: {
             </Field>
             </details>
 
+            {semanticOwnsMapping ? null : (
             <MappingEditorView
               disabled={!props.isReady || props.pendingOperation !== undefined}
               connectionHealth={props.connectionHealth}
@@ -887,11 +894,8 @@ function ConnectComponentView(props: {
               propMappingsError={props.fieldErrors.propMappings}
               scaffoldPending={props.pendingOperation === 'scaffold'}
               sourceUploading={props.isSourceUploading}
-              hideVisualRows={
-                SEMANTIC_CONNECT_AUTHORING_ENABLED
-                && props.semanticRecipe?.sourceContract !== undefined
-              }
             />
+            )}
 
             {props.isSourceReplacementPending ? (
               <div class="connection-health connection-health-needs-review" role="alertdialog" aria-labelledby="tashil-replace-source-heading">
@@ -906,7 +910,7 @@ function ConnectComponentView(props: {
               </div>
             ) : null}
 
-            {SEMANTIC_CONNECT_AUTHORING_ENABLED ? (
+            {semanticOwnsMapping ? (
               <SemanticMappingView
                 componentName={props.componentName}
                 disabled={!props.isReady || props.pendingOperation !== undefined}
@@ -917,7 +921,9 @@ function ConnectComponentView(props: {
                 importPath={props.importPath}
                 onApplyProposal={props.applySemanticProposal}
                 onExportDebugBundle={props.exportDebugBundle}
+                onFilesSelected={(files) => { void props.uploadSourceFiles(files); }}
                 onOptionChange={props.setSemanticOption}
+                sourceUploading={props.isSourceUploading}
                 proposals={props.semanticProposals}
                 recipe={props.semanticRecipe}
               />

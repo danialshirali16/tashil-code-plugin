@@ -273,6 +273,8 @@ function readDesignValue(
       }
       return { status: 'value', value };
     }
+    case 'omitted':
+      return { reason: 'Intentionally omitted.', status: 'omitted' };
     case 'instance':
       // Unreachable: resolveBinding returns a component value before any
       // primitive read. Kept for switch totality.
@@ -409,6 +411,8 @@ function describeSource(binding: SemanticBinding): string {
       return `From nested text ${JSON.stringify(source.locator.namePath.join(' / '))}.`;
     case 'nested-property':
       return `From nested property ${JSON.stringify(source.propertyName)} at ${JSON.stringify(source.locator.namePath.join(' / '))}.`;
+    case 'omitted':
+      return 'Intentionally omitted.';
     case 'instance':
       return `From the connected component ${JSON.stringify(source.componentName)} at ${JSON.stringify(source.locator.namePath.join(' / '))}.`;
     case 'static':

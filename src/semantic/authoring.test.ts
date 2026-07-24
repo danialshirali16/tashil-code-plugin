@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { FigmaComponentSnapshot } from '../types';
 import {
+  OPTION_OMITTED,
   OPTION_RUNTIME,
   OPTION_STATIC,
   buildTargetRows,
@@ -243,6 +244,53 @@ describe('setTargetOption', () => {
     recipe = setTargetOption(recipe, figmaSnapshot, ['description'], '');
     expect(recipe.bindings.some((binding) => binding.target.path[0] === 'description'))
       .toBe(false);
+  });
+
+  it('remembers Omitted as a decision instead of reverting to Not mapped', () => {
+    const { contract, figmaSnapshot, semanticSnapshot } = createDialogInputs();
+    let recipe = createRecipeDraft(contract, figmaSnapshot, semanticSnapshot);
+
+    // `description` is optional, so it may be intentionally omitted.
+    recipe = setTargetOption(recipe, figmaSnapshot, ['description'], OPTION_OMITTED);
+
+    const binding = recipe.bindings.find((b) => b.target.path.join('.') === 'description');
+    expect(binding?.source).toEqual({ kind: 'omitted' });
+
+    // The control reads the decision back rather than showing "Not mapped".
+    const row = buildTargetRows(recipe, figmaSnapshot)
+      .find((r) => r.targetPath === 'description');
+    expect(row?.optionId).toBe(OPTION_OMITTED);
+
+    // And it stays saveable.
+    expect(validateRecipeDraft(recipe).saveable).toBe(true);
+  });
+
+  it('omits the prop from generated code and says so', () => {
+    const { contract, figmaSnapshot, semanticSnapshot } = createDialogInputs();
+    let recipe = createRecipeDraft(contract, figmaSnapshot, semanticSnapshot);
+    recipe = setTargetOption(recipe, figmaSnapshot, ['description'], OPTION_OMITTED);
+
+    const result = resolveSemanticUsage('ConfirmationDialog', '@tashilcar/ui', recipe, {
+      componentProperties: { intent: 'Danger' },
+      root: createDialogNode(),
+    });
+
+    expect(result.usage.jsx).not.toContain('description=');
+    expect(result.issues).toEqual([]);
+    expect(
+      result.explanations.find((e) => e.targetPath === 'description'),
+    ).toMatchObject({ outcome: 'omitted', reason: 'Intentionally omitted.' });
+  });
+
+  it('refuses to omit a required target', () => {
+    const { contract, figmaSnapshot, semanticSnapshot } = createDialogInputs();
+    const recipe = createRecipeDraft(contract, figmaSnapshot, semanticSnapshot);
+
+    // `title` is required, so Omitted must not produce a binding.
+    const next = setTargetOption(recipe, figmaSnapshot, ['title'], OPTION_OMITTED);
+
+    expect(next.bindings.some((b) => b.target.path.join('.') === 'title')).toBe(false);
+    expect(validateRecipeDraft(next).saveable).toBe(false);
   });
 
   it('blocks save when a required visual target is unset', () => {

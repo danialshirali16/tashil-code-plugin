@@ -108,7 +108,9 @@ declare const styles: {
   readonly "layout-status-pill": string;
   readonly "layout-summary-row": string;
   readonly "layout-summary-value": string;
+  readonly "link-button": string;
   readonly "mapping-arrow": string;
+  readonly "mapping-card-footer": string;
   readonly "mapping-column-labels": string;
   readonly "mapping-editor": string;
   readonly "mapping-editor-dragging": string;
@@ -151,6 +153,7 @@ declare const styles: {
   readonly "setup-step-title": string;
   readonly "slot-guard": string;
   readonly "source-empty": string;
+  readonly "source-file": string;
   readonly "source-icon": string;
   readonly "source-prop": string;
   readonly "source-summary": string;
