@@ -6,6 +6,28 @@ All notable changes to Tashil Code are documented in this file.
 
 ### Added
 
+- Added **semantic connect**: connect a Figma component to a production React
+  component even when the layer structure does not resemble the source API
+  (for example a Header/Footer Dialog mapping to a flat `<ConfirmationDialog>`).
+  Values from anywhere in the Figma component feed the source component's public
+  props; Inspect and Dev Mode still show only the real code API and never invent
+  compound components. Behind the `SEMANTIC_CONNECT_AUTHORING_ENABLED` flag.
+  See [Connect components with a different structure](docs/semantic-connect.md).
+- Added an **Implementation mapping** editor with code props as the primary
+  column, one value control per target (Figma value, static, set-in-application,
+  or omitted), reviewable suggestions, enum value-aliasing (`Small`↔`sm`), and an
+  inline generated-code preview.
+- Added source parsing for realistic interfaces: `extends`/`Omit`/`Pick`
+  heritage, imported type aliases, `string | ReactNode` text, and one-level
+  nested/`Omit<…>` object props; unsupported types stay visible instead of being
+  dropped.
+- Added **Set in application**, **Why this structure?**, and **⚠️ Deprecated**
+  sections to Inspect and Dev Mode; semantic connections resolve through one
+  pipeline shared by Dev Mode, Inspect Code, and frame inspection.
+- Added connection health, a **Changes need review** reconciliation panel
+  (identity-first remaps, explicit remove, never auto-delete), replace-source
+  confirmation, and optional owner/package/lifecycle metadata with deprecation
+  guidance that never blocks code access.
 - Added Dev-Mode-parity frame inspection in both Figma Dev Mode and Inspect
   Code: selecting any layer shows its Layout and Style CSS (from Figma's own
   CSS engine, with `var(--token, fallback)` values preserved) plus the usage
