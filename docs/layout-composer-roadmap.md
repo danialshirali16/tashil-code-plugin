@@ -1,7 +1,7 @@
 # Frame Inspection Roadmap
 
-Status: Done except final in-Figma checks — Design-mode Inspect Code verification, remaining manual matrix items, and the beta release call  
-Last updated: 2026-07-24  
+Status: Development complete (Phase A–H) — manual user verification (Design mode, library components, keyboard layout) and release decision remain.  
+Last updated: 2026-07-24 (commit f604703)  
 Decisions record: [`layout-composer-decisions.md`](layout-composer-decisions.md)
 
 ## The pivot, in one paragraph
