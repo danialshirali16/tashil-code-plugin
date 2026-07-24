@@ -169,6 +169,7 @@ function ReconciliationPanel(props: {
               <div class="connection-health-actions">
                 {!removeOnly ? (
                   <button
+                    aria-label={`Accept remap for ${proposal.targetPath}`}
                     disabled={props.disabled}
                     onClick={() => props.onApplyProposal?.(proposal, 'accept')}
                     type="button"
@@ -177,6 +178,7 @@ function ReconciliationPanel(props: {
                   </button>
                 ) : null}
                 <button
+                  aria-label={`Remove mapping for ${proposal.targetPath}`}
                   disabled={props.disabled}
                   onClick={() => props.onApplyProposal?.(proposal, 'remove')}
                   type="button"

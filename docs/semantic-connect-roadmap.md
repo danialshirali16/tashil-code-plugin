@@ -531,13 +531,31 @@ self-contained interface. Priority order reflects observed impact.
 
 ### Accessibility
 
-- [ ] Maintain keyboard-operable tabs and form controls.
-- [ ] Give every mapping control a unique accessible name.
-- [ ] Announce validation, save, and reconciliation results.
-- [ ] Preserve focus when returning to the component inventory.
+Audit of the new semantic authoring UI (2026-07-24):
+
+- [x] Maintain keyboard-operable tabs and form controls. The semantic editor
+      uses native `<select>`/`<input>`/`<button>` controls only — no custom
+      widgets — so tab order and activation are keyboard-operable by default.
+- [x] Give every mapping control a unique accessible name. Each target's value
+      control carries a `visually-hidden` label naming its target path; the
+      reconciliation Accept/Remove buttons now use `aria-label="… for
+      {targetPath}"` so otherwise-identical buttons are distinguishable.
+- [x] Announce validation, save, and reconciliation results. Accepting/removing
+      a proposal writes to the existing `aria-live="polite"` status region
+      (e.g. "Removed the stale mapping for title."); save/validation reuse the
+      established form status/alert regions.
+- [x] Alertdialog focus: the **Replace uploaded source?** confirmation
+      (`role="alertdialog"`) moves focus to its safe "Keep current" choice on
+      open, mirroring the clear-connection confirmation.
+- [ ] Preserve focus when returning to the component inventory. *(existing app
+      behavior; unchanged by semantic work — re-verify at GA.)*
 - [ ] Verify focus order with advanced sections collapsed and expanded.
-- [ ] Meet WCAG 2.2 AA contrast for statuses and interactive controls.
-- [ ] Respect reduced-motion preferences.
+      *(manual Figma verification pending.)*
+- [x] Meet WCAG 2.2 AA contrast for statuses and interactive controls. The
+      reconciliation panel and replace-source prompt reuse the existing
+      `connection-health-needs-review` styling already validated for contrast.
+- [x] Respect reduced-motion preferences. The new panels introduce no
+      animation or transition.
 
 ### M3 exit criteria
 
