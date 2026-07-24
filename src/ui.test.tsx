@@ -491,7 +491,10 @@ describe('Plugin rendered interactions', () => {
       expect(screen.getByText('Button.types.ts')).toBeTruthy();
       expect(screen.getByText('Healthy')).toBeTruthy();
     });
-    expect(screen.getByLabelText('Figma property for variant')).toBeTruthy();
+    // The Implementation mapping editor owns the per-prop controls; the legacy
+    // visual rows are hidden so the same prop is never shown twice.
+    expect(screen.getByLabelText('Value for variant')).toBeTruthy();
+    expect(screen.queryByLabelText('Figma property for variant')).toBeNull();
 
     const replacement = new File([], 'Button.next.tsx', { type: 'text/typescript' });
     Object.defineProperty(replacement, 'text', {
@@ -514,6 +517,24 @@ describe('Plugin rendered interactions', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Save' }));
     const saveRequests = emittedPayloads<{ metadata: ConnectionMetadata }>('SAVE_CONNECTION');
     expect(saveRequests[saveRequests.length - 1]?.metadata.childrenMode).toBe('none');
+  });
+
+  it('presents connect setup as ordered steps with references collapsed', () => {
+    renderPlugin();
+    receive('SELECTION_STATE', readySelection());
+
+    // The page reads as a sequence, not a flat form.
+    expect(screen.getByRole('heading', { name: 'Code component' })).toBeTruthy();
+    expect(screen.getByRole('heading', { name: 'Props & mapping' })).toBeTruthy();
+
+    // Component name explains that it also selects the props interface.
+    expect(document.body.textContent).toContain('selects the props interface');
+
+    // Optional references are present but collapsed out of the primary flow.
+    const references = screen.getByText('References (optional)');
+    expect(references).toBeTruthy();
+    expect(references.closest('details')?.hasAttribute('open')).toBe(false);
+    expect(screen.getByLabelText('Storybook URL')).toBeTruthy();
   });
 
   it('confirms before replacing source over a saved semantic connection', async () => {

@@ -759,6 +759,17 @@ function ConnectComponentView(props: {
             updatedAt={existingConnection?.updatedAt}
           />
           <VerticalSpace space="medium" />
+
+          <section class="setup-step" aria-labelledby="tashil-step-code-target">
+            <div class="setup-step-heading">
+              <span class="setup-step-number" aria-hidden="true">1</span>
+              <div>
+                <h2 class="setup-step-title" id="tashil-step-code-target">Code component</h2>
+                <p class="setup-step-help">
+                  The exported React component this Figma component becomes.
+                </p>
+              </div>
+            </div>
           <div class="form-stack">
             <Field
               error={props.fieldErrors.componentName}
@@ -776,6 +787,10 @@ function ConnectComponentView(props: {
                 value={props.componentName}
               />
             </Field>
+            <small class="field-hint">
+              Also selects the props interface read from uploaded source
+              (<code>Button</code> → <code>ButtonProps</code>).
+            </small>
 
             <Field
               error={props.fieldErrors.importPath}
@@ -793,7 +808,23 @@ function ConnectComponentView(props: {
                 value={props.importPath}
               />
             </Field>
+          </div>
+          </section>
 
+          <section class="setup-step" aria-labelledby="tashil-step-mapping">
+            <div class="setup-step-heading">
+              <span class="setup-step-number" aria-hidden="true">2</span>
+              <div>
+                <h2 class="setup-step-title" id="tashil-step-mapping">Props &amp; mapping</h2>
+                <p class="setup-step-help">
+                  Upload the component source, then connect each code prop to the
+                  design value that feeds it.
+                </p>
+              </div>
+            </div>
+          <div class="form-stack">
+            <details class="advanced-mappings">
+              <summary>References (optional)</summary>
             <Field
               error={props.fieldErrors.storybookUrl}
               id={FORM_FIELD_IDS.storybookUrl}
@@ -835,6 +866,7 @@ function ConnectComponentView(props: {
                 value={props.sourceUrl}
               />
             </Field>
+            </details>
 
             <MappingEditorView
               disabled={!props.isReady || props.pendingOperation !== undefined}
@@ -855,6 +887,10 @@ function ConnectComponentView(props: {
               propMappingsError={props.fieldErrors.propMappings}
               scaffoldPending={props.pendingOperation === 'scaffold'}
               sourceUploading={props.isSourceUploading}
+              hideVisualRows={
+                SEMANTIC_CONNECT_AUTHORING_ENABLED
+                && props.semanticRecipe?.sourceContract !== undefined
+              }
             />
 
             {props.isSourceReplacementPending ? (
@@ -887,6 +923,7 @@ function ConnectComponentView(props: {
               />
             ) : null}
           </div>
+          </section>
           {props.errorMessage ? (
             <Fragment>
               <VerticalSpace space="small" />

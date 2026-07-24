@@ -36,6 +36,7 @@ declare const styles: {
   readonly "eyebrow": string;
   readonly "field": string;
   readonly "field-error": string;
+  readonly "field-hint": string;
   readonly "field-label": string;
   readonly "field-label-row": string;
   readonly "fields": string;
@@ -143,6 +144,11 @@ declare const styles: {
   readonly "root-no-footer": string;
   readonly "section-heading": string;
   readonly "select-label": string;
+  readonly "setup-step": string;
+  readonly "setup-step-heading": string;
+  readonly "setup-step-help": string;
+  readonly "setup-step-number": string;
+  readonly "setup-step-title": string;
   readonly "slot-guard": string;
   readonly "source-empty": string;
   readonly "source-icon": string;

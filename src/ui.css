@@ -1621,3 +1621,57 @@ body {
   border-color: var(--figma-color-bg-brand, #0d99ff);
   color: var(--figma-color-text-onbrand, #fff);
 }
+
+/* --- Connect setup steps -------------------------------------------------
+   The connect page is a sequence, not a flat form: identify the code
+   component, then map its props. Numbered sections make that order explicit
+   and let optional references collapse out of the way. */
+.setup-step {
+  display: grid;
+  gap: 12px;
+}
+
+.setup-step + .setup-step {
+  margin-top: 20px;
+}
+
+.setup-step-heading {
+  align-items: start;
+  display: flex;
+  gap: 8px;
+}
+
+.setup-step-number {
+  align-items: center;
+  background: var(--figma-color-bg-secondary);
+  border-radius: 50%;
+  color: var(--figma-color-text-secondary);
+  display: flex;
+  flex: 0 0 auto;
+  font-size: 10px;
+  font-weight: 600;
+  height: 18px;
+  justify-content: center;
+  width: 18px;
+}
+
+.setup-step-title {
+  font-size: 11px;
+  font-weight: 600;
+  margin: 0;
+}
+
+.setup-step-help {
+  color: var(--figma-color-text-secondary);
+  font-size: 11px;
+  line-height: 1.4;
+  margin: 2px 0 0;
+}
+
+.field-hint {
+  color: var(--figma-color-text-secondary);
+  display: block;
+  font-size: 11px;
+  line-height: 1.4;
+  margin-top: 4px;
+}
