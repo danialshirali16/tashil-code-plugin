@@ -1,6 +1,9 @@
 import {
   Button,
+  Checkbox,
   Container,
+  Disclosure,
+  Divider,
   IconBackwardSmall24,
   IconCheck24,
   IconButton,
@@ -9,10 +12,13 @@ import {
   IconHelp16,
   IconNewTab24,
   IconTimeSmall24,
+  RadioButtons,
   render,
   Stack,
   Text,
   Textbox,
+  TextboxNumeric,
+  Toggle,
   useWindowResize,
   VerticalSpace,
 } from '@create-figma-plugin/ui';
@@ -1043,22 +1049,22 @@ function SyncTokensView(props: {
     onExport,
   } = props;
 
-  // Local UI state for selections + advanced settings.
   const [selected, setSelected] = useState<Set<string>>(new Set());
-  // Per-collection chosen mode; falls back to the collection's default.
-  const [modeOverrides, setModeOverrides] = useState<Record<string, string>>({});
+  // Per-collection selected mode ids. Empty = "default mode only".
+  const [modesByCollection, setModesByCollection] = useState<Record<string, Set<string>>>({});
+  const [query, setQuery] = useState('');
   const [convertPxToRem, setConvertPxToRem] = useState(true);
-  const [rootFontSize, setRootFontSize] = useState('16');
+  const [rootFontSize, setRootFontSize] = useState<number>(16);
   const [colorFormat, setColorFormat] = useState<ColorFormat>('hex');
   const [nameStyle, setNameStyle] = useState<NameStyle>('kebab');
   const [advancedOpen, setAdvancedOpen] = useState(false);
 
-  // Load once when the tab is first shown.
+  // Load once on mount.
   useEffect(() => {
     if (collections.length === 0 && collectionsStatus === 'idle') {
       onLoadCollections();
     }
-  }, []); // ponytail: run once on mount; collections/status are read, not deps.
+  }, []); // ponytail: mount-only; status read at fire time, not a dep.
 
   const busy = collectionsStatus === 'loading' || exportStatus === 'exporting';
 
@@ -1074,29 +1080,49 @@ function SyncTokensView(props: {
     });
   }
 
-  function modeFor(collection: TokenCollectionSummary): string {
-    return modeOverrides[collection.id] ?? collection.defaultModeId;
+  function selectAll(): void {
+    setSelected((prev) =>
+      prev.size === filteredCollections.length ? new Set() : new Set(filteredCollections.map((c) => c.id)),
+    );
+  }
+
+  function modesFor(collection: TokenCollectionSummary): Set<string> {
+    const chosen = modesByCollection[collection.id];
+    if (chosen && chosen.size > 0) {
+      return chosen;
+    }
+    return new Set([collection.defaultModeId]);
+  }
+
+  function toggleMode(collectionId: string, modeId: string): void {
+    setModesByCollection((prev) => {
+      const current = new Set(prev[collectionId] ?? []);
+      if (current.has(modeId)) {
+        current.delete(modeId);
+      } else {
+        current.add(modeId);
+      }
+      return { ...prev, [collectionId]: current };
+    });
   }
 
   function handleExport(): void {
     if (selected.size === 0) {
       return;
     }
-    const root = Number.parseInt(rootFontSize, 10);
-    const modeByCollection: Record<string, string> = {};
+    const payloadModes: Record<string, readonly string[]> = {};
     for (const collection of collections) {
       if (selected.has(collection.id)) {
-        modeByCollection[collection.id] = modeFor(collection);
+        payloadModes[collection.id] = [...modesFor(collection)];
       }
     }
-    const options: ExportOptions = {
-      modeByCollection,
+    onExport([...selected], {
+      modesByCollection: payloadModes,
       convertPxToRem,
-      rootFontSize: Number.isFinite(root) && root > 0 ? root : 16,
+      rootFontSize: rootFontSize > 0 ? rootFontSize : 16,
       colorFormat,
       nameStyle,
-    };
-    void onExport([...selected], options);
+    });
   }
 
   if (collections.length === 0) {
@@ -1118,116 +1144,169 @@ function SyncTokensView(props: {
     );
   }
 
+  const needle = query.trim().toLowerCase();
+  const filteredCollections = needle.length === 0
+    ? collections
+    : collections.filter((c) => c.name.toLowerCase().includes(needle));
+  const allSelected = filteredCollections.length > 0
+    && filteredCollections.every((c) => selected.has(c.id));
+  const selectedTokenCount = collections
+    .filter((c) => selected.has(c.id))
+    .reduce((sum, c) => sum + c.tokenCount, 0);
+
   return (
-    <main aria-labelledby="tashil-sync-tokens-heading" class="sync-tokens-content">
+    <main aria-labelledby="tashil-sync-tokens-heading" class="inspect-content">
       <h1 class="visually-hidden" id="tashil-sync-tokens-heading">Sync tokens</h1>
-      <Stack space="medium">
-        <fieldset class="sync-tokens-collections">
-          <legend class="sync-tokens-section-title">Collections</legend>
-          {collections.map((collection) => {
-            const id = `tashil-token-collection-${collection.id}`;
-            const checked = selected.has(collection.id);
-            return (
-              <div class="sync-tokens-collection-row" key={collection.id}>
-                <label class="sync-tokens-collection-label" htmlFor={id}>
-                  <input
-                    checked={checked}
-                    id={id}
-                    onChange={() => toggleCollection(collection.id)}
-                    type="checkbox"
-                  />
-                  <span>{collection.name}</span>
-                  {collection.modes.length > 1 ? (
-                    <select
-                      aria-label={`Mode for ${collection.name}`}
-                      class="sync-tokens-mode-select"
-                      onChange={(event) => {
-                        const value = event.currentTarget.value;
-                        setModeOverrides((prev) => ({ ...prev, [collection.id]: value }));
-                      }}
-                      onClick={(event) => event.stopPropagation()}
-                      value={modeFor(collection)}
-                    >
-                      {collection.modes.map((mode) => (
-                        <option key={mode.modeId} value={mode.modeId}>{mode.name}</option>
-                      ))}
-                    </select>
-                  ) : null}
-                </label>
-              </div>
-            );
-          })}
-        </fieldset>
-
-        <details
-          class="sync-tokens-advanced"
-          open={advancedOpen}
-          onToggle={(event) => setAdvancedOpen(event.currentTarget.open)}
-        >
-          <summary class="sync-tokens-section-title">Advanced settings</summary>
-          <div class="sync-tokens-advanced-body">
-            <label class="sync-tokens-toggle">
-              <input
-                checked={convertPxToRem}
-                onChange={(event) => setConvertPxToRem(event.currentTarget.checked)}
-                type="checkbox"
+      <Container space="medium">
+        <VerticalSpace space="medium" />
+        <Stack space="medium">
+          <section>
+            <div class="sync-tokens-section-header">
+              <Text>Collections</Text>
+              {selected.size > 0 ? (
+                <Text>
+                  {selected.size} selected · {selectedTokenCount} variables
+                </Text>
+              ) : null}
+            </div>
+            <VerticalSpace space="small" />
+            {collections.length > 4 ? (
+              <Textbox
+                onInput={(event: h.JSX.TargetedEvent<HTMLInputElement>) =>
+                  setQuery(event.currentTarget.value)
+                }
+                placeholder="Filter collections"
+                value={query}
               />
-              <span>Convert px to rem (length-scoped variables only)</span>
-            </label>
-            {convertPxToRem ? (
-              <Field id="tashil-root-font-size" label="Root font size (px)">
-                <Textbox
-                  onInput={(event: h.JSX.TargetedEvent<HTMLInputElement>) =>
-                    setRootFontSize(event.currentTarget.value)
-                  }
-                  value={rootFontSize}
-                />
-              </Field>
             ) : null}
+            <div class="sync-tokens-section-header">
+              <button
+                class="sync-tokens-link-button"
+                onClick={selectAll}
+                type="button"
+              >
+                {allSelected ? 'Clear all' : 'Select all'}
+              </button>
+            </div>
+            <VerticalSpace space="small" />
+            {filteredCollections.length === 0 ? (
+              <Text>No collections match “{query}”.</Text>
+            ) : (
+              <div class="sync-tokens-collection-list">
+                {filteredCollections.map((collection, index) => (
+                  <Fragment key={collection.id}>
+                    {index > 0 ? <Divider /> : null}
+                    <div class="sync-tokens-collection-row">
+                      <div class="sync-tokens-collection-main">
+                        <Checkbox
+                          onValueChange={() => toggleCollection(collection.id)}
+                          value={selected.has(collection.id)}
+                        >
+                          <span class="sync-tokens-collection-name">{collection.name}</span>
+                          <span class="sync-tokens-count">({collection.tokenCount})</span>
+                        </Checkbox>
+                      </div>
+                      {collection.modes.length > 1 ? (
+                        <div class="sync-tokens-modes">
+                          {collection.modes.map((mode) => {
+                            const active = modesFor(collection).has(mode.modeId);
+                            return (
+                              <button
+                                class={`sync-tokens-chip${active ? ' sync-tokens-chip-active' : ''}`}
+                                key={mode.modeId}
+                                onClick={() => toggleMode(collection.id, mode.modeId)}
+                                type="button"
+                              >
+                                {mode.name}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      ) : null}
+                    </div>
+                  </Fragment>
+                ))}
+              </div>
+            )}
+          </section>
 
-            <fieldset class="sync-tokens-radio-group">
-              <legend class="sync-tokens-radio-legend">Color format</legend>
-              {(['hex', 'rgb', 'rgba', 'variable'] as const).map((value) => (
-                <label class="sync-tokens-radio" key={value}>
-                  <input
-                    checked={colorFormat === value}
-                    onChange={() => setColorFormat(value)}
-                    type="radio"
-                    name="tashil-color-format"
+          <Disclosure
+            onClick={() => setAdvancedOpen((prev) => !prev)}
+            open={advancedOpen}
+            title="Advanced settings"
+          >
+            <Text align="center">Advanced settings</Text>
+          </Disclosure>
+          {advancedOpen ? (
+            <Container space="small">
+              <Stack space="medium">
+                <Toggle
+                  onValueChange={setConvertPxToRem}
+                  value={convertPxToRem}
+                >
+                  Convert px to rem (length-scoped variables only)
+                </Toggle>
+
+                {convertPxToRem ? (
+                  <Field id="tashil-root-font-size" label="Root font size (px)">
+                    <TextboxNumeric
+                      onNumericValueInput={(value) =>
+                        setRootFontSize(value === null ? 16 : value)
+                      }
+                      minimum={1}
+                      integer
+                      value={String(rootFontSize)}
+                    />
+                  </Field>
+                ) : null}
+
+                <Field id="tashil-color-format" label="Color format">
+                  <RadioButtons
+                    direction="horizontal"
+                    onValueChange={(value) => setColorFormat(value as ColorFormat)}
+                    options={[
+                      { value: 'hex', children: 'HEX' },
+                      { value: 'rgb', children: 'RGB' },
+                      { value: 'rgba', children: 'RGBA' },
+                      { value: 'variable', children: 'Variable' },
+                    ]}
+                    value={colorFormat}
                   />
-                  <span>{value.toUpperCase()}</span>
-                </label>
-              ))}
-            </fieldset>
+                </Field>
 
-            <fieldset class="sync-tokens-radio-group">
-              <legend class="sync-tokens-radio-legend">Token name style</legend>
-              {(['kebab', 'slash', 'snake', 'pascal'] as const).map((value) => (
-                <label class="sync-tokens-radio" key={value}>
-                  <input
-                    checked={nameStyle === value}
-                    onChange={() => setNameStyle(value)}
-                    type="radio"
-                    name="tashil-name-style"
+                <Field id="tashil-name-style" label="Token name style">
+                  <RadioButtons
+                    direction="horizontal"
+                    onValueChange={(value) => setNameStyle(value as NameStyle)}
+                    options={[
+                      { value: 'kebab', children: 'color-text' },
+                      { value: 'slash', children: 'color/text' },
+                      { value: 'snake', children: 'color_text' },
+                      { value: 'pascal', children: 'ColorText' },
+                    ]}
+                    value={nameStyle}
                   />
-                  <span>{value}</span>
-                </label>
-              ))}
-            </fieldset>
-          </div>
-        </details>
+                </Field>
+              </Stack>
+            </Container>
+          ) : null}
 
-        {exportStatus === 'error' && exportError ? (
-          <div class="field-error" role="alert">{exportError}</div>
-        ) : null}
+          {exportStatus === 'error' && exportError ? (
+            <div class="field-error" role="alert">{exportError}</div>
+          ) : null}
+          {collectionsStatus === 'error' && collectionsError ? (
+            <div class="field-error" role="alert">{collectionsError}</div>
+          ) : null}
 
-        <Button
-          disabled={selected.size === 0 || busy}
-          onClick={handleExport}
-        >
-          {exportStatus === 'exporting' ? 'Exporting…' : 'Export'}
-        </Button>
-      </Stack>
+          <Button
+            disabled={selected.size === 0 || busy}
+            onClick={handleExport}
+          >
+            {exportStatus === 'exporting' ? 'Exporting…' : `Export ${selected.size || ''}`.trim()}
+          </Button>
+        </Stack>
+        <VerticalSpace space="medium" />
+      </Container>
     </main>
   );
 }

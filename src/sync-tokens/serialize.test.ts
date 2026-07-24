@@ -13,7 +13,7 @@ import {
 } from './types';
 
 const baseOptions: ExportOptions = {
-  modeByCollection: { c1: 'm1' },
+  modesByCollection: { c1: ['m1'] },
   convertPxToRem: false,
   rootFontSize: 16,
   colorFormat: 'hex',

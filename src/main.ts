@@ -64,6 +64,7 @@ import { serializeCollection } from './sync-tokens/serialize';
 import type {
   AliasValue,
   ColorValue,
+  ExportFile,
   ExportOptions,
   Token,
   TokenCollection,
@@ -702,6 +703,7 @@ async function loadTokenCollections(): Promise<void> {
       name: collection.name,
       modes: collection.modes.map((mode) => ({ modeId: mode.modeId, name: mode.name })),
       defaultModeId: collection.defaultModeId,
+      tokenCount: collection.variableIds.length,
     }));
     emit<LoadTokenCollectionsResultHandler>('LOAD_TOKEN_COLLECTIONS_RESULT', {
       ok: true,
@@ -728,7 +730,7 @@ async function exportTokens(
   const wantSet = new Set(collectionIds);
   try {
     const collections = await figma.variables.getLocalVariableCollectionsAsync();
-    const files = [];
+    const files: ExportFile[] = [];
     for (const collection of collections) {
       if (latestTokensExportId !== operationId) {
         return; // superseded
@@ -736,19 +738,29 @@ async function exportTokens(
       if (!wantSet.has(collection.id)) {
         continue;
       }
-      const modeId = options.modeByCollection[collection.id] ?? collection.defaultModeId;
-      const tokens = await collectTokens(collection, modeId);
-      const domain: TokenCollection = {
-        id: collection.id,
-        name: collection.name,
-        modes: collection.modes.map((mode) => ({ modeId: mode.modeId, name: mode.name })),
-        defaultModeId: collection.defaultModeId,
-        tokens,
-      };
-      files.push({
-        name: `${slug(collection.name) || collection.id}.css`,
-        css: serializeCollection(domain, options),
-      });
+      // One CSS file per selected mode. Falls back to the default mode if none
+      // were explicitly chosen (keeps a bare "export this" click working).
+      const modeIds = options.modesByCollection[collection.id] ?? [collection.defaultModeId];
+      const collectionSlug = slug(collection.name) || collection.id;
+      for (const modeId of modeIds) {
+        if (latestTokensExportId !== operationId) {
+          return;
+        }
+        const mode = collection.modes.find((m) => m.modeId === modeId);
+        const tokens = await collectTokens(collection, modeId);
+        const domain: TokenCollection = {
+          id: collection.id,
+          name: collection.name,
+          modes: collection.modes.map((m) => ({ modeId: m.modeId, name: m.name })),
+          defaultModeId: collection.defaultModeId,
+          tokens,
+        };
+        const suffix = modeIds.length > 1 && mode ? `-${slug(mode.name)}` : '';
+        files.push({
+          name: `${collectionSlug}${suffix}.css`,
+          css: serializeCollection(domain, options),
+        });
+      }
     }
     if (latestTokensExportId !== operationId) {
       return;

@@ -44,8 +44,8 @@ export const LENGTH_SCOPES = new Set<string>([
 
 /** Options applied while serializing a collection to CSS. */
 export type ExportOptions = {
-  /** Per-collection chosen mode id (collections define their own modes). */
-  modeByCollection: Readonly<Record<string, string>>;
+  /** Per-collection chosen mode ids (collections define their own modes). */
+  modesByCollection: Readonly<Record<string, readonly string[]>>;
   /** Divide length-scoped FLOAT values by `rootFontSize`. */
   convertPxToRem: boolean;
   /** Divisor for px→rem. Default 16. */
@@ -98,6 +98,8 @@ export type TokenCollectionSummary = {
   name: string;
   modes: readonly TokenMode[];
   defaultModeId: string;
+  /** Number of variables in the collection, for the UI list. */
+  tokenCount: number;
 };
 
 /** One generated CSS file. */
