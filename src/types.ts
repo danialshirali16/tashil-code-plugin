@@ -11,6 +11,8 @@ export const DEFAULT_CHILDREN_TEXT_PROPERTY = 'label';
 export const CONNECTION_NAMESPACE = 'tashil_storybook';
 export const CONNECTION_KEY = 'connection';
 
+import type { FrameInspection } from './inspect/types';
+
 export type PropMapping = {
   prop: string;
   value: string | number | boolean;
@@ -190,14 +192,18 @@ export type UiTargetState =
       message: string;
     };
 
-export type InspectCodeState = {
-  status: 'connected' | 'connection-issue' | 'not-connected' | 'invalid-selection';
-  code?: string;
-  connectionIssue?: ConnectionIssue;
+export type InspectCodeComponentOutput = {
+  code: string;
   diagnostics?: string;
   references?: ConnectionReferences;
-  message?: string;
 };
+
+export type InspectCodeState =
+  | { status: 'invalid-selection'; message?: string }
+  | { status: 'not-connected' }
+  | { status: 'connection-issue'; message: string; connectionIssue: ConnectionIssue }
+  | { status: 'connected'; output: InspectCodeComponentOutput }
+  | { status: 'inspection'; inspection: FrameInspection };
 
 export type OpenExternalHandler = {
   name: 'OPEN_EXTERNAL';
@@ -209,7 +215,7 @@ export type OpenExternalHandler = {
 
 export type CodegenBlock = {
   title: string;
-  language: 'PLAINTEXT' | 'TYPESCRIPT';
+  language: 'CSS' | 'PLAINTEXT' | 'TYPESCRIPT';
   code: string;
 };
 

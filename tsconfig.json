@@ -9,15 +9,15 @@
     "src/codegen.ts",
     "src/external-url.ts",
     "src/types.ts",
+    "src/inspect/types.ts",
+    "src/inspect/css-partition.ts",
+    "src/inspect/node-css.ts",
+    "src/inspect/inspect-frame.ts",
+    "src/inspect/usage-snippet.ts",
     "src/layout/fixtures.ts",
     "src/layout/types.ts",
-    "src/layout/naming.ts",
     "src/layout/imports.ts",
-    "src/layout/css-module-emitter.ts",
-    "src/layout/tsx-emitter.ts",
-    "src/layout/generate-layout.ts",
     "src/layout/generation-context.ts",
-    "src/layout/figma-component-resolver.ts",
-    "src/layout/figma-layout-extractor.ts"
+    "src/layout/figma-component-resolver.ts"
   ]
 }

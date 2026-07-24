@@ -1,671 +1,404 @@
-# Layout Composer Roadmap
+# Frame Inspection Roadmap
 
-Status: Proposed  
-Last updated: 2026-07-23  
-Companion preview: [`layout-composer-preview.html`](layout-composer-preview.html)
+Status: Development complete (Phase A–H) — manual user verification (Design mode, library components, keyboard layout) and release decision remain.  
+Last updated: 2026-07-24 (commit f604703)  
+Decisions record: [`layout-composer-decisions.md`](layout-composer-decisions.md)
+
+## The pivot, in one paragraph
+
+The previous roadmap (Phases 0–5, complete in `src/layout/`) generated full
+React/TSX plus CSS Modules for a selected frame tree. That approach
+over-commits the developer: generated wrappers, invented class names, and
+scaffolded files fight the conventions of whichever codebase they land in, and
+the tree-shaped generation carried the project's largest hardening burden
+(naming collisions, import aliasing, placeholders, node limits, fuzzing).
+Version 1 now behaves like Figma's own Dev Mode instead: selecting a node
+shows a **Layout** CSS section, a **Style** CSS section, and the **Connected
+component** information — nothing more. The developer keeps full control of
+their own markup and files; the plugin supplies the values, tokens, and
+component usages they actually copy.
 
 ## Objective
 
-Allow a developer to select a layout in Figma and receive production-oriented
-React/TSX plus CSS Modules output without manually combining Figma's CSS output
-with Tashil component snippets.
+When a user selects any single node, both surfaces present:
 
-The feature must work in both places:
+1. **Layout** — the node's structural CSS (flex, gap, padding, sizing,
+   alignment), shown as plain CSS declarations.
+2. **Style** — the node's visual CSS (background, border, radius, shadow,
+   typography, opacity), shown as plain CSS declarations.
+3. **Connected component** — for a connected instance, the existing Tashil
+   usage snippet (unchanged); for a frame, the connected component instances
+   it contains.
+
+Both surfaces must stay in lockstep:
 
 1. **Figma Dev Mode** through `figma.codegen.on("generate")`.
 2. **Tashil Code → Inspect Code** inside the plugin UI.
 
-Both surfaces must use the same generation pipeline and return the same TSX,
-CSS, diagnostics, and component-resolution decisions.
+The differentiated value over Figma's native inspect panel:
+
+- **Inspect Code works in Design mode** — teammates without a Dev Mode seat
+  get Dev-Mode-like CSS inspection through the plugin.
+- **One combined view** — CSS and the connected Tashil component snippet
+  appear together instead of in separate panels.
+- **Token-aware output** — variable-backed values surface as
+  `var(--token, fallback)`, matching the design system rather than raw pixels.
 
 ## Product decisions
 
-- [x] Generate React/TSX and CSS Modules.
-- [x] Do not support or expose Tailwind.
-- [x] Treat every connected component instance as an atomic code boundary.
-- [x] Generate layout wrappers around connected component usages.
-- [x] Keep Connect Component focused on reusable design-system components.
-- [x] Support both Dev Mode and the plugin's Inspect Code view.
-- [x] Do not require a layout to be converted into a Figma component.
-- [x] Do not persist generated layout code on the Figma document.
-- [x] Do not traverse inside connected or unconnected component instances.
+- [x] Inspect the **selected node only**. No subtree code generation.
+- [x] Output plain CSS declarations, not CSS Modules, class names, or TSX
+  scaffolding for frames.
+- [x] Use `node.getCSSAsync()` as the source of truth for CSS, partitioned
+  into Layout and Style buckets. Do not rebuild Figma's CSS serializer.
+- [x] Preserve Figma variable output (`var(--spacer-3, 1rem)`) exactly as
+  `getCSSAsync()` emits it.
+- [x] Connected component snippet output remains byte-for-byte backwards
+  compatible; CSS sections are additive.
+- [x] Any single selected `SceneNode` is inspectable — frames, groups,
+  sections, text, vectors, rectangles. "Unsupported root" ceases to exist as
+  a concept; every node has CSS.
+- [x] For frames, enumerate connected component instances in the subtree,
+  stopping at every instance boundary (instances stay atomic).
+- [x] Generation stays read-only: no canvas mutations, no persisted data, no
+  network access.
+- [x] Retire the tree codegen path (TSX emitter, CSS Modules emitter, import
+  aliasing, class naming) from the product; keep the pure modules in git
+  history only.
 
-## Non-goals for the first release
+## Non-goals
 
-- Pixel-perfect recreation of every visual property in Figma.
-- Tailwind, styled-components, Emotion, or other style emitters.
-- Automatic asset export for images, vectors, videos, or masks.
-- Responsive breakpoint inference.
-- Guessing semantic HTML from layer names.
-- Generating production code from arbitrary absolute-positioned artwork.
-- Editing the user's codebase from Figma.
-- Persisting layout-specific metadata or changing the existing component
-  connection schema.
+- Generating TSX, JSX wrappers, or files for frames or layouts.
+- Editing, reformatting, or "improving" the CSS `getCSSAsync()` returns,
+  beyond partitioning and deterministic ordering.
+- Re-implementing Figma's CSS serialization (except the documented fallback).
+- Responsive breakpoints, semantic element inference, or asset export.
+- Persisting anything new on the Figma document.
 
-## Current architecture and limitation
+## What survives from the layout composer
 
-The existing implementation has a good component-generation core:
+| Existing module | Fate | Reason |
+| --- | --- | --- |
+| `src/codegen.ts` (`createComponentUsage`, `createUsageSnippet`) | **Keep, unchanged** | Connected-component snippet is the product core |
+| `src/layout/figma-component-resolver.ts` | **Keep** | Resolves connected/unconnected/broken instances; reused by the frame summary |
+| `src/layout/generation-context.ts` | **Keep** | Per-generation caches and limits for the frame summary traversal |
+| `src/layout/figma-layout-extractor.ts` | **Trim** | Traversal + instance-boundary rules reused to *enumerate* connected instances; container/text/placeholder IR construction removed |
+| `src/layout/types.ts` | **Trim** | `ComponentUsage`, `ComponentImport`, diagnostics survive; composition-node IR and `GeneratedLayout` are replaced |
+| `src/layout/tsx-emitter.ts` | **Retire** | No TSX is generated for frames |
+| `src/layout/css-module-emitter.ts` | **Retire** (see fallback note in Phase B) | `getCSSAsync()` replaces it |
+| `src/layout/imports.ts` | **Retire** | Snippets are independent; no cross-tree import dedup |
+| `src/layout/naming.ts` | **Retire** | No generated class names |
+| `docs/layout-composer-preview.html` | **Archive** | Previewed the retired codegen UI |
 
-- `resolveSelection` resolves only `INSTANCE`, `COMPONENT`, and `COMPONENT_SET`
-  nodes.
-- `createUsageSnippet` generates one connected component usage, including its
-  imports and prop mappings.
-- `figma.codegen.on("generate")` exposes that usage in Dev Mode.
-- `createInspectCodeState` exposes the same usage in Inspect Code.
-- `InspectCodeState` currently represents only a single component result.
-
-A selected frame, section, or group therefore becomes an invalid selection
-before code generation starts.
-
-The main architectural change is to introduce a layout document model between
-Figma node traversal and code formatting:
-
-```text
-Figma SceneNode
-    ↓
-Layout extraction and component resolution
-    ↓
-Layout document IR
-    ↓
-TSX emitter + CSS Modules emitter + diagnostics
-    ↓
-Dev Mode adapter / Inspect Code adapter
-```
-
-## Required invariants
-
-These rules must remain true throughout development:
-
-- Connected component output must remain backwards compatible.
-- A connected instance is emitted as one React component; its internal Figma
-  children are never visited.
-- An unconnected component instance is also not expanded into internal layers.
-- Dev Mode and Inspect Code consume the same `GeneratedLayout` result.
-- Generation is read-only and never mutates the canvas or plugin data.
-- Output ordering, import ordering, class names, and diagnostics are
-  deterministic.
-- Unsupported nodes are reported; they are never silently omitted.
-- A failure in one descendant should not discard otherwise usable layout code.
-- Generated TSX and CSS must always be syntactically valid.
+The uncommitted Phase 4–6 wiring (layout blocks in `src/main.ts`, the
+`LayoutInspectView` in `src/ui.tsx`, `phase6.test.ts`) is superseded. Salvage
+the UI scaffolding — section cards, copy buttons, diagnostics list, a11y
+patterns — for the new inspection view; drop the TSX/CSS tab content and the
+tree-generation tests.
 
 ## Target domain model
 
-Create a Figma-independent intermediate representation under `src/layout/`.
+A small, serializable inspection result replaces `GeneratedLayout`:
 
 ```ts
-export type LayoutDocument = {
-  root: CompositionNode;
-  name: string;
-  diagnostics: LayoutDiagnostic[];
+export type CssDeclaration = {
+  property: string;
+  value: string;
 };
 
-export type CompositionNode =
-  | ComponentCompositionNode
-  | ContainerCompositionNode
-  | TextCompositionNode
-  | PlaceholderCompositionNode;
+export type NodeCss = {
+  layout: CssDeclaration[];
+  style: CssDeclaration[];
+};
 
-export type ComponentCompositionNode = {
-  kind: 'component';
+export type ConnectedComponentEntry = {
   nodeId: string;
   layerPath: string[];
-  usage: ComponentUsage;
+  componentName: string;
+  usage: ComponentUsage; // existing type: imports + jsx + diagnostics
 };
 
-export type ContainerCompositionNode = {
-  kind: 'container';
-  nodeId: string;
-  layerPath: string[];
-  className: string;
-  element: 'div';
-  layout: LayoutStyle;
-  children: CompositionNode[];
-};
-
-export type TextCompositionNode = {
-  kind: 'text';
-  nodeId: string;
-  layerPath: string[];
-  className?: string;
-  text: string;
-};
-
-export type PlaceholderCompositionNode = {
-  kind: 'placeholder';
-  nodeId: string;
-  layerPath: string[];
-  reason: LayoutDiagnosticReason;
-};
-
-export type GeneratedLayout = {
-  componentCount: number;
-  wrapperCount: number;
-  tsx: string;
-  css: string;
-  diagnostics: LayoutDiagnostic[];
+export type FrameInspection = {
+  nodeName: string;
+  nodeType: string;
+  css: NodeCss;
+  connectedComponents: ConnectedComponentEntry[];
+  diagnostics: InspectionDiagnostic[];
 };
 ```
 
-The exact property names may change, but the boundaries should not:
+Boundary rules (unchanged in spirit from the composer):
 
-- Figma-specific nodes stay in the extraction layer.
-- The IR contains serializable values only.
-- Emitters do not import or reference Figma types.
-- UI and Dev Mode adapters receive completed strings and diagnostics.
+- Figma node types are touched only in the extraction layer.
+- The result contains serializable values only.
+- Dev Mode and Inspect Code consume the **same** `FrameInspection`.
 
-## Component usage refactor
-
-`createUsageSnippet` currently combines import generation and JSX formatting.
-Layout composition needs these pieces separately.
-
-- [x] Add a pure `createComponentUsage` API that returns:
-
-  ```ts
-  type ComponentUsage = {
-    imports: ComponentImport[];
-    jsx: string;
-    diagnostics: MappingDiagnostic[];
-  };
-  ```
-
-- [x] Keep `createUsageSnippet` as a compatibility wrapper around
-  `createComponentUsage`.
-- [x] Confirm existing component codegen output remains byte-for-byte stable.
-- [x] Represent imports structurally using module path, imported name, and local
-  name.
-- [x] Deduplicate imports across all component descendants.
-- [x] Sort imports deterministically.
-- [x] Resolve same-name imports from different modules using deterministic local
-  aliases.
-- [x] Ensure aliased local names are also used in the generated JSX.
-- [x] Preserve existing icon instance-swap behavior and named `Icon` imports.
-- [x] Preserve all existing mapping diagnostics.
-
-## Supported layout scope
-
-### Version 1: supported
-
-- A single selected `FRAME` using horizontal or vertical auto layout.
-- Nested auto-layout frames.
-- Visible connected component instances.
-- Visible text nodes outside component instances.
-- Groups that can be treated as transparent containers without changing layout
-  meaning.
-- Auto-layout wrapping.
-- Figma layout sizing values needed for `FIXED`, `HUG`, and `FILL`.
-- Per-child grow, stretch, and auto-layout positioning.
-- Generated TSX and one CSS Module.
-
-### Version 1: detected but not fully generated
-
-- Frames with `layoutMode === "NONE"`.
-- Grid auto layout.
-- Absolute-positioned children.
-- Sections used as visual organization rather than auto-layout containers.
-- Images, vectors, booleans, stars, polygons, lines, videos, and embeds.
-- Masks, blend modes, complex effects, rotations, and transforms.
-- Multiple selected roots.
-
-These cases must produce valid placeholder comments plus actionable diagnostics.
-They must not cause an empty result or expose component internals.
-
-### Later support
-
-- [ ] CSS Grid generation for Figma grid layouts.
-- [ ] Constrained absolute positioning for overlays and badges.
-- [ ] Image and vector asset references.
-- [ ] Figma variable to CSS custom-property mapping.
-- [ ] Reusable layout templates and named slots.
-- [ ] Optional semantic element hints.
-- [ ] Responsive variants based on explicit Figma annotations or saved hints.
-
-## Auto-layout to CSS Modules contract
-
-Document and test every mapping. Avoid relying on scattered conditionals.
-
-| Figma property | CSS output |
-| --- | --- |
-| `layoutMode: HORIZONTAL` | `display: flex; flex-direction: row` |
-| `layoutMode: VERTICAL` | `display: flex; flex-direction: column` |
-| `layoutWrap: WRAP` | `flex-wrap: wrap` |
-| `itemSpacing` | `gap` |
-| `counterAxisSpacing` | `row-gap` or `column-gap` when wrapping requires it |
-| Four padding values | Minimal valid `padding` shorthand |
-| Primary `MIN` | `justify-content: flex-start` |
-| Primary `CENTER` | `justify-content: center` |
-| Primary `MAX` | `justify-content: flex-end` |
-| Primary `SPACE_BETWEEN` | `justify-content: space-between` |
-| Counter `MIN` | `align-items: flex-start` |
-| Counter `CENTER` | `align-items: center` |
-| Counter `MAX` | `align-items: flex-end` |
-| Counter `BASELINE` | `align-items: baseline` |
-| Child `layoutGrow: 1` | `flex-grow: 1` with an appropriate basis |
-| Child `layoutAlign: STRETCH` | `align-self: stretch` when needed |
-| Child `layoutPositioning: ABSOLUTE` | Placeholder and diagnostic in version 1 |
-
-Sizing policy:
-
-- [ ] Let normal document flow represent `HUG` whenever possible.
-- [ ] Emit `width: fit-content` or `height: fit-content` only when omission
-  changes the layout contract.
-- [ ] Convert `FILL` to `width: 100%`, `height: 100%`, or flex growth according
-  to the parent axis.
-- [ ] Emit fixed dimensions for nested nodes only when needed for fidelity.
-- [ ] Omit the selected root's fixed canvas width by default and add an
-  informational diagnostic.
-- [ ] Do not emit fractional values with unstable floating-point noise.
-- [ ] Normalize numeric values with one shared formatter.
-- [ ] Use `box-sizing: border-box` when Figma layout behavior requires it.
-
-Visual styling policy for version 1:
-
-- [ ] Support border radius, simple solid background, simple solid border, and
-  opacity only after the auto-layout contract is stable.
-- [ ] Keep typography support limited to explicit unconnected text nodes.
-- [ ] Report unsupported paints and effects instead of approximating them.
-- [ ] Do not duplicate visual styling already owned by a connected component.
-
-## Naming and formatting rules
-
-- [ ] Derive the exported React function name from the selected layout name.
-- [ ] Validate and sanitize it as a legal PascalCase identifier.
-- [ ] Fall back to `GeneratedLayout` when no valid name can be derived.
-- [ ] Derive CSS class names from container layer names.
-- [ ] Use stable path-based suffixes for duplicate or empty layer names.
-- [ ] Escape CSS identifiers, JSX text, string literals, and comments safely.
-- [ ] Default every generated wrapper to `<div>`.
-- [ ] Do not infer `<main>`, `<header>`, `<nav>`, or other semantic elements from
-  layer names.
-- [ ] Format TSX and CSS deterministically without requiring Prettier at runtime.
-- [ ] Keep generated line endings and indentation consistent with current
-  component snippets.
-
-## Diagnostics contract
-
-Create a structured diagnostic type shared by Dev Mode and Inspect Code:
+Diagnostic reasons shrink to what inspection can actually encounter:
 
 ```ts
-type LayoutDiagnostic = {
-  severity: 'info' | 'warning' | 'error';
-  reason: LayoutDiagnosticReason;
-  message: string;
-  nodeId?: string;
-  layerPath?: string[];
-};
+type InspectionDiagnosticReason =
+  | 'unconnected-instance'
+  | 'invalid-connection'
+  | 'missing-main-component'
+  | 'css-unavailable'      // getCSSAsync threw or is not available
+  | 'node-limit';          // frame summary traversal truncated
 ```
 
-Initial diagnostic reasons:
+## Layout / Style partition
 
-- `unconnected-instance`
-- `invalid-connection`
-- `missing-main-component`
-- `unsupported-root`
-- `unsupported-node`
-- `unsupported-layout-mode`
-- `grid-layout`
-- `absolute-positioning`
-- `unsupported-paint`
-- `unsupported-effect`
-- `hidden-layer`
-- `name-collision`
-- `node-limit`
-- `depth-limit`
-- `root-fixed-size-omitted`
+`getCSSAsync()` returns one flat declaration map. Partition it with an
+explicit, tested property table — no scattered conditionals:
 
-Behavior:
+**Layout bucket** (exact-match or prefix):
 
-- [ ] Emit an inline valid JSX comment for placeholder nodes.
-- [ ] Include the human-readable layer path in the diagnostic.
-- [ ] Aggregate duplicate diagnostics when the remediation is identical.
-- [ ] Preserve errors for individual component prop mappings.
-- [ ] Show concise summaries in Dev Mode.
-- [ ] Show the structured composition and full diagnostics in Inspect Code.
-- [ ] Never include raw plugin data, source contents, or sensitive document
-  metadata in diagnostics.
+```text
+display, flex-direction, flex-wrap, flex-flow, flex, flex-grow, flex-shrink,
+flex-basis, gap, row-gap, column-gap, justify-content, align-items,
+align-self, align-content, padding, padding-*, width, height, min-width,
+min-height, max-width, max-height, position, top, right, bottom, left,
+overflow, overflow-*, box-sizing, grid, grid-*
+```
 
-## Phase 0 — Contract fixtures and architecture
+**Style bucket**: every other property (background, border, border-radius,
+box-shadow, opacity, color, font-*, line-height, letter-spacing, text-*,
+fill, stroke, backdrop-filter, mix-blend-mode, …). Unknown or future
+properties default to Style — the safe bucket, matching Figma's own panel.
 
-- [x] Add an architecture decision record for the shared layout IR and dual
-  adapters.
-- [x] Record the version 1 supported-node matrix.
-- [x] Create representative mocked Figma fixtures:
-  - Vertical form layout.
-  - Horizontal header layout.
-  - Nested auto-layout frames.
-  - Wrapping action row.
-  - Connected components from one package.
-  - Connected components from multiple packages.
-  - Duplicate component names from different packages.
-  - Unconnected component instance.
-  - Broken component metadata.
-  - Raw text node.
-  - Absolute-positioned child.
-  - Unsupported vector/image layer.
-- [x] Save reviewed golden TSX, CSS, and diagnostics for each fixture.
-- [x] Measure current connected-component output so compatibility can be tested.
+Ordering: preserve `getCSSAsync()`'s emission order within each bucket so the
+plugin's sections read identically to the native Dev Mode panel.
 
-Exit criteria:
+## Required invariants
 
-- Supported behavior and deliberate fallbacks are documented.
-- Every later phase has stable input and expected-output fixtures.
+- Connected component snippet output remains backwards compatible.
+- Instance internals are never traversed or emitted.
+- Dev Mode and Inspect Code render the same `FrameInspection`.
+- Generation is read-only.
+- Output ordering and diagnostics are deterministic across repeated calls.
+- A failure on one connected descendant never discards the CSS sections or
+  the other descendants.
+- CSS text is passed through, never reformatted (beyond `property: value;`
+  line assembly and the bucket split).
 
-## Phase 1 — Pure component and layout core
+## Phase A — Spike and contract
+
+- [ ] Verify `getCSSAsync()` availability and output in **both** runtimes:
+  Dev Mode codegen and the Design-mode plugin (Inspect Code). Record exact
+  behavior per node type (frame, group, section, text, instance, vector).
+- [x] Verify variable-backed values emit as `var(--name, fallback)` and
+  under which file/library conditions. _(Verified in Dev Mode 2026-07-24:
+  `var(--spacer-2, 0.5rem)` etc.; a variable without a resolvable fallback
+  emits its raw name, passed through as-is.)_
+- [ ] Capture fixture outputs from a real file for: auto-layout frame,
+  non-auto-layout frame, group, text, connected instance, vector.
+- [x] Decide the fallback policy if `getCSSAsync()` is unavailable in the
+  Design-mode runtime: either (a) reuse the retired `LayoutStyle` mapping as
+  a Layout-only fallback with a `css-unavailable` diagnostic for Style, or
+  (b) show Inspect Code CSS only when available. Record the decision.
+- [x] Add ADR **D — Dev-Mode-parity pivot** to
+  `layout-composer-decisions.md`: why tree codegen was retired, what
+  survives, and the `getCSSAsync()` source-of-truth decision.
+
+Exit criteria: the API's real behavior in both runtimes is documented with
+fixtures, and the fallback decision is recorded before any code moves.
+
+## Phase B — CSS inspection service
 
 Suggested files:
 
 ```text
-src/layout/types.ts
-src/layout/naming.ts
-src/layout/imports.ts
-src/layout/tsx-emitter.ts
-src/layout/css-module-emitter.ts
-src/layout/generate-layout.ts
+src/inspect/types.ts
+src/inspect/css-partition.ts
+src/inspect/node-css.ts
+src/inspect/*.test.ts
 ```
 
-TODOs:
+- [x] Implement `partitionCss(declarations)` with the documented table;
+  unit-test every listed property plus the unknown-property default.
+- [x] Implement `getNodeCss(node)` wrapping `getCSSAsync()`: deterministic
+  declaration assembly, bucket split, `css-unavailable` diagnostic on
+  failure, never throws.
+- [x] Render buckets as copy-ready CSS text (`property: value;` per line,
+  matching the native panel).
+- [x] Implement the Phase A fallback decision.
+- [x] Golden tests from the Phase A fixtures.
 
-- [x] Introduce the layout IR and diagnostic types.
-- [x] Refactor `createUsageSnippet` into the compatible structured component
-  usage API.
-- [x] Implement deterministic import collection and aliasing.
-- [x] Implement class-name generation and collision handling.
-- [x] Implement the TSX emitter.
-- [x] Implement the CSS Modules emitter.
-- [x] Add unit tests for every pure formatter and emitter.
-- [x] Add golden tests for complete generated documents.
+Exit criteria: given a mocked `getCSSAsync()` result, the service returns
+deterministic Layout and Style sections identical to the goldens.
 
-Exit criteria:
+## Phase C — Connected components summary
 
-- The core accepts an IR fixture and returns complete, deterministic TSX, CSS,
-  and diagnostics without importing Figma APIs.
-- Existing component tests remain unchanged and passing.
+- [x] Trim `figma-layout-extractor.ts` into a connected-instance enumerator:
+  same visible-document-order traversal, same hard stop at every instance
+  boundary, but collecting `ConnectedComponentEntry` items instead of
+  building composition IR.
+- [x] Reuse `resolveInstance` and `GenerationContext` caches; guarantee no
+  duplicate main-component or metadata lookup per generation.
+- [x] Unconnected or broken instances become diagnostics
+  (`unconnected-instance`, `invalid-connection`, `missing-main-component`)
+  with layer paths — never silent omission.
+- [x] Keep the node-count limit; truncation adds one `node-limit`
+  diagnostic.
+- [x] Delete the retired modules (`tsx-emitter`, `css-module-emitter`,
+  `imports`, `naming`) and their tests, unless Phase A chose the
+  `LayoutStyle` fallback (then `css-module-emitter`'s declaration logic is
+  the one salvage).
+- [x] Assemble `inspectFrame(node)` returning the full `FrameInspection`.
 
-## Phase 2 — Figma scene extraction
+Exit criteria: fixtures with nested frames and mixed connected/unconnected
+instances produce the expected entry list and diagnostics; instance internals
+are never visited; existing component-codegen tests still pass unchanged.
 
-Suggested files:
+## Phase D — Dev Mode adapter
 
-```text
-src/layout/figma-layout-extractor.ts
-src/layout/figma-component-resolver.ts
-src/layout/generation-context.ts
-```
+- [x] Replace `tryGenerateLayoutBlocks` in `src/main.ts` with the inspection
+  path. For a non-component selection return:
+  1. `CSS` block titled **Layout**.
+  2. `CSS` block titled **Style** (omit when empty).
+  3. `TYPESCRIPT` block **Connected components** (omit when none):
+     deduplicated imports, then each usage — variant-mapped props included —
+     preceded by its layer path as a comment. _(Originally a name-only
+     plaintext list; changed after in-Figma verification showed the usage
+     code is exactly what a developer wants in the Dev Mode panel. Same-name
+     imports from different modules fall back to per-entry snippets rather
+     than aliasing imports away from the JSX.)_
+  4. `PLAINTEXT` diagnostics block when needed.
+- [x] Keep the connected-component branch byte-identical; optionally append
+  the instance's own Layout/Style CSS blocks *after* the existing blocks.
+- [x] Remove the "not a layout Dev Mode supports yet" fallback — every node
+  now yields CSS. Keep a plaintext error path only for unexpected failures.
 
-TODOs:
+Exit criteria: connected instances produce today's output (plus additive CSS
+blocks); any frame/group/section/text/vector produces Layout and Style
+blocks; repeated generation is deterministic.
 
-- [x] Add a root resolver that distinguishes component and layout selections.
-- [x] Traverse supported layout descendants in visible document order.
-- [x] Stop immediately at every component instance boundary.
-- [x] Resolve connected component metadata through the existing connection
-  reader.
-- [x] Convert connected instances into structured component usages.
-- [x] Convert unconnected or broken instances into placeholders.
-- [x] Convert supported frames into container IR nodes.
-- [x] Convert supported text nodes into escaped text IR nodes.
-- [x] Convert unsupported nodes into placeholders and diagnostics.
-- [x] Exclude hidden nodes and record an informational diagnostic only when the
-  omission is materially useful.
-- [x] Track the full layer path during traversal.
-- [x] Add per-generation caches for:
-  - Main-component lookup by instance ID.
-  - Connection target lookup.
-  - Parsed connection metadata.
-  - Resolved instance swaps. _(Deferred: the swap cache is wired in Phase 4
-    alongside `figma.getNodeByIdAsync`; connected instances without icon swaps
-    — the version-1 common case — resolve fully today.)_
-- [x] Avoid a global cache until invalidation behavior is proven.
-- [x] Add configurable maximum depth and node count.
-- [x] Return a controlled partial result when a limit is reached.
+## Phase E — Inspect Code integration
 
-Exit criteria:
+- [x] Replace the `layout` status in `InspectCodeState` with
+  `{ status: 'inspection'; inspection: FrameInspection }`.
+- [x] Update `sendSelectionState`: connected component → existing component
+  state; any other single node → inspection state. Connect Component
+  selection rules remain component-only.
+- [x] Rebuild the view from the salvaged `LayoutInspectView` scaffolding:
+  - Header card: node name, node type.
+  - **Layout** section: copyable CSS block.
+  - **Style** section: copyable CSS block (hidden when empty).
+  - **Connected components** section: per-entry name, layer path, copyable
+    usage snippet (full snippets belong here, not in Dev Mode).
+  - Diagnostics list with severity, reusing the existing pattern.
+- [x] Reuse CopyButton live-region feedback; keep keyboard order and the
+  480 px no-horizontal-overflow constraint.
+- [x] Remove the TSX/CSS tab machinery and composition-summary UI.
 
-- Supported Figma fixtures produce the expected IR.
-- Traversal never enters a component instance.
-- A descendant failure does not reject the entire layout.
+Exit criteria: Inspect Code and Dev Mode render the same `FrameInspection`
+for the same node; component connection authoring is unchanged.
 
-## Phase 3 — Auto-layout CSS
+## Phase F — Resilience
 
-- [ ] Implement the documented auto-layout mapping table.
-- [ ] Implement padding and gap shorthand formatters.
-- [ ] Implement main-axis and cross-axis alignment.
-- [ ] Implement wrapping and counter-axis spacing.
-- [ ] Implement `FIXED`, `HUG`, and `FILL` sizing policy.
-- [ ] Implement child grow and stretch behavior.
-- [ ] Add the root fixed-width omission policy.
-- [ ] Add numeric normalization.
-- [ ] Add unit tests for every Figma-to-CSS mapping.
-- [ ] Add combination tests for nested parent/child sizing.
-- [ ] Add regression fixtures for RTL document content without changing CSS
-  layout semantics implicitly.
+Deliberately small — single-node inspection removes the tree-hardening
+surface (no naming collisions, no import aliasing, no placeholder contract,
+no depth fuzzing).
 
-Exit criteria:
+- [x] Stale-result guard: rapid selection changes never publish an outdated
+  inspection (token/sequence check on the async `getCSSAsync()` round trip).
+- [x] `getCSSAsync()` failure on the selected node degrades to the
+  connected-components section plus a `css-unavailable` diagnostic.
+- [x] One failed descendant resolution never discards CSS sections or other
+  entries.
+- [x] Confirm no document mutations and no network access. _(Manifest
+  pins `networkAccess: ["none"]`; a main-process test asserts generation
+  never writes shared plugin data.)_
+- [x] Benchmark only the frame summary traversal (~500-node frame) — the
+  single remaining O(tree) operation. _(Test: 500 shared-component instances
+  finish under budget with exactly one metadata read.)_
 
-- Version 1 auto-layout fixtures match reviewed golden CSS.
-- Unsupported layout properties produce diagnostics rather than guesses.
+Exit criteria: malformed nodes and rapid reselection fail predictably;
+output is deterministic across repeated calls.
 
-## Phase 4 — Figma Dev Mode integration
+## Phase G — Tests
 
-Figma's `CodegenResult` supports a dedicated `CSS` language, so the Dev Mode
-adapter should return separate highlighted blocks.
+Pure unit tests:
 
-- [ ] Widen the local `CodegenBlock.language` union to include `CSS`.
-- [ ] Extract the existing inline Dev Mode handler into a small function such as
-  `generateCodegenBlocks(node)`.
-- [ ] Keep the existing connected-component branch unchanged.
-- [ ] Add a supported-layout branch that calls the shared layout generator.
-- [ ] Return:
-  1. A `TYPESCRIPT` block containing composed TSX.
-  2. A `CSS` block containing the CSS Module.
-  3. A `PLAINTEXT` diagnostics block when needed.
-- [ ] Use the selected layout name in block titles.
-- [ ] Keep references for connected single-component output.
-- [ ] Define reference behavior for multi-component layouts; do not dump a long
-  unstructured list in version 1.
-- [ ] Return a clear message for unsupported roots or generation limits.
-- [ ] Confirm behavior in Figma's native `Tashil UI` language selection.
+- [x] Partition table: every Layout property, Style defaults, unknowns.
+- [x] Declaration ordering and CSS text assembly.
+- [x] `FrameInspection` golden tests from Phase A fixtures.
 
-Exit criteria:
+Adapter tests:
 
-- Selecting a connected component in Dev Mode produces the current output.
-- Selecting a supported frame produces TSX and CSS blocks.
-- Selecting an unsupported layout produces an actionable plaintext result.
+- [x] `getCSSAsync()` success, failure, and empty-result paths.
+- [x] Enumerator: boundary stopping, traversal order, caching, node limit,
+  mixed connected/unconnected fixtures.
 
-## Phase 5 — Inspect Code integration
+Main-process tests:
 
-Replace the loose optional-field state with a discriminated state model:
+- [x] Existing single-component Dev Mode output unchanged (frozen baseline).
+- [x] Frame selection returns Layout `CSS`, Style `CSS`, and optional
+  `PLAINTEXT` blocks.
+- [x] Inspect Code receives the same `FrameInspection`.
+- [x] Stale-selection guard.
 
-```ts
-type InspectCodeState =
-  | { status: 'invalid-selection'; message?: string }
-  | { status: 'not-connected' }
-  | { status: 'connection-issue'; message: string; connectionIssue: ConnectionIssue }
-  | { status: 'component'; output: GeneratedComponent }
-  | { status: 'layout'; output: GeneratedLayout; composition: CompositionSummary };
-```
+UI tests:
 
-TODOs:
+- [x] Inspection state rendering: sections, empty Style, no connected
+  components, diagnostics.
+- [x] Copy Layout / Copy Style / copy snippet.
+- [ ] Keyboard order and narrow-window overflow.
 
-- [ ] Update `sendSelectionState` to resolve either a component or layout target.
-- [ ] Keep Connect Component selection rules component-only.
-- [ ] Add the layout composition summary shown in the HTML preview.
-- [ ] Render connected components, wrapper count, and layer paths.
-- [ ] Render TSX and CSS as separate copyable code blocks.
-- [ ] Render structured diagnostics with severity.
-- [ ] Preserve current component references and copy behavior.
-- [ ] Reuse the exact `GeneratedLayout` created for Dev Mode.
-- [ ] Add keyboard navigation and accessible tab semantics for TSX/CSS views.
-- [ ] Add live-region feedback for copy results and selection refreshes.
-- [ ] Ensure the 480 px plugin window remains usable without horizontal page
-  overflow.
+Manual Figma acceptance matrix:
 
-Exit criteria:
+- [ ] Design mode plugin → Inspect Code (the Design-mode `getCSSAsync()`
+  behavior from Phase A, re-verified in the real product).
+- [x] Dev Mode → Tashil UI codegen for frame, group, section, text, vector,
+  connected instance, unconnected instance. _(Verified 2026-07-24 on real
+  frames: Layout/Style blocks, connected snippet, unconnected notes.)_
+- [x] Variable-backed values render as `var(--token, fallback)`.
+- [ ] Library/remote components; rapidly changing selections; light and
+  dark themes.
 
-- Inspect Code and Dev Mode outputs are byte-for-byte identical for the same
-  selected layout.
-- Component connection authoring remains unchanged.
+## Phase H — Documentation and rollout
 
-## Phase 6 — Correctness, performance, and resilience
-
-- [ ] Establish a benchmark fixture before setting a performance budget.
-- [ ] Benchmark layouts with approximately 25, 100, and 500 visible nodes.
-- [ ] Record total generation time and expensive async lookup counts in tests.
-- [ ] Guarantee no duplicate main-component or metadata lookup in one generation.
-- [ ] Prevent stale Inspect Code results after rapid selection changes.
-- [ ] Keep generation work cancellable or safely discard stale results.
-- [ ] Cap traversal depth and node count with explicit diagnostics.
-- [ ] Verify prototype-safe dictionaries for Figma property and layer names.
-- [ ] Fuzz-test names, text, CSS identifiers, comments, and import paths.
-- [ ] Test empty, deleted, remote, and unavailable main components.
-- [ ] Test malformed, legacy, and future-version connection metadata inside a
-  layout.
-- [ ] Test mixed successful and failed descendant generation.
-- [ ] Confirm no document mutations occur during extraction or emission.
-- [ ] Confirm no network access is introduced.
-
-Exit criteria:
-
-- Large or malformed layouts fail predictably without freezing the plugin.
-- Generation remains deterministic across repeated calls.
-
-## Phase 7 — Test plan
-
-### Pure unit tests
-
-- [ ] Layout naming and collision handling.
-- [ ] Import deduplication and aliasing.
-- [ ] TSX placeholder and text escaping.
-- [ ] CSS property mappings and numeric formatting.
-- [ ] Diagnostic aggregation.
-- [ ] Full IR-to-output golden tests.
-
-### Figma adapter tests
-
-- [ ] Root type resolution.
-- [ ] Component boundary stopping.
-- [ ] Nested traversal order.
-- [ ] Hidden-node policy.
-- [ ] Per-generation caching.
-- [ ] Limits and partial results.
-
-### Main-process integration tests
-
-- [ ] Existing single-component Dev Mode output is unchanged.
-- [ ] Layout Dev Mode returns `TYPESCRIPT`, `CSS`, and optional `PLAINTEXT`
-  blocks.
-- [ ] Inspect Code receives the same layout output.
-- [ ] Rapid selection changes do not publish stale layout output.
-- [ ] Broken descendants do not discard successful descendants.
-
-### UI tests
-
-- [ ] Layout detected state.
-- [ ] Composition summary and layer tree.
-- [ ] TSX/CSS switching.
-- [ ] Copy TSX and Copy CSS.
-- [ ] Diagnostics and empty states.
-- [ ] Keyboard focus order and tab behavior.
-- [ ] Narrow-window overflow.
-
-### Manual Figma acceptance matrix
-
-- [ ] Figma Design mode plugin → Inspect Code.
-- [ ] Figma Dev Mode → Tashil UI codegen selection.
-- [ ] Local connected components.
-- [ ] Library/remote connected components.
-- [ ] Nested variants and instance swaps.
-- [ ] Mixed connected and unconnected instances.
-- [ ] Light and dark Figma themes.
-- [ ] Rapidly changing selections.
-
-## Phase 8 — Documentation and rollout
-
-- [ ] Add a user guide: `docs/generate-layout-code.md`.
-- [ ] Document the supported and unsupported layout matrix.
-- [ ] Document why connected components are treated atomically.
-- [ ] Add TSX/CSS examples to the README.
-- [ ] Add troubleshooting guidance for unconnected descendants.
-- [ ] Add a changelog entry.
-- [ ] Keep the interactive HTML preview as a product reference or archive it
-  after the production UI matches it.
-- [ ] Release first as a documented beta for auto-layout frames.
-- [ ] Collect concrete unsupported-layout examples before expanding scope.
-- [ ] Do not expand to grid, assets, or absolute positioning until version 1
-  diagnostics show which limitation matters most.
-
-## Suggested implementation order
-
-1. Freeze fixtures and compatibility expectations.
-2. Refactor component usage into structural imports plus JSX.
-3. Introduce the pure layout IR and emitters.
-4. Build the Figma extraction adapter.
-5. Implement auto-layout CSS Modules mapping.
-6. Integrate Dev Mode.
-7. Integrate Inspect Code.
-8. Harden performance, limits, and diagnostics.
-9. Complete manual Figma verification and documentation.
-
-Do not implement the Dev Mode and Inspect Code paths independently. The shared
-generator should be complete enough to integrate before either UI adapter gains
-layout-specific formatting logic.
-
-## Proposed file changes
-
-New files:
-
-```text
-src/layout/types.ts
-src/layout/naming.ts
-src/layout/imports.ts
-src/layout/tsx-emitter.ts
-src/layout/css-module-emitter.ts
-src/layout/generate-layout.ts
-src/layout/figma-layout-extractor.ts
-src/layout/figma-component-resolver.ts
-src/layout/generation-context.ts
-src/layout/*.test.ts
-docs/generate-layout-code.md
-```
-
-Modified files:
-
-```text
-src/codegen.ts
-src/codegen.test.ts
-src/main.ts
-src/main.test.ts
-src/types.ts
-src/ui.tsx
-src/ui.css
-src/ui.test.tsx
-README.md
-CHANGELOG.md
-```
-
-No component connection schema migration is required for version 1.
-
-If semantic tags, layout slots, or per-layout output preferences are persisted
-later, store them under a separately versioned layout namespace. Do not add them
-to `ConnectionMetadata`.
+- [x] Rewrite the layout-composer section of `project-brief.md` for the
+  inspection model.
+- [x] Add `docs/inspect-frame.md`: what Layout/Style show, how the connected
+  summary works, why instances are atomic, Design-mode value proposition.
+- [x] Move `layout-composer-preview.html` to `docs/archive/`.
+- [x] Changelog entry describing the pivot and the new behavior.
+- [ ] Release as a beta; collect real usage before considering any return
+  to code generation (a future "copy as TSX" affordance can be rebuilt from
+  git history if users ask for it).
 
 ## Definition of done
 
-- [ ] A supported selected frame generates valid React/TSX and CSS Modules.
-- [ ] Every connected descendant uses its saved Tashil component mapping.
-- [ ] Component internals are never emitted.
-- [ ] Imports are deduplicated and name conflicts are resolved.
-- [ ] Unsupported descendants produce valid placeholders and diagnostics.
-- [ ] Dev Mode returns TSX and CSS in native codegen blocks.
-- [ ] Inspect Code shows the same TSX, CSS, composition, and diagnostics.
-- [ ] Current single-component output remains backwards compatible.
-- [ ] Pure, adapter, integration, UI, and manual Figma tests pass.
-- [ ] `npm run typecheck` passes.
-- [ ] `npm test` passes.
-- [ ] `npm run lint` passes.
-- [ ] `npm run build` passes and generated manifest output is committed when it
-  changes.
-- [ ] User documentation and changelog are complete.
+- [x] Selecting any single node shows Layout and Style CSS in both Dev Mode
+  and Inspect Code, matching `getCSSAsync()` output.
+- [x] Variable-backed values pass through as `var(--token, fallback)`.
+- [x] Connected instance selection produces today's snippet output,
+  byte-for-byte.
+- [x] Frame selection lists its connected components; instance internals are
+  never traversed or emitted.
+- [x] Dev Mode and Inspect Code consume the same `FrameInspection`.
+- [x] Retired modules and superseded WIP wiring are removed.
+- [x] `npm run typecheck`, `npm test`, `npm run lint`, `npm run build` pass;
+  regenerated manifest committed when it changes.
+- [x] Documentation and changelog are complete.
+
+## Suggested implementation order
+
+1. Spike `getCSSAsync()` in both runtimes; freeze fixtures and the fallback
+   decision (Phase A). **Everything else depends on this.**
+2. Build the pure CSS inspection service (Phase B).
+3. Trim the extractor into the connected-instance enumerator; delete retired
+   modules (Phase C).
+4. Integrate Dev Mode, then Inspect Code, against the shared
+   `FrameInspection` (Phases D–E).
+5. Harden, test, document (Phases F–H).
+
+As before: do not build the Dev Mode and Inspect Code adapters
+independently — the shared inspection service must be complete before either
+surface gains formatting logic.
 
 ## References
 
 - [Figma codegen API](https://developers.figma.com/docs/plugins/api/figma-codegen/)
 - [Figma `CodegenResult`](https://developers.figma.com/docs/plugins/api/CodegenResult/)
+- [`getCSSAsync` on SceneNode](https://developers.figma.com/docs/plugins/api/properties/nodes-getcssasync/)
 - [Figma plugin manifest](https://developers.figma.com/docs/plugins/manifest/)

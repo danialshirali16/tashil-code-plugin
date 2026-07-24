@@ -40,6 +40,27 @@
         "value": "tashil-ui"
       }
     ],
+    "codegenPreferences": [
+      {
+        "itemType": "select",
+        "propertyName": "pathComments",
+        "label": "Layer path comments",
+        "options": [
+          {
+            "label": "Show",
+            "value": "show",
+            "isDefault": true
+          },
+          {
+            "label": "Hide",
+            "value": "hide"
+          }
+        ],
+        "includedLanguages": [
+          "tashil-ui"
+        ]
+      }
+    ],
     "networkAccess": {
       "allowedDomains": [
         "none"

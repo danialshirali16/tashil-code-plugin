@@ -104,7 +104,8 @@ src/codegen.ts <---- mapping data ---- src/mapping-editor.ts / mapping-document.
 | `src/mapping-editor.ts` / `src/mapping-document.ts` | Visual-mapping suggestions and compilation into the stable `propMappings` lookup table. |
 | `src/connection-health.ts` | Comparison of saved and current source/Figma snapshots. |
 | `src/codegen.ts` | Metadata validation/migration, mapped-prop resolution, imports, JSX, and diagnostics. |
-| `src/layout/` | A pure, tested layout-composer foundation: it extracts supported auto-layout structures into an intermediate representation and emits TSX plus CSS Modules. |
+| `src/inspect/` | Dev-Mode-parity inspection: partitions `getCSSAsync()` output into Layout and Style sections and enumerates a frame's connected component usages. |
+| `src/layout/` | Shared component-resolution plumbing kept from the layout composer: instance resolution, per-generation caches/limits, and import rendering. |
 | `src/types.ts` | Shared persisted schema, Figma-message contracts, and domain types. |
 
 The plugin and UI communicate through typed messages rather than the UI calling
@@ -131,22 +132,23 @@ Read [Visual prop mappings](prop-mapping.md) for the complete mapping contract
 and examples, and [Maintain a connection](maintain-connections.md) for the
 drift and reconciliation workflow.
 
-## Layout composer status
+## Frame inspection
 
-The repository contains a layout-composer implementation under `src/layout/`.
-It models supported Figma auto-layout frames, groups, connected component
-instances, and standalone text as a serializable layout document, then renders
-React/TSX and CSS Modules. Connected instances are atomic: their internal Figma
-layers are never traversed, and their existing component-codegen output is
-reused.
+Selecting any non-component layer behaves like Figma's own Dev Mode inspect
+panel, in both Dev Mode and the plugin's Inspect Code view: a **Layout** CSS
+section, a **Style** CSS section, and a **Connected components** list showing
+the Tashil usage code for every connected instance inside the selection. CSS
+comes from Figma's own `getCSSAsync()` and is passed through unmodified, so
+variable-backed values keep their `var(--token, fallback)` form. Connected
+instances stay atomic — their internals are never traversed — and unconnected
+or broken instances surface as notes instead of being silently dropped.
 
-Unsupported layout modes, grid, absolute-positioned children, unconnected
-instances, and unsupported layers become diagnostics and safe placeholders. The
-module is currently tested as an internal foundation; it is not yet wired into
-the Dev Mode `generate` handler or the Inspect Code UI. The intended rollout
-and supported-node contract are documented in
-[Layout Composer Roadmap](layout-composer-roadmap.md) and
-[Layout Composer Architecture Decisions](layout-composer-decisions.md).
+An earlier iteration generated full React/TSX plus CSS Modules for frame
+trees; it was deliberately retired in favor of this inspection model. See
+[Inspect a frame](inspect-frame.md) for the user guide,
+[Frame Inspection Roadmap](layout-composer-roadmap.md) for the plan, and
+[Layout Composer Architecture Decisions](layout-composer-decisions.md) (ADR D)
+for the rationale.
 
 ## Develop and verify
 

@@ -6,6 +6,23 @@ All notable changes to Tashil Code are documented in this file.
 
 ### Added
 
+- Added Dev-Mode-parity frame inspection in both Figma Dev Mode and Inspect
+  Code: selecting any layer shows its Layout and Style CSS (from Figma's own
+  CSS engine, with `var(--token, fallback)` values preserved) plus the usage
+  code of every connected component inside the selection.
+- Added a Connected components snippet with deduplicated imports and
+  root-relative `//./ …` source comments, toggleable via the new
+  "Layer path comments" Dev Mode codegen preference.
+- Added inspection diagnostics for unconnected, broken, and truncated
+  descendants, and graceful degradation when CSS is unavailable.
+- Added the [Inspect a frame](docs/inspect-frame.md) user guide.
+
+### Changed
+
+- Replaced the planned frame-to-TSX/CSS-Modules code generation with the
+  inspection model above; connected-component snippet output is unchanged.
+  Rationale recorded in ADR D of the layout-composer decisions document.
+
 - Added local `.ts` and `.tsx` source uploads with multi-file and drag-and-drop support.
 - Added automatic extraction of component props, literal-union values, runtime defaults, children, and icon slots.
 - Added a visual editor for mapping code props and values to compatible Figma component properties.

@@ -216,6 +216,10 @@ The native Dev Mode codegen result keeps references in a plaintext section.
 The plugin's **Inspect Code** tab presents valid Storybook and source URLs as
 browser actions and provides a separate copy action for the source path.
 
+You can also select a frame, group, or section containing component instances
+to inspect the frame's layout and style CSS alongside connected-component
+code. See [Inspect a frame](inspect-frame.md) for details.
+
 ## How Prop Mapping Works
 
 The plugin reads the selected component instance's Figma component properties.
