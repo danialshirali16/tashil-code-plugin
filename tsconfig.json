@@ -30,6 +30,7 @@
     "src/semantic/migrate.ts",
     "src/semantic/health.ts",
     "src/semantic/reconcile.ts",
+    "src/semantic/debug-bundle.ts",
     "src/semantic/fixtures.ts",
     "src/semantic/authoring.ts",
     "src/sync-tokens/types.ts",
