@@ -558,6 +558,13 @@ describe('Plugin rendered interactions', () => {
     expect(prompt).toBeTruthy();
     expect(screen.queryByText('Button.next.tsx')).toBeNull();
 
+    // The alertdialog moves focus to the safe "Keep current" choice.
+    await waitFor(() => {
+      expect(document.activeElement).toBe(
+        screen.getByRole('button', { name: 'Keep current' }),
+      );
+    });
+
     // Cancelling keeps the current source; confirming applies it.
     fireEvent.click(screen.getByRole('button', { name: 'Keep current' }));
     expect(screen.queryByText('Replace uploaded source?')).toBeNull();

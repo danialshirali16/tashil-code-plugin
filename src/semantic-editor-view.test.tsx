@@ -186,19 +186,19 @@ describe('SemanticMappingView', () => {
 
     expect(screen.getByText('Changes need review')).toBeTruthy();
 
-    // A safe remap offers Accept + Remove; a remove-only proposal offers only Remove.
-    const acceptButtons = screen.getAllByRole('button', { name: 'Accept remap' });
-    const removeButtons = screen.getAllByRole('button', { name: 'Remove mapping' });
-    expect(acceptButtons).toHaveLength(1);
-    expect(removeButtons).toHaveLength(2);
-
-    fireEvent.click(acceptButtons[0]);
+    // Each control has a unique accessible name naming its target, so a screen
+    // reader can distinguish otherwise-identical Accept/Remove buttons.
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Accept remap for confirmAction.label' }),
+    );
     expect(onApplyProposal).toHaveBeenCalledWith(
       expect.objectContaining({ bindingId: 'binding-confirm-label', kind: 'locator-moved' }),
       'accept',
     );
 
-    fireEvent.click(removeButtons[1]);
+    // The remove-only proposal exposes only a Remove action.
+    expect(screen.queryByRole('button', { name: 'Accept remap for title' })).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Remove mapping for title' }));
     expect(onApplyProposal).toHaveBeenCalledWith(
       expect.objectContaining({ bindingId: 'binding-title', kind: 'design-removed' }),
       'remove',

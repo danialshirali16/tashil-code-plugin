@@ -112,6 +112,7 @@ export function Plugin(): h.JSX.Element {
     semanticProposals,
     applySemanticProposal,
     isSourceReplacementPending,
+    sourceReplacementCancelRef,
     confirmSourceReplacement,
     cancelSourceReplacement,
     setCustomPropMappings,
@@ -349,6 +350,9 @@ export function Plugin(): h.JSX.Element {
             semanticProposals={semanticProposals}
             applySemanticProposal={applySemanticProposal}
             isSourceReplacementPending={isSourceReplacementPending}
+            sourceReplacementCancelRef={(element) => {
+              sourceReplacementCancelRef.current = element;
+            }}
             confirmSourceReplacement={confirmSourceReplacement}
             cancelSourceReplacement={cancelSourceReplacement}
             setSemanticOption={setSemanticOption}
@@ -703,6 +707,7 @@ function ConnectComponentView(props: {
     action: ReconciliationAction,
   ) => void;
   isSourceReplacementPending: boolean;
+  sourceReplacementCancelRef: (element: HTMLButtonElement | null) => void;
   confirmSourceReplacement: () => void;
   cancelSourceReplacement: () => void;
   setSemanticOption: (
@@ -857,7 +862,7 @@ function ConnectComponentView(props: {
                 <small>Replacing the source may change or invalidate your current mappings.</small>
                 <div class="connection-health-actions">
                   <button onClick={props.confirmSourceReplacement} type="button">Replace source</button>
-                  <button onClick={props.cancelSourceReplacement} type="button">Keep current</button>
+                  <button ref={props.sourceReplacementCancelRef} onClick={props.cancelSourceReplacement} type="button">Keep current</button>
                 </div>
               </div>
             ) : null}
