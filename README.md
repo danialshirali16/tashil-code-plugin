@@ -27,10 +27,47 @@ Only **Component name** and **Import path** are required. Storybook and source
 references are optional. Source parsing happens locally: the plugin saves the
 extracted prop schema and a content hash, never the uploaded source text.
 
+## Frame inspection
+
+When you select a frame, group, section, text, or vector in Figma Dev Mode
+(using the **Tashil UI** codegen language) or open **Inspect Code** in the
+plugin's Design mode, you see structural and visual CSS alongside connected
+component code:
+
+```css
+display: flex;
+flex-direction: column;
+padding: 12px var(--spacer-3, 1rem);
+gap: var(--spacer-2, 0.5rem);
+align-items: center;
+```
+
+```tsx
+import { Button } from "@tashilcar/ui";
+
+//./ Frame 1430105165 / Button
+<Button variant={"primary"}>
+  Submit
+</Button>
+```
+
+The **Layout** section shows structural CSS (display, flex-direction, gap,
+padding, alignment, sizing) from Figma's own CSS engine. **Style** shows
+visual CSS (background, border, radius, shadow) when present. **Connected
+components** lists ready-to-paste TypeScript for every connected instance
+inside the frame, with deduplicated imports and optional source comments per
+layer. Toggle source comments with the **Layer path comments** preference in
+Dev Mode's code panel settings. Unconnected or broken instances surface as
+diagnostics instead of being silently dropped.
+
+See [Inspect a frame](docs/inspect-frame.md) for the full guide.
+
 ## Documentation
 
 - [Project brief](docs/project-brief.md) — product scope, runtime flow,
-  architecture, privacy model, and layout-composer status.
+  architecture, privacy model, and frame-inspection status.
+- [Inspect a frame](docs/inspect-frame.md) — Layout/Style CSS sections and the
+  connected-components code list, in Dev Mode and Inspect Code.
 - [Connect a component](docs/connect-component.md) — setup from Figma selection
   to Dev Mode output.
 - [Visual prop mappings](docs/prop-mapping.md) — source/Figma mapping rules,
@@ -87,6 +124,7 @@ Import `manifest.json` in Figma from:
   authoring state and compilation to runtime JSON.
 - `src/codegen.ts` — generated imports, TSX, and mapping diagnostics.
 - `src/connection-health.ts` — source/Figma drift detection and health status.
-- `src/layout/` — tested, internal foundation for Figma auto-layout extraction
-  and TSX/CSS Modules emission; see the project brief for its current exposure
-  status.
+- `src/inspect/` — Dev-Mode-parity frame inspection: Layout/Style CSS
+  partitioning of `getCSSAsync()` output and connected-component enumeration.
+- `src/layout/` — shared component-resolution plumbing (instance resolution,
+  per-generation caches, import rendering) reused by inspection and codegen.

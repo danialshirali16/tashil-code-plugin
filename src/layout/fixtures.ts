@@ -6,9 +6,9 @@
  * read, cast `as unknown as <Node>`. They are the stable *inputs* every later
  * phase tests against; expected outputs live in `golden.test.ts`.
  *
- * No production runtime code imports this module. It exists so Phase 2's
- * `figma-layout-extractor.ts` and the test suite share one source of truth for
- * what a "vertical form" or "wrapping action row" looks like.
+ * No production runtime code imports this module. It exists so the inspection
+ * tests share one source of truth for what a "vertical form" or "wrapping
+ * action row" looks like.
  */
 
 import { CURRENT_SCHEMA_VERSION, type ConnectionMetadata } from '../types';

@@ -103,6 +103,52 @@ function createInstance(
   } as unknown as InstanceDouble;
 }
 
+type FrameDouble = FrameNode;
+
+type FrameOptions = {
+  layoutMode?: 'HORIZONTAL' | 'VERTICAL' | 'NONE';
+  itemSpacing?: number;
+  paddingTop?: number;
+  paddingRight?: number;
+  paddingBottom?: number;
+  paddingLeft?: number;
+  primaryAxisAlignItems?: 'MIN' | 'CENTER' | 'MAX' | 'SPACE_BETWEEN';
+  counterAxisAlignItems?: 'MIN' | 'CENTER' | 'MAX' | 'BASELINE';
+  layoutSizingHorizontal?: 'FIXED' | 'HUG' | 'FILL';
+  layoutSizingVertical?: 'FIXED' | 'HUG' | 'FILL';
+  width?: number;
+  /** When set, the double exposes `getCSSAsync` resolving to these declarations. */
+  css?: { [property: string]: string };
+};
+
+/** A FRAME double with the auto-layout fields the layout extractor reads. */
+function createFrame(
+  id: string,
+  name: string,
+  children: ReadonlyArray<SceneNode>,
+  options: FrameOptions = {},
+): FrameDouble {
+  return {
+    children: [...children],
+    id,
+    layoutMode: options.layoutMode ?? 'VERTICAL',
+    itemSpacing: options.itemSpacing ?? 0,
+    paddingTop: options.paddingTop ?? 0,
+    paddingRight: options.paddingRight ?? 0,
+    paddingBottom: options.paddingBottom ?? 0,
+    paddingLeft: options.paddingLeft ?? 0,
+    primaryAxisAlignItems: options.primaryAxisAlignItems ?? 'MIN',
+    counterAxisAlignItems: options.counterAxisAlignItems ?? 'MIN',
+    layoutSizingHorizontal: options.layoutSizingHorizontal ?? 'HUG',
+    layoutSizingVertical: options.layoutSizingVertical ?? 'HUG',
+    width: options.width ?? 320,
+    name,
+    parent: { type: 'PAGE' },
+    type: 'FRAME',
+    ...(options.css ? { getCSSAsync: vi.fn(() => Promise.resolve(options.css)) } : {}),
+  } as unknown as FrameDouble;
+}
+
 function createPage(
   id: string,
   name: string,
@@ -154,6 +200,7 @@ async function flushPromises(): Promise<void> {
 }
 
 async function startPlugin(): Promise<{
+  codegenCustomSettings: Record<string, string>;
   codegenEvents: Map<string, CodegenGenerateHandler>;
   figmaEvents: Map<string, () => void>;
   notify: ReturnType<typeof vi.fn>;
@@ -163,6 +210,7 @@ async function startPlugin(): Promise<{
   selection: SceneNode[];
 }> {
   const codegenEvents = new Map<string, CodegenGenerateHandler>();
+  const codegenCustomSettings: Record<string, string> = {};
   const figmaEvents = new Map<string, () => void>();
   const notify = vi.fn();
   const nodesById = new Map<string, BaseNode>();
@@ -194,6 +242,7 @@ async function startPlugin(): Promise<{
       on: vi.fn((name: string, handler: CodegenGenerateHandler) => {
         codegenEvents.set(name, handler);
       }),
+      preferences: { customSettings: codegenCustomSettings, unit: 'PIXEL' },
     },
     currentPage: { selection },
     getNodeByIdAsync: vi.fn((id: string) => Promise.resolve(nodesById.get(id) ?? null)),
@@ -211,6 +260,7 @@ async function startPlugin(): Promise<{
   plugin.default();
 
   return {
+    codegenCustomSettings,
     codegenEvents,
     figmaEvents,
     nodesById,
@@ -1302,12 +1352,14 @@ describe('persisted metadata reads', () => {
     await vi.waitFor(() => {
       expect(emittedPayloads<InspectCodeState>('INSPECT_CODE_STATE')).toContainEqual(
         expect.objectContaining({
-          references: {
-            sourcePath: metadata.sourcePath,
-            sourceUrl: metadata.sourceUrl,
-            storybookUrl: metadata.storybookUrl,
-            updatedAt: metadata.updatedAt,
-          },
+          output: expect.objectContaining({
+            references: {
+              sourcePath: metadata.sourcePath,
+              sourceUrl: metadata.sourceUrl,
+              storybookUrl: metadata.storybookUrl,
+              updatedAt: metadata.updatedAt,
+            },
+          }),
           status: 'connected',
         }),
       );
@@ -1345,9 +1397,11 @@ describe('persisted metadata reads', () => {
     await vi.waitFor(() => {
       expect(emittedPayloads<InspectCodeState>('INSPECT_CODE_STATE')).toContainEqual(
         expect.objectContaining({
-          references: expect.objectContaining({
-            sourceUrl: metadata.sourceUrl,
-            storybookUrl: metadata.storybookUrl,
+          output: expect.objectContaining({
+            references: expect.objectContaining({
+              sourceUrl: metadata.sourceUrl,
+              storybookUrl: metadata.storybookUrl,
+            }),
           }),
           status: 'connected',
         }),
@@ -1479,6 +1533,324 @@ describe('persisted metadata reads', () => {
         language: 'PLAINTEXT',
       }),
     ]);
+  });
+});
+
+describe('Dev Mode inspection codegen', () => {
+  it('returns Layout and Style CSS blocks plus a connected-components note for a frame', async () => {
+    const metadata: ConnectionMetadata = {
+      schemaVersion: CURRENT_SCHEMA_VERSION,
+      childrenMode: 'none',
+      componentName: 'Button',
+      importPath: '@tashilcar/ui',
+    };
+    const { codegenEvents } = await startPlugin();
+    const button = createComponent('c-button', 'Button', {
+      sharedPluginData: JSON.stringify(metadata),
+    });
+    const frame = createFrame('f-root', 'Payment form', [
+      createInstance('i-button', Promise.resolve(button)),
+    ], {
+      layoutMode: 'VERTICAL',
+      itemSpacing: 16,
+      css: {
+        display: 'flex',
+        'flex-direction': 'column',
+        gap: 'var(--spacer-3, 1rem)',
+        'border-bottom': '1px solid var(--color-border)',
+      },
+    });
+
+    const blocks = await codegenEvents.get('generate')?.({ node: frame });
+
+    const layout = blocks?.find((b) => b.title === 'Layout');
+    const style = blocks?.find((b) => b.title === 'Style');
+    const components = blocks?.find((b) => b.title === 'Connected components');
+    expect(layout).toMatchObject({ language: 'CSS' });
+    expect(layout?.code).toBe(
+      'display: flex;\nflex-direction: column;\ngap: var(--spacer-3, 1rem);',
+    );
+    expect(style).toMatchObject({ language: 'CSS' });
+    expect(style?.code).toBe('border-bottom: 1px solid var(--color-border);');
+    // The connected component's usage code — imports plus JSX with mapped
+    // props — appears in Dev Mode, with the layer path as a comment.
+    expect(components).toMatchObject({ language: 'TYPESCRIPT' });
+    expect(components?.code).toBe([
+      'import { Button } from "@tashilcar/ui";',
+      '',
+      '//./ i-button',
+      '<Button />',
+    ].join('\n'));
+  });
+
+  it('hides source comments when the Dev Mode preference is set to hide', async () => {
+    const metadata: ConnectionMetadata = {
+      schemaVersion: CURRENT_SCHEMA_VERSION,
+      childrenMode: 'none',
+      componentName: 'Button',
+      importPath: '@tashilcar/ui',
+    };
+    const { codegenEvents, codegenCustomSettings } = await startPlugin();
+    codegenCustomSettings['pathComments'] = 'hide';
+    const button = createComponent('c-button', 'Button', {
+      sharedPluginData: JSON.stringify(metadata),
+    });
+    const frame = createFrame('f-root', 'Payment form', [
+      createInstance('i-button', Promise.resolve(button)),
+    ], { css: { display: 'flex' } });
+
+    const blocks = await codegenEvents.get('generate')?.({ node: frame });
+
+    const components = blocks?.find((b) => b.title === 'Connected components');
+    expect(components?.code).toBe([
+      'import { Button } from "@tashilcar/ui";',
+      '',
+      '<Button />',
+    ].join('\n'));
+    expect(components?.code).not.toContain('//./');
+  });
+
+  it('deduplicates imports across connected components in the Dev Mode snippet', async () => {
+    const metadata: ConnectionMetadata = {
+      schemaVersion: CURRENT_SCHEMA_VERSION,
+      childrenMode: 'none',
+      componentName: 'Button',
+      importPath: '@tashilcar/ui',
+    };
+    const { codegenEvents } = await startPlugin();
+    const button = createComponent('c-button', 'Button', {
+      sharedPluginData: JSON.stringify(metadata),
+    });
+    const frame = createFrame('f-row', 'Bottom bar', [
+      createInstance('i-cancel', Promise.resolve(button)),
+      createInstance('i-submit', Promise.resolve(button)),
+    ], { css: { display: 'flex' } });
+
+    const blocks = await codegenEvents.get('generate')?.({ node: frame });
+
+    const components = blocks?.find((b) => b.title === 'Connected components');
+    const importLines = components?.code
+      .split('\n')
+      .filter((line) => line.startsWith('import '));
+    expect(importLines).toEqual(['import { Button } from "@tashilcar/ui";']);
+    expect(components?.code).toContain('//./ i-cancel');
+    expect(components?.code).toContain('//./ i-submit');
+    // Inspection is read-only: generating never writes plugin data.
+    expect(button.setSharedPluginData).not.toHaveBeenCalled();
+  });
+
+  it('omits the Style block when the node has no style declarations', async () => {
+    const { codegenEvents } = await startPlugin();
+    const frame = createFrame('f-plain', 'Plain', [], {
+      css: { display: 'flex', 'flex-direction': 'row' },
+    });
+
+    const blocks = await codegenEvents.get('generate')?.({ node: frame });
+
+    expect(blocks?.some((b) => b.title === 'Style')).toBe(false);
+    expect(blocks?.find((b) => b.title === 'Layout')?.code).toBe(
+      'display: flex;\nflex-direction: row;',
+    );
+  });
+
+  it('keeps connected-component output byte-identical (no layout branch)', async () => {
+    const metadata: ConnectionMetadata = {
+      schemaVersion: CURRENT_SCHEMA_VERSION,
+      childrenMode: 'none',
+      componentName: 'Button',
+      importPath: 'tashil-ui',
+    };
+    const { codegenEvents } = await startPlugin();
+    const component = createComponent('c-button', 'Button', {
+      sharedPluginData: JSON.stringify(metadata),
+    });
+
+    const blocks = await codegenEvents.get('generate')?.({ node: component });
+
+    // A connected component still returns a single TYPESCRIPT block — no CSS,
+    // no layout branch.
+    expect(blocks).toEqual([
+      expect.objectContaining({
+        code: expect.stringContaining('<Button'),
+        language: 'TYPESCRIPT',
+      }),
+    ]);
+    expect(blocks?.some((b) => b.language === 'CSS')).toBe(false);
+  });
+
+  it('inspects any node type — a vector gets its CSS, not a rejection', async () => {
+    const { codegenEvents } = await startPlugin();
+    const vector = {
+      id: 'v1',
+      name: 'Divider',
+      type: 'VECTOR',
+      parent: { type: 'PAGE' },
+      getCSSAsync: vi.fn(() => Promise.resolve({ width: '120px', fill: 'var(--color-border)' })),
+    } as unknown as SceneNode;
+
+    const blocks = await codegenEvents.get('generate')?.({ node: vector });
+
+    expect(blocks?.find((b) => b.title === 'Layout')?.code).toBe('width: 120px;');
+    expect(blocks?.find((b) => b.title === 'Style')?.code).toBe('fill: var(--color-border);');
+  });
+
+  it('inspects a non-auto-layout frame instead of rejecting it', async () => {
+    const { codegenEvents } = await startPlugin();
+    const noneFrame = createFrame('f-none', 'Absolute frame', [], {
+      layoutMode: 'NONE',
+      css: { width: '320px', height: '200px' },
+    });
+
+    const blocks = await codegenEvents.get('generate')?.({ node: noneFrame });
+
+    expect(blocks?.find((b) => b.title === 'Layout')?.code).toBe('width: 320px;\nheight: 200px;');
+    expect(blocks?.some((b) => b.language === 'PLAINTEXT')).toBe(false);
+  });
+
+  it('adds a Notes block when the runtime cannot produce CSS', async () => {
+    // No `css` option → the double has no getCSSAsync, mirroring a runtime
+    // without the API. The plugin degrades instead of failing.
+    const { codegenEvents } = await startPlugin();
+    const frame = createFrame('f-nocss', 'Panel', []);
+
+    const blocks = await codegenEvents.get('generate')?.({ node: frame });
+
+    const notes = blocks?.find((b) => b.title === 'Notes');
+    expect(notes?.language).toBe('PLAINTEXT');
+    expect(notes?.code).toContain('CSS inspection is not available');
+  });
+});
+
+describe('Inspect Code inspection state', () => {
+  it('emits { status: inspection } with CSS sections and connected components for a frame', async () => {
+    const metadata: ConnectionMetadata = {
+      schemaVersion: CURRENT_SCHEMA_VERSION,
+      childrenMode: 'none',
+      componentName: 'Button',
+      importPath: '@tashilcar/ui',
+    };
+    const { selection } = await startPlugin();
+    const button = createComponent('c-button', 'Button', {
+      sharedPluginData: JSON.stringify(metadata),
+    });
+    const frame = createFrame('f-root', 'Payment form', [
+      createInstance('i-button', Promise.resolve(button)),
+    ], {
+      layoutMode: 'VERTICAL',
+      itemSpacing: 16,
+      css: { display: 'flex', 'border-bottom': '1px solid var(--color-border)' },
+    });
+    selection.push(frame);
+
+    utilityMocks.handlers.get('REFRESH_SELECTION')?.(undefined);
+
+    await vi.waitFor(() => {
+      const states = emittedPayloads<InspectCodeState>('INSPECT_CODE_STATE');
+      expect(states).toContainEqual(
+        expect.objectContaining({ status: 'inspection' }),
+      );
+    });
+
+    const state = emittedPayloads<InspectCodeState>('INSPECT_CODE_STATE')
+      .find((s) => s.status === 'inspection') as Extract<InspectCodeState, { status: 'inspection' }>;
+    expect(state.inspection.nodeName).toBe('Payment form');
+    expect(state.inspection.nodeType).toBe('FRAME');
+    expect(state.inspection.css.layout).toEqual([{ property: 'display', value: 'flex' }]);
+    expect(state.inspection.css.style).toEqual([
+      { property: 'border-bottom', value: '1px solid var(--color-border)' },
+    ]);
+    expect(state.inspection.connectedComponents).toHaveLength(1);
+    expect(state.inspection.connectedComponents[0]).toMatchObject({
+      componentName: 'Button',
+      layerPath: ['Payment form', 'i-button'],
+    });
+    expect(state.inspection.connectedComponents[0].usage.jsx).toContain('<Button');
+  });
+
+  it('keeps a connected component emitting { status: connected, output }', async () => {
+    const metadata: ConnectionMetadata = {
+      schemaVersion: CURRENT_SCHEMA_VERSION,
+      childrenMode: 'none',
+      componentName: 'Button',
+      importPath: 'tashil-ui',
+    };
+    const { selection } = await startPlugin();
+    const component = createComponent('c-button', 'Button', {
+      sharedPluginData: JSON.stringify(metadata),
+    });
+    selection.push(component);
+
+    utilityMocks.handlers.get('REFRESH_SELECTION')?.(undefined);
+
+    await vi.waitFor(() => {
+      const states = emittedPayloads<InspectCodeState>('INSPECT_CODE_STATE');
+      expect(states).toContainEqual(
+        expect.objectContaining({
+          status: 'connected',
+          output: expect.objectContaining({ code: expect.stringContaining('<Button') }),
+        }),
+      );
+    });
+  });
+
+  it('discards a stale inspection when the selection changes mid-generation', async () => {
+    const { selection } = await startPlugin();
+    const slowCss = createDeferred<{ [key: string]: string }>();
+    const slowFrame = createFrame('f-slow', 'Slow frame', []);
+    (slowFrame as unknown as { getCSSAsync: () => Promise<{ [key: string]: string }> })
+      .getCSSAsync = () => slowCss.promise;
+    const fastFrame = createFrame('f-fast', 'Fast frame', [], {
+      css: { display: 'flex' },
+    });
+
+    // Start inspecting the slow frame, then switch selection before its CSS
+    // resolves. The stale result must never be published.
+    selection.push(slowFrame);
+    utilityMocks.handlers.get('REFRESH_SELECTION')?.(undefined);
+    selection.length = 0;
+    selection.push(fastFrame);
+    utilityMocks.handlers.get('REFRESH_SELECTION')?.(undefined);
+    slowCss.resolve({ display: 'grid' });
+
+    await vi.waitFor(() => {
+      const states = emittedPayloads<InspectCodeState>('INSPECT_CODE_STATE');
+      expect(states).toContainEqual(
+        expect.objectContaining({
+          status: 'inspection',
+          inspection: expect.objectContaining({ nodeName: 'Fast frame' }),
+        }),
+      );
+    });
+
+    const inspections = emittedPayloads<InspectCodeState>('INSPECT_CODE_STATE')
+      .filter((state) => state.status === 'inspection') as Array<
+        Extract<InspectCodeState, { status: 'inspection' }>
+      >;
+    expect(inspections.every((state) => state.inspection.nodeName === 'Fast frame')).toBe(true);
+  });
+
+  it('emits an inspection state for any node type, including a vector', async () => {
+    const { selection } = await startPlugin();
+    const vector = {
+      id: 'v1',
+      name: 'Divider',
+      type: 'VECTOR',
+      parent: { type: 'PAGE' },
+      getCSSAsync: vi.fn(() => Promise.resolve({ width: '120px' })),
+    } as unknown as SceneNode;
+    selection.push(vector);
+
+    utilityMocks.handlers.get('REFRESH_SELECTION')?.(undefined);
+
+    await vi.waitFor(() => {
+      const states = emittedPayloads<InspectCodeState>('INSPECT_CODE_STATE');
+      expect(states).toContainEqual(
+        expect.objectContaining({
+          status: 'inspection',
+          inspection: expect.objectContaining({ nodeType: 'VECTOR' }),
+        }),
+      );
+    });
   });
 });
 

@@ -727,11 +727,13 @@ describe('Plugin rendered interactions', () => {
     renderPlugin();
     const inspectState: InspectCodeState = {
       status: 'connected',
-      code: 'import { Button } from "tashil-ui";\n\n<Button />',
-      references: {
-        sourcePath: 'src/Button.tsx',
-        sourceUrl: 'https://github.example/components/Button.tsx',
-        storybookUrl: 'https://storybook.example/?path=/story/button',
+      output: {
+        code: 'import { Button } from "tashil-ui";\n\n<Button />',
+        references: {
+          sourcePath: 'src/Button.tsx',
+          sourceUrl: 'https://github.example/components/Button.tsx',
+          storybookUrl: 'https://storybook.example/?path=/story/button',
+        },
       },
     };
     receive('INSPECT_CODE_STATE', inspectState);
@@ -758,12 +760,14 @@ describe('Plugin rendered interactions', () => {
     renderPlugin();
     receive('INSPECT_CODE_STATE', {
       status: 'connected',
-      code: [
-        '<Button',
-        '  color={"primary"}',
-        '  renderLeftIcon={<Icon name="chevron-left" />}',
-        '/>',
-      ].join('\n'),
+      output: {
+        code: [
+          '<Button',
+          '  color={"primary"}',
+          '  renderLeftIcon={<Icon name="chevron-left" />}',
+          '/>',
+        ].join('\n'),
+      },
     });
     fireEvent.click(screen.getByRole('tab', { name: 'Inspect Code' }));
 
@@ -779,6 +783,110 @@ describe('Plugin rendered interactions', () => {
       Array.from(nestedLine?.querySelectorAll('.syntax-expression') || [])
         .map((token) => token.textContent),
     ).toEqual(['{', '}']);
+  });
+
+  it('renders the inspection view with Layout, Style, and connected components', () => {
+    renderPlugin();
+    const inspectionState: InspectCodeState = {
+      status: 'inspection',
+      inspection: {
+        nodeName: 'Payment form',
+        nodeType: 'FRAME',
+        css: {
+          layout: [
+            { property: 'display', value: 'flex' },
+            { property: 'gap', value: 'var(--spacer-3, 1rem)' },
+          ],
+          style: [
+            { property: 'border-bottom', value: '1px solid var(--color-border)' },
+          ],
+        },
+        connectedComponents: [
+          {
+            nodeId: 'i-button',
+            layerPath: ['Payment form', 'Button / Submit'],
+            componentName: 'Button',
+            usage: {
+              imports: [
+                { importedName: 'Button', localName: 'Button', modulePath: '@tashilcar/ui' },
+              ],
+              jsx: '<Button variant={"primary"} />',
+              diagnostics: [],
+            },
+          },
+        ],
+        diagnostics: [],
+      },
+    };
+    receive('INSPECT_CODE_STATE', inspectionState);
+    fireEvent.click(screen.getByRole('tab', { name: 'Inspect Code' }));
+
+    // Header card: node name, type, component count.
+    expect(screen.getByText('Inspecting')).toBeTruthy();
+    expect(screen.getByRole('heading', { name: 'Payment form', level: 2 })).toBeTruthy();
+    expect(screen.getByText('FRAME')).toBeTruthy();
+
+    // Layout and Style sections render the partitioned CSS with copy actions.
+    expect(screen.getByText('Layout')).toBeTruthy();
+    expect(screen.getByText('Style')).toBeTruthy();
+    expect(screen.getByRole('button', { name: /Copy Layout CSS/ })).toBeTruthy();
+    expect(screen.getByRole('button', { name: /Copy Style CSS/ })).toBeTruthy();
+    const content = document.querySelector('.inspect-content')!;
+    expect(content.textContent).toContain('display: flex;');
+    expect(content.textContent).toContain('gap: var(--spacer-3, 1rem);');
+    expect(content.textContent).toContain('border-bottom: 1px solid var(--color-border);');
+
+    // Connected component entry: layer path and byte-identical snippet.
+    expect(screen.getByRole('heading', { name: 'Connected components', level: 3 })).toBeTruthy();
+    expect(screen.getByText('Payment form / Button / Submit')).toBeTruthy();
+    expect(content.textContent).toContain('import { Button } from "@tashilcar/ui";');
+    expect(content.textContent).toContain('<Button');
+    expect(screen.getByRole('button', { name: /Copy Button/ })).toBeTruthy();
+  });
+
+  it('renders structured diagnostics with severity in the inspection view', () => {
+    renderPlugin();
+    receive('INSPECT_CODE_STATE', {
+      status: 'inspection',
+      inspection: {
+        nodeName: 'Card',
+        nodeType: 'FRAME',
+        css: { layout: [{ property: 'display', value: 'flex' }], style: [] },
+        connectedComponents: [],
+        diagnostics: [
+          { severity: 'info', reason: 'unconnected-instance', message: '"Chip" is not connected to a production component.' },
+          { severity: 'warning', reason: 'missing-main-component', message: '"Badge" has no main component.' },
+        ],
+      },
+    } as InspectCodeState);
+    fireEvent.click(screen.getByRole('tab', { name: 'Inspect Code' }));
+
+    expect(screen.getByText('"Chip" is not connected to a production component.')).toBeTruthy();
+    expect(screen.getByText('"Badge" has no main component.')).toBeTruthy();
+    // The Notes section renders; a Style section with no declarations does not.
+    expect(screen.getByText('Notes')).toBeTruthy();
+    expect(screen.queryByText('Style')).toBeNull();
+  });
+
+  it('omits CSS sections and shows the css-unavailable note when Figma returns no CSS', () => {
+    renderPlugin();
+    receive('INSPECT_CODE_STATE', {
+      status: 'inspection',
+      inspection: {
+        nodeName: 'Old runtime',
+        nodeType: 'GROUP',
+        css: { layout: [], style: [] },
+        connectedComponents: [],
+        diagnostics: [
+          { severity: 'warning', reason: 'css-unavailable', message: 'CSS inspection is not available for this node in the current Figma runtime.' },
+        ],
+      },
+    } as InspectCodeState);
+    fireEvent.click(screen.getByRole('tab', { name: 'Inspect Code' }));
+
+    expect(screen.queryByText('Layout')).toBeNull();
+    expect(screen.queryByText('Style')).toBeNull();
+    expect(screen.getByText(/CSS inspection is not available/)).toBeTruthy();
   });
 
   it('blocks a scaffold request while a save is pending on the same selection, then allows it once the save resolves', () => {

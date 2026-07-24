@@ -132,6 +132,57 @@ Dev Mode adapter / Inspect Code adapter  (strings only)
 - A failure in one descendant does not discard otherwise usable layout code.
 - Generated TSX and CSS are always syntactically valid.
 
+## D. Dev-Mode-parity pivot (2026-07-24)
+
+**Decision:** retire the tree codegen product path (TSX + CSS Modules for a
+selected frame tree, Phases 0–5 of the original roadmap) and replace it with
+Dev-Mode-parity inspection: the selected node's **Layout** and **Style** CSS
+sections plus **Connected component** information. See the rewritten
+[`layout-composer-roadmap.md`](layout-composer-roadmap.md).
+
+### Why
+
+- Generated full-tree TSX over-commits the developer: invented wrappers,
+  class names, and file scaffolding fight the target codebase's conventions
+  and are usually discarded. The values developers actually copy are the CSS
+  declarations (with design tokens) and the connected component usage.
+- Tree-shaped generation carried the project's largest hardening surface
+  (naming collisions, import aliasing, placeholder contracts, depth/node
+  limits, fuzzing). Single-node inspection is O(1) and removes it.
+- The plugin's differentiators are: Inspect Code brings Dev-Mode-like CSS to
+  Design-mode seats; CSS and the Tashil snippet appear in one combined view;
+  variable-backed values surface as `var(--token, fallback)`.
+
+### CSS source of truth
+
+`node.getCSSAsync()` — the same CSS Figma's native inspect panel shows,
+including bound variables. The plugin partitions its output into Layout and
+Style buckets with an explicit property table (roadmap §"Layout / Style
+partition") and otherwise passes it through unmodified. We do not rebuild
+Figma's CSS serializer.
+
+Desk verification (2026-07-24, `@figma/plugin-typings` 1.130.0):
+`getCSSAsync()` is declared on `SceneNodeMixin` — every scene node — as a
+stable API (no `enableProposedApi`), and the manifest's `editorType` already
+includes both `figma` and `dev`. Remaining in-Figma spike items: confirm
+Design-mode output matches Dev Mode per node type, and confirm
+variable-backed values emit `var(--name, fallback)` in this file setup.
+
+### What survives / what is retired
+
+Kept: `codegen.ts` component usage (byte-compatible contract in Section B),
+`figma-component-resolver.ts`, `generation-context.ts` caches and limits, and
+the extractor's traversal + instance-boundary rules (trimmed into a
+connected-instance enumerator). Retired from the product: `tsx-emitter.ts`,
+`css-module-emitter.ts`, `imports.ts`, `naming.ts`, the composition-node IR,
+and `GeneratedLayout` (replaced by `FrameInspection`). Section A's matrix and
+Section C's `GeneratedLayout`-era invariants describe the retired path and
+are kept for historical context; the roadmap's "Required invariants" section
+is now authoritative.
+
+Instance atomicity is unchanged and non-negotiable: connected and unconnected
+instance internals are never traversed or emitted.
+
 ## Phase 0 artifacts
 
 - This document (Sections A–C) — supported matrix + refactor decision + IR

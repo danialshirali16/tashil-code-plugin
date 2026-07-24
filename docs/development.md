@@ -66,6 +66,8 @@ jsdom; plugin-side tests cover Figma API behavior with local test doubles.
 | `src/mapping-document.ts` | Compilation of editor state into runtime `propMappings` JSON. |
 | `src/connection-health.ts` | Source and Figma drift analysis. |
 | `src/codegen.ts` | TSX generation, legacy metadata migration, and diagnostics. |
+| `src/inspect/` | Dev-Mode-parity frame inspection: Layout/Style CSS partitioning and connected-component enumeration. |
+| `src/layout/` | Shared component-resolution plumbing: instance resolution, caches, and import rendering. |
 | `src/types.ts` | Shared messages, persisted schema, and domain types. |
 | `docs/` | Product and contributor documentation. |
 

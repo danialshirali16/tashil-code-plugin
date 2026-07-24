@@ -11,6 +11,10 @@ import {
 } from './codegen';
 import { normalizeHttpUrl, normalizeOptionalHttpUrl } from './external-url';
 import { createReactPropIdentifier } from './prop-mappings';
+import { formatCssBlock } from './inspect/css-partition';
+import { formatConnectedComponentsSnippet } from './inspect/usage-snippet';
+import { inspectFrame, type InspectableNode } from './inspect/inspect-frame';
+import type { FrameInspection, InspectionDiagnostic } from './inspect/types';
 import {
   CONNECTION_KEY,
   CONNECTION_NAMESPACE,
@@ -117,51 +121,24 @@ export default function (): void {
   });
 }
 
-figma.codegen.on('generate', async (event) => {
+figma.codegen.on('generate', async (event) => generateCodegenBlocks(event.node));
+
+/**
+ * Produce Dev Mode codegen blocks for a selected node. A connected component
+ * (instance/component/component-set) follows the existing single-component
+ * branch, byte-identical to before. Every other node gets Dev-Mode-parity
+ * inspection: a Layout CSS block, a Style CSS block, and a connected-components
+ * note — the roadmap's Phase D contract.
+ */
+async function generateCodegenBlocks(node: SceneNode): Promise<CodegenBlock[]> {
   try {
-    const selection = await resolveSelection(event.node);
+    const selection = await resolveSelection(node);
 
-    if (!selection) {
-      return [
-        createPlainTextBlock(
-          'Storybook Connect',
-          'Select a component instance or main component to view usage code.',
-        ),
-      ];
+    if (selection) {
+      return generateComponentCodegenBlocks(selection);
     }
 
-    const connection = readConnectionMetadata(selection.mainComponent);
-
-    if (!connection.ok) {
-      return [
-        createPlainTextBlock(
-          'Storybook Connect',
-          connection.message,
-        ),
-      ];
-    }
-
-    const usage = createUsageSnippet(connection.metadata, selection);
-    const blocks: CodegenBlock[] = [
-      {
-        title: connection.metadata.componentName,
-        language: 'TYPESCRIPT',
-        code: usage.code,
-      },
-    ];
-    const diagnostics = formatMappingDiagnostics(usage.diagnostics);
-
-    if (diagnostics) {
-      blocks.push(createPlainTextBlock('Mapping diagnostics', diagnostics));
-    }
-
-    const references = createReferenceText(connection.metadata);
-
-    if (references) {
-      blocks.push(createPlainTextBlock('References', references));
-    }
-
-    return blocks;
+    return generateInspectionBlocks(await inspectSceneNode(node));
   } catch (error) {
     return [
       createPlainTextBlock(
@@ -170,7 +147,105 @@ figma.codegen.on('generate', async (event) => {
       ),
     ];
   }
-});
+}
+
+/** Existing connected-component branch, unchanged in output. */
+function generateComponentCodegenBlocks(selection: ResolvedSelection): CodegenBlock[] {
+  const connection = readConnectionMetadata(selection.mainComponent);
+
+  if (!connection.ok) {
+    return [
+      createPlainTextBlock(
+        'Storybook Connect',
+        connection.message,
+      ),
+    ];
+  }
+
+  const usage = createUsageSnippet(connection.metadata, selection);
+  const blocks: CodegenBlock[] = [
+    {
+      title: connection.metadata.componentName,
+      language: 'TYPESCRIPT',
+      code: usage.code,
+    },
+  ];
+  const diagnostics = formatMappingDiagnostics(usage.diagnostics);
+
+  if (diagnostics) {
+    blocks.push(createPlainTextBlock('Mapping diagnostics', diagnostics));
+  }
+
+  const references = createReferenceText(connection.metadata);
+
+  if (references) {
+    blocks.push(createPlainTextBlock('References', references));
+  }
+
+  return blocks;
+}
+
+/** Inspect any single scene node through the shared inspection service. */
+async function inspectSceneNode(node: SceneNode): Promise<FrameInspection> {
+  return inspectFrame(node as unknown as InspectableNode);
+}
+
+/**
+ * The Dev Mode "Layer path comments" codegen preference (manifest
+ * `codegenPreferences`). Defaults to shown; only an explicit "hide" turns the
+ * `//./ …` source comments off. Guarded because `figma.codegen.preferences`
+ * only exists in the Dev Mode runtime.
+ */
+function readPathCommentsPreference(): boolean {
+  try {
+    return figma.codegen.preferences?.customSettings?.['pathComments'] !== 'hide';
+  } catch (_error) {
+    return true;
+  }
+}
+
+/**
+ * Render a {@link FrameInspection} as Dev Mode blocks: Layout CSS, Style CSS
+ * (omitted when empty), a Connected components TypeScript snippet with
+ * deduplicated imports and per-usage layer-path comments, and diagnostics.
+ */
+function generateInspectionBlocks(inspection: FrameInspection): CodegenBlock[] {
+  const blocks: CodegenBlock[] = [];
+
+  const layoutCss = formatCssBlock(inspection.css.layout);
+  if (layoutCss) {
+    blocks.push({ title: 'Layout', language: 'CSS', code: layoutCss });
+  }
+
+  const styleCss = formatCssBlock(inspection.css.style);
+  if (styleCss) {
+    blocks.push({ title: 'Style', language: 'CSS', code: styleCss });
+  }
+
+  if (inspection.connectedComponents.length > 0) {
+    blocks.push({
+      title: 'Connected components',
+      language: 'TYPESCRIPT',
+      code: formatConnectedComponentsSnippet(inspection.connectedComponents, {
+        pathComments: readPathCommentsPreference(),
+      }),
+    });
+  }
+
+  const diagnostics = formatInspectionDiagnostics(inspection.diagnostics);
+  if (diagnostics) {
+    blocks.push(createPlainTextBlock('Notes', diagnostics));
+  }
+
+  if (blocks.length === 0) {
+    blocks.push(createPlainTextBlock(
+      'Tashil Code',
+      `"${inspection.nodeName}" has no CSS to show.`,
+    ));
+  }
+
+  return blocks;
+}
 
 async function saveConnection(
   metadata: ConnectionMetadata,
@@ -830,7 +905,19 @@ async function sendSelectionState(
       ? readConnectionMetadata(selection.mainComponent)
       : null;
     const state = createCanvasTargetState(selectedNodes, selection, connection);
-    const inspectState = createInspectCodeState(selectedNodes, selection, connection);
+    const inspectState = await createInspectCodeState(
+      selectedNodes,
+      selectedNode,
+      selection,
+      connection,
+    );
+
+    // Re-check after the async inspection (getCSSAsync + instance resolution):
+    // a newer selection may have started meanwhile. Discard stale Inspect Code
+    // results so a slow inspection never overwrites the current selection.
+    if (!isCurrentSelectionRefresh(requestId, selectedNodes)) {
+      return;
+    }
 
     emitCanvasTargetState(source, state);
     emit<InspectCodeStateHandler>('INSPECT_CODE_STATE', inspectState);
@@ -892,57 +979,60 @@ function matchesCurrentSelection(selectedNodes: ReadonlyArray<SceneNode>): boole
     && currentSelection.every((node, index) => node.id === selectedNodes[index].id);
 }
 
-function createInspectCodeState(
+async function createInspectCodeState(
   selectedNodes: ReadonlyArray<SceneNode>,
+  selectedNode: SceneNode | null,
   selection: ResolvedSelection | null,
   connection: ConnectionReadResult | null,
-): InspectCodeState {
+): Promise<InspectCodeState> {
   if (selectedNodes.length === 0) {
     return { status: 'invalid-selection' };
   }
-
-  const selectedNode = selectedNodes[0];
 
   if (selectedNodes.length > 1) {
     return {
       status: 'invalid-selection',
       message: [
         `${selectedNodes.length} layers selected.`,
-        'Select a single component instance, main component, or component set.',
+        'Select a single layer to inspect its layout, style, and connected components.',
       ].join('\n'),
     };
   }
 
-  if (!selection) {
-    return {
-      status: 'invalid-selection',
-      message: [
-        `"${selectedNode.name}" (${selectedNode.type}) is not connectable.`,
-        'Select a single component instance, main component, or component set.',
-      ].join('\n'),
-    };
-  }
-
-  if (!connection || !connection.ok) {
-    if (connection?.issue) {
-      return {
-        status: 'connection-issue',
-        connectionIssue: connection.issue,
-        message: connection.message,
-      };
+  // Connected component path (instance / component / component-set).
+  if (selection) {
+    if (!connection || !connection.ok) {
+      if (connection?.issue) {
+        return {
+          status: 'connection-issue',
+          connectionIssue: connection.issue,
+          message: connection.message,
+        };
+      }
+      return { status: 'not-connected' };
     }
 
-    return { status: 'not-connected' };
+    const usage = createUsageSnippet(connection.metadata, selection);
+    return {
+      status: 'connected',
+      output: {
+        code: usage.code,
+        diagnostics: formatMappingDiagnostics(usage.diagnostics) || undefined,
+        references: createConnectionReferences(connection.metadata),
+      },
+    };
   }
 
-  const usage = createUsageSnippet(connection.metadata, selection);
+  // Inspection path: any other single node gets Dev-Mode-parity Layout/Style
+  // CSS plus its connected components — the same FrameInspection Dev Mode uses.
+  if (selectedNode) {
+    return {
+      status: 'inspection',
+      inspection: await inspectSceneNode(selectedNode),
+    };
+  }
 
-  return {
-    status: 'connected',
-    code: usage.code,
-    diagnostics: formatMappingDiagnostics(usage.diagnostics),
-    references: createConnectionReferences(connection.metadata),
-  };
+  return { status: 'invalid-selection' };
 }
 
 function createCanvasTargetState(
@@ -1270,4 +1360,26 @@ function createPlainTextBlock(title: string, code: string): CodegenBlock {
     language: 'PLAINTEXT',
     code,
   };
+}
+
+/**
+ * Render inspection diagnostics as a concise plaintext block for Dev Mode. Each
+ * line is the diagnostic message, prefixed with its severity. Layer paths are
+ * included to make the note actionable. Returns null when there are none.
+ */
+function formatInspectionDiagnostics(diagnostics: readonly InspectionDiagnostic[]): string | null {
+  if (diagnostics.length === 0) {
+    return null;
+  }
+  return diagnostics
+    .map((diagnostic) => {
+      const severity = diagnostic.severity === 'error'
+        ? '⛔'
+        : diagnostic.severity === 'warning'
+          ? '⚠️'
+          : 'ℹ️';
+      const path = diagnostic.layerPath?.length ? ` (${diagnostic.layerPath.join(' / ')})` : '';
+      return `${severity} ${diagnostic.message}${path}`;
+    })
+    .join('\n');
 }

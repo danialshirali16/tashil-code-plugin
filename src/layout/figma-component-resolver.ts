@@ -28,7 +28,6 @@ import {
 } from './generation-context';
 import type {
   ComponentCompositionNode,
-  ComponentUsage,
   LayoutDiagnostic,
   PlaceholderCompositionNode,
 } from './types';
@@ -78,6 +77,16 @@ export async function resolveInstance(
   }
 
   const connectionTarget = getConnectionTarget(mainComponent);
+
+  // Read raw connection data once, cached per connection target so a shared main
+  // component is read and parsed at most once per generation (the performance
+  // invariant Phase 6 verifies). Only successful parses are cached; the
+  // unconnected/invalid reason is always determinable from the raw read below.
+  const cachedConnection = context.getCachedConnection(connectionTarget.id);
+  if (cachedConnection?.ok) {
+    return buildComponentNode(instance, connectionTarget, cachedConnection, layerPath);
+  }
+
   const rawConnection = readSharedPluginData(connectionTarget);
 
   // No persisted data → unconnected (info), distinct from a broken connection.
@@ -92,7 +101,6 @@ export async function resolveInstance(
   }
 
   const connection = readConnection(connectionTarget, context, rawConnection);
-
   if (!connection.ok) {
     return placeholder(instance.id, layerPath, 'invalid-connection', {
       severity: 'warning',
@@ -103,10 +111,23 @@ export async function resolveInstance(
     });
   }
 
-  const selection = buildSelectionLike(instance, mainComponent, connectionTarget);
-  let usage: ComponentUsage;
+  return buildComponentNode(instance, connectionTarget, connection, layerPath);
+}
+
+/** Build the success-case component node, isolating the createComponentUsage call. */
+function buildComponentNode(
+  instance: InstanceLike,
+  mainComponent: ComponentNode,
+  connection: Extract<ConnectionReadResult, { ok: true }>,
+  layerPath: string[],
+): ResolvedInstance {
+  const selection = buildSelectionLike(instance, mainComponent);
   try {
-    usage = createComponentUsage(connection.metadata, selection);
+    const usage = createComponentUsage(connection.metadata, selection);
+    return {
+      kind: 'component',
+      node: { kind: 'component', nodeId: instance.id, layerPath, usage },
+    };
   } catch (_error) {
     return placeholder(instance.id, layerPath, 'invalid-connection', {
       severity: 'error',
@@ -116,16 +137,6 @@ export async function resolveInstance(
       layerPath,
     });
   }
-
-  return {
-    kind: 'component',
-    node: {
-      kind: 'component',
-      nodeId: instance.id,
-      layerPath,
-      usage,
-    },
-  };
 }
 
 async function resolveMainComponent(
@@ -147,20 +158,15 @@ async function resolveMainComponent(
 }
 
 /**
- * Read + validate persisted connection metadata, cached per node id. Mirrors
- * `main.ts`'s private `readConnectionMetadata` / `parsePersistedConnectionMetadata`.
- * `raw` is the non-empty string already read from shared plugin data.
+ * Parse + cache persisted connection metadata. `raw` is the non-empty string
+ * already read from shared plugin data. The cache check happens in the caller
+ * (`resolveInstance`); this function always parses and stores the result.
  */
 function readConnection(
   component: ComponentNode,
   context: GenerationContext,
   raw: string,
 ): ConnectionReadResult {
-  const cached = context.getCachedConnection(component.id);
-  if (cached) {
-    return cached;
-  }
-
   const result: ConnectionReadResult = parseConnectionMetadata(raw);
   context.cacheConnection(component.id, result);
   return result;
@@ -199,12 +205,15 @@ function parseConnectionMetadata(raw: string): ConnectionReadResult {
  */
 function buildSelectionLike(
   instance: InstanceLike,
-  mainComponent: ComponentNode,
-  connectionTarget: ComponentNode,
+  _mainComponent: ComponentNode,
 ): ResolvedSelectionLike {
-  const componentProperties = collectProperties(instance, mainComponent, connectionTarget);
+  // ponytail: the standalone-selection path in main.ts merges variant properties
+  // from the main component and connection target. The layout path uses only the
+  // instance's own resolved properties, since an instance inside a layout already
+  // carries its effective values. Upgrade if a connected instance inside a layout
+  // needs the same parent-property fallback.
   return {
-    componentProperties,
+    componentProperties: collectProperties(instance),
     displayText: getDisplayText(instance),
     instanceSwaps: collectInstanceSwaps(instance),
   };
@@ -212,17 +221,11 @@ function buildSelectionLike(
 
 function collectProperties(
   instance: InstanceLike,
-  ..._sources: ComponentNode[]
 ): Record<string, string | boolean> {
   const properties: Record<string, string | boolean> = {};
   for (const [rawName, property] of Object.entries(instance.componentProperties)) {
     properties[normalizePropertyName(rawName)] = property.value;
   }
-  // ponytail: the standalone-selection path in main.ts also merges variant
-  // properties from the main component and connection target. The layout path
-  // intentionally uses only the instance's own resolved properties, since an
-  // instance inside a layout already carries its effective values. Upgrade if a
-  // connected instance inside a layout needs the same parent-property fallback.
   return properties;
 }
 

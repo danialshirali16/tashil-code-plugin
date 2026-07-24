@@ -44,6 +44,9 @@ import {
   type ResizeWindowHandler,
   type UiTargetState,
 } from './types';
+import { formatCssBlock } from './inspect/css-partition';
+import { formatUsageSnippet } from './inspect/usage-snippet';
+import type { FrameInspection } from './inspect/types';
 
 const REFERENCE_ICONS = {
   source: 'data:image/svg+xml;base64,PHN2ZyBwcmVzZXJ2ZUFzcGVjdFJhdGlvPSJub25lIiB3aWR0aD0iMTAwJSIgaGVpZ2h0PSIxMDAlIiBvdmVyZmxvdz0idmlzaWJsZSIgc3R5bGU9ImRpc3BsYXk6IGJsb2NrOyIgdmlld0JveD0iMCAwIDE2IDE2IiBmaWxsPSJub25lIiB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciPgo8ZyBpZD0iR3JvdXAgMSI+CjxwYXRoIGlkPSJWZWN0b3IiIGQ9Ik0wLjMzNDQ5MiA4LjgwNzU1Qy0wLjExMTQ5NyA4LjM2MTU1IC0wLjExMTQ5NyA3LjYzODQ2IDAuMzM0NDkyIDcuMTkyNDZMNy4xOTI0NiAwLjMzNDQ5MkM3LjYzODQ2IC0wLjExMTQ5NyA4LjM2MTU1IC0wLjExMTQ5NyA4LjgwNzU1IDAuMzM0NDkyTDE1LjY2NTUgNy4xOTI0NkMxNi4xMTE1IDcuNjM4NDYgMTYuMTExNSA4LjM2MTU1IDE1LjY2NTUgOC44MDc1NUw4LjgwNzU1IDE1LjY2NTVDOC4zNjE1NSAxNi4xMTE1IDcuNjM4NDYgMTYuMTExNSA3LjE5MjQ2IDE1LjY2NTVMMC4zMzQ0OTIgOC44MDc1NVoiIGZpbGw9IiNFRTUxM0IiLz4KPHBhdGggaWQ9IlZlY3Rvcl8yIiBkPSJNNS43OTk0NCAxLjc0OTQzTDUuMTA0OTggMi40NDM5MUw2Ljg5ODY0IDQuMjM3NTdDNi44MjYwNyA0LjM5MzI0IDYuNzg1NTUgNC41NjY4NiA2Ljc4NTU1IDQuNzQ5OTRDNi43ODU1NSA1LjI2OTcxIDcuMTEyMTIgNS43MTMxOSA3LjU3MTI3IDUuODg2MzlWMTAuMjc0MkM3LjExMjEyIDEwLjQ0NzQgNi43ODU1NSAxMC44OTA5IDYuNzg1NTUgMTEuNDEwNkM2Ljc4NTU1IDEyLjA4MTMgNy4zMjkyMSAxMi42MjQ5IDcuOTk5ODQgMTIuNjI0OUM4LjY3MDQ3IDEyLjYyNDkgOS4yMTQxMyAxMi4wODEzIDkuMjE0MTMgMTEuNDEwNkM5LjIxNDEzIDEwLjkzOTQgOC45NDU3MyAxMC41MzA5IDguNTUzNDQgMTAuMzI5NlY1Ljg5MjM5TDEwLjI2OCA3LjYwNjk3QzEwLjE5OSA3Ljc1OTQ4IDEwLjE2MDYgNy45Mjg4IDEwLjE2MDYgOC4xMDcwOEMxMC4xNjA2IDguNzc3NzEgMTAuNzA0MiA5LjMyMTM3IDExLjM3NDkgOS4zMjEzN0MxMi4wNDU1IDkuMzIxMzcgMTIuNTg5MiA4Ljc3NzcxIDEyLjU4OTIgOC4xMDcwOEMxMi41ODkyIDcuNDM2NDUgMTIuMDQ1NSA2Ljg5Mjc5IDExLjM3NDkgNi44OTI3OUMxMS4yNDQ1IDYuODkyNzkgMTEuMTE5IDYuOTEzMzEgMTEuMDAxMyA2Ljk1MTMxTDkuMTU5OSA1LjEwOTg4QzkuMTk1MTUgNC45OTYxNiA5LjIxNDEzIDQuODc1MjUgOS4yMTQxMyA0Ljc0OTk0QzkuMjE0MTMgNC4wNzkyOSA4LjY3MDQ3IDMuNTM1NjQgNy45OTk4NCAzLjUzNTY0QzcuODc0NTIgMy41MzU2NCA3Ljc1MzY3IDMuNTU0NjMgNy42Mzk5IDMuNTg5ODhMNS43OTk0NCAxLjc0OTQzWiIgZmlsbD0id2hpdGUiLz4KPC9nPgo8L3N2Zz4=',
@@ -909,16 +912,18 @@ function InspectCodeView(props: {
   inspectCodeState: InspectCodeState;
   onGoToConnect: () => void;
 }): h.JSX.Element {
-  if (props.inspectCodeState.status === 'invalid-selection') {
+  const { inspectCodeState } = props;
+
+  if (inspectCodeState.status === 'invalid-selection') {
     return (
       <EmptyInspectState
         icon={<IconInteractionClickSmall48 />}
-        label={props.inspectCodeState.message || 'Select a component'}
+        label={inspectCodeState.message || 'Select a layer to inspect it'}
       />
     );
   }
 
-  if (props.inspectCodeState.status === 'not-connected') {
+  if (inspectCodeState.status === 'not-connected') {
     return (
       <EmptyInspectState
         actionLabel="Go to Connect Component"
@@ -929,29 +934,110 @@ function InspectCodeView(props: {
     );
   }
 
-  if (props.inspectCodeState.status === 'connection-issue') {
+  if (inspectCodeState.status === 'connection-issue') {
     return (
       <EmptyInspectState
         icon={<IconDetach48 />}
-        label={props.inspectCodeState.message || 'Stored connection needs attention'}
+        label={inspectCodeState.message || 'Stored connection needs attention'}
       />
     );
   }
 
+  if (inspectCodeState.status === 'inspection') {
+    return <InspectionView inspection={inspectCodeState.inspection} />;
+  }
+
+  // status === 'connected' — a single connected component.
+  const output = inspectCodeState.output;
   return (
     <main aria-labelledby="tashil-inspect-code-heading" class="inspect-content">
       <h1 class="visually-hidden" id="tashil-inspect-code-heading">Inspect code</h1>
       <CodeBlock
-        code={props.inspectCodeState.code || ''}
+        code={output.code}
         title="Code"
       />
-      {props.inspectCodeState.diagnostics ? (
+      {output.diagnostics ? (
         <CodeBlock
-          code={props.inspectCodeState.diagnostics}
+          code={output.diagnostics}
           title="Mapping diagnostics"
         />
       ) : null}
-      <ConnectionReferencesPanel references={props.inspectCodeState.references || {}} />
+      <ConnectionReferencesPanel references={output.references || {}} />
+    </main>
+  );
+}
+
+/**
+ * Dev-Mode-parity inspection view: the selected node's Layout and Style CSS
+ * sections plus its connected components with copyable usage snippets.
+ */
+function InspectionView(props: { inspection: FrameInspection }): h.JSX.Element {
+  const { inspection } = props;
+  const layoutCss = formatCssBlock(inspection.css.layout);
+  const styleCss = formatCssBlock(inspection.css.style);
+  const componentCount = inspection.connectedComponents.length;
+
+  return (
+    <main aria-labelledby="tashil-inspect-code-heading" class="inspect-content">
+      <h1 class="visually-hidden" id="tashil-inspect-code-heading">Inspect code</h1>
+
+      <section class="layout-card" aria-labelledby="tashil-inspection-name">
+        <div class="layout-card-topline">
+          <div>
+            <div class="eyebrow">Inspecting</div>
+            <h2 class="layout-card-name" id="tashil-inspection-name">{inspection.nodeName}</h2>
+          </div>
+          <span class="layout-status-pill">{inspection.nodeType}</span>
+        </div>
+        <div class="layout-summary-row">
+          <span>Connected components</span>
+          <span class="layout-summary-value">
+            {componentCount === 0 ? 'None' : componentCount}
+          </span>
+        </div>
+      </section>
+
+      {layoutCss ? <CodeBlock code={layoutCss} title="Layout" copyLabel="Copy Layout CSS" /> : null}
+      {styleCss ? <CodeBlock code={styleCss} title="Style" copyLabel="Copy Style CSS" /> : null}
+
+      {componentCount > 0 ? (
+        <section class="layout-section" aria-labelledby="tashil-inspection-components-heading">
+          <h3 class="layout-section-heading" id="tashil-inspection-components-heading">
+            Connected components
+          </h3>
+          <ul class="inspect-entries">
+            {inspection.connectedComponents.map((entry) => (
+              <li key={entry.nodeId} class="inspect-entry">
+                <div class="inspect-entry-path">{entry.layerPath.join(' / ')}</div>
+                <CodeBlock
+                  code={formatUsageSnippet(entry.usage)}
+                  title={entry.componentName}
+                  copyLabel={`Copy ${entry.componentName}`}
+                />
+              </li>
+            ))}
+          </ul>
+        </section>
+      ) : null}
+
+      {inspection.diagnostics.length > 0 ? (
+        <section class="layout-section" aria-labelledby="tashil-inspection-notes-heading">
+          <h3 class="layout-section-heading" id="tashil-inspection-notes-heading">Notes</h3>
+          <ul class="layout-diagnostics">
+            {inspection.diagnostics.map((diagnostic, index) => (
+              <li
+                key={index}
+                class={`layout-diagnostic layout-diagnostic-${diagnostic.severity}`}
+              >
+                <span class="layout-diagnostic-icon" aria-hidden="true">
+                  {diagnostic.severity === 'error' ? '⛔' : diagnostic.severity === 'warning' ? '⚠️' : 'ℹ️'}
+                </span>
+                <span class="layout-diagnostic-message">{diagnostic.message}</span>
+              </li>
+            ))}
+          </ul>
+        </section>
+      ) : null}
     </main>
   );
 }
@@ -1147,20 +1233,33 @@ function IconDetach48(): h.JSX.Element {
   );
 }
 
-function CodeBlock(props: { code: string; title: string }): h.JSX.Element {
+function CodeBlock(props: {
+  code: string;
+  title: string;
+  /** Label for the copy button; defaults to the title. */
+  copyLabel?: string;
+  /** Optional explicit region label (defaults to `${title} code, horizontally scrollable`). */
+  regionLabel?: string;
+}): h.JSX.Element {
   const lines = props.code.length > 0 ? props.code.split('\n') : [''];
   const headingId = props.title === 'Code'
     ? 'tashil-generated-code-heading'
-    : 'tashil-mapping-diagnostics-heading';
-  const regionLabel = props.title === 'Code'
-    ? 'Generated TSX code, horizontally scrollable'
-    : 'Prop mapping diagnostics, horizontally scrollable';
+    : props.title === 'Mapping diagnostics'
+      ? 'tashil-mapping-diagnostics-heading'
+      : `tashil-code-heading-${props.title.toLowerCase()}`;
+  const regionLabel = props.regionLabel
+    ?? (props.title === 'Code'
+      ? 'Generated TSX code, horizontally scrollable'
+      : props.title === 'Mapping diagnostics'
+        ? 'Prop mapping diagnostics, horizontally scrollable'
+        : `${props.title} code, horizontally scrollable`);
+  const copyLabel = props.copyLabel ?? props.title;
 
   return (
     <section class="code-section">
       <div class="code-section-header">
         <h2 class="code-section-heading" id={headingId}>{props.title}</h2>
-        <CopyButton text={props.code} title={props.title} />
+        <CopyButton text={props.code} title={copyLabel} />
       </div>
       <pre aria-label={regionLabel} class="code-block" role="region" tabIndex={0}>
         <code>
