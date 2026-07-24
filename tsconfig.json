@@ -18,6 +18,21 @@
     "src/layout/types.ts",
     "src/layout/imports.ts",
     "src/layout/generation-context.ts",
-    "src/layout/figma-component-resolver.ts"
+    "src/layout/figma-component-resolver.ts",
+    "src/semantic/types.ts",
+    "src/semantic/figma-adapter.ts",
+    "src/semantic/schema.ts",
+    "src/semantic/flags.ts",
+    "src/semantic/source-contract.ts",
+    "src/semantic/figma-extractor.ts",
+    "src/semantic/usage-ir.ts",
+    "src/semantic/resolver.ts",
+    "src/semantic/migrate.ts",
+    "src/semantic/health.ts",
+    "src/semantic/reconcile.ts",
+    "src/semantic/fixtures.ts",
+    "src/semantic/authoring.ts",
+    "src/sync-tokens/types.ts",
+    "src/sync-tokens/serialize.ts"
   ]
 }

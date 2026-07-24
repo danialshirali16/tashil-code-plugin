@@ -32,6 +32,7 @@ const EMPTY_FORM: ConnectionFormValues = {
   importPath: '',
   mappingDocument: '',
   propMappings: '',
+  semanticRecipe: '',
   sourcePath: '',
   sourceUrl: '',
   storybookUrl: '',

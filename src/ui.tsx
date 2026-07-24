@@ -1,6 +1,9 @@
 import {
   Button,
+  Checkbox,
   Container,
+  Disclosure,
+  Divider,
   IconBackwardSmall24,
   IconCheck24,
   IconButton,
@@ -9,10 +12,13 @@ import {
   IconHelp16,
   IconNewTab24,
   IconTimeSmall24,
+  RadioButtons,
   render,
   Stack,
   Text,
   Textbox,
+  TextboxNumeric,
+  Toggle,
   useWindowResize,
   VerticalSpace,
 } from '@create-figma-plugin/ui';
@@ -23,6 +29,13 @@ import '!./ui.css';
 import type { ConnectionHealth } from './connection-health';
 import { normalizeHttpUrl } from './external-url';
 import { MappingEditorView } from './mapping-editor-view';
+import { SemanticMappingView } from './semantic-editor-view';
+import { SEMANTIC_CONNECT_AUTHORING_ENABLED } from './semantic/flags';
+import type {
+  ReconciliationAction,
+  ReconciliationProposal,
+} from './semantic/reconcile';
+import type { SemanticConnectionRecipe } from './semantic/types';
 import { copyToClipboard } from './ui-clipboard';
 import { useConnectionController } from './ui-controller';
 import {
@@ -44,6 +57,12 @@ import {
   type ResizeWindowHandler,
   type UiTargetState,
 } from './types';
+import type {
+  ColorFormat,
+  ExportOptions,
+  NameStyle,
+  TokenCollectionSummary,
+} from './sync-tokens/types';
 import { formatCssBlock } from './inspect/css-partition';
 import { formatUsageSnippet } from './inspect/usage-snippet';
 import type { FrameInspection } from './inspect/types';
@@ -55,7 +74,7 @@ const REFERENCE_ICONS = {
 
 export function Plugin(): h.JSX.Element {
   const [view, setView] = useState<'connect' | 'help'>('connect');
-  const [workflowTab, setWorkflowTab] = useState<'connect' | 'generate'>('connect');
+  const [workflowTab, setWorkflowTab] = useState<'connect' | 'generate' | 'sync-tokens'>('connect');
   const [inventoryFilter, setInventoryFilter] = useState<
     'all' | 'not-connected' | 'connected'
   >('all');
@@ -89,12 +108,26 @@ export function Plugin(): h.JSX.Element {
     targetOrigin,
     targetState,
     targetStatusAnnouncement,
+    semanticRecipe,
+    semanticProposals,
+    applySemanticProposal,
+    isSourceReplacementPending,
+    confirmSourceReplacement,
+    cancelSourceReplacement,
     setCustomPropMappings,
     setFormField,
     setMappedProperty,
     setMappedValue,
+    setSemanticOption,
     statusMessage,
     uploadSourceFiles,
+    tokenCollections,
+    tokenCollectionsStatus,
+    tokenCollectionsError,
+    tokensExportStatus,
+    tokensExportError,
+    loadTokenCollections,
+    exportTokens,
   } = useConnectionController();
 
   function handleOpenInventoryTarget(targetToken: string): void {
@@ -138,7 +171,12 @@ export function Plugin(): h.JSX.Element {
 
   // WAI-ARIA tabs pattern: Arrow keys move between tabs, Home/End jump to the ends.
   function handleTabKeyDown(event: h.JSX.TargetedKeyboardEvent<HTMLDivElement>): void {
-    const tabs: Array<'connect' | 'generate'> = ['connect', 'generate'];
+    const tabs: Array<'connect' | 'generate' | 'sync-tokens'> = ['connect', 'generate', 'sync-tokens'];
+    const tabIds: Record<typeof workflowTab, string> = {
+      connect: 'tashil-tab-connect',
+      generate: 'tashil-tab-generate',
+      'sync-tokens': 'tashil-tab-sync-tokens',
+    };
     const currentIndex = tabs.indexOf(workflowTab);
 
     let nextIndex: number | null = null;
@@ -159,8 +197,7 @@ export function Plugin(): h.JSX.Element {
     event.preventDefault();
     const nextTab = tabs[nextIndex];
     setWorkflowTab(nextTab);
-    const tabId = nextTab === 'connect' ? 'tashil-tab-connect' : 'tashil-tab-generate';
-    document.getElementById(tabId)?.focus();
+    document.getElementById(tabIds[nextTab])?.focus();
   }
 
   function openHelp(): void {
@@ -221,6 +258,18 @@ export function Plugin(): h.JSX.Element {
                   type="button"
                 >
                   Inspect Code
+                </button>
+                <button
+                  aria-controls="tashil-tabpanel-sync-tokens"
+                  aria-selected={workflowTab === 'sync-tokens'}
+                  class={workflowTab === 'sync-tokens' ? 'reference-tab reference-tab-active' : 'reference-tab'}
+                  id="tashil-tab-sync-tokens"
+                  onClick={() => setWorkflowTab('sync-tokens')}
+                  role="tab"
+                  tabIndex={workflowTab === 'sync-tokens' ? 0 : -1}
+                  type="button"
+                >
+                  Sync Tokens
                 </button>
               </div>
             )}
@@ -296,6 +345,13 @@ export function Plugin(): h.JSX.Element {
             setImportPath={(value) => setFormField('importPath', value)}
             setMappedProperty={setMappedProperty}
             setMappedValue={setMappedValue}
+            semanticRecipe={semanticRecipe}
+            semanticProposals={semanticProposals}
+            applySemanticProposal={applySemanticProposal}
+            isSourceReplacementPending={isSourceReplacementPending}
+            confirmSourceReplacement={confirmSourceReplacement}
+            cancelSourceReplacement={cancelSourceReplacement}
+            setSemanticOption={setSemanticOption}
             reconcileFigma={reconcileFigma}
             removeStaleMapping={removeStaleMapping}
             setPropMappings={(value) => setFormField('propMappings', value)}
@@ -335,6 +391,24 @@ export function Plugin(): h.JSX.Element {
           <InspectCodeView
             inspectCodeState={inspectCodeState}
             onGoToConnect={() => setWorkflowTab('connect')}
+          />
+        </div>
+      ) : null}
+      {view === 'connect' && workflowTab === 'sync-tokens' ? (
+        <div
+          aria-labelledby="tashil-tab-sync-tokens"
+          class="tabpanel"
+          id="tashil-tabpanel-sync-tokens"
+          role="tabpanel"
+        >
+          <SyncTokensView
+            collections={tokenCollections}
+            collectionsStatus={tokenCollectionsStatus}
+            collectionsError={tokenCollectionsError}
+            exportStatus={tokensExportStatus}
+            exportError={tokensExportError}
+            onLoadCollections={loadTokenCollections}
+            onExport={exportTokens}
           />
         </div>
       ) : null}
@@ -622,6 +696,20 @@ function ConnectComponentView(props: {
     sourceValue: string | number | boolean,
     figmaValue: string,
   ) => void;
+  semanticRecipe?: SemanticConnectionRecipe;
+  semanticProposals: ReconciliationProposal[];
+  applySemanticProposal: (
+    proposal: ReconciliationProposal,
+    action: ReconciliationAction,
+  ) => void;
+  isSourceReplacementPending: boolean;
+  confirmSourceReplacement: () => void;
+  cancelSourceReplacement: () => void;
+  setSemanticOption: (
+    targetPath: readonly string[],
+    optionId: string,
+    staticValue?: string | number | boolean,
+  ) => void;
   reconcileFigma: () => void;
   removeStaleMapping: (sourcePropName: string) => void;
   setPropMappings: (value: string) => void;
@@ -760,6 +848,35 @@ function ConnectComponentView(props: {
               scaffoldPending={props.pendingOperation === 'scaffold'}
               sourceUploading={props.isSourceUploading}
             />
+
+            {props.isSourceReplacementPending ? (
+              <div class="connection-health connection-health-needs-review" role="alertdialog" aria-labelledby="tashil-replace-source-heading">
+                <div class="connection-health-heading">
+                  <strong id="tashil-replace-source-heading">Replace uploaded source?</strong>
+                </div>
+                <small>Replacing the source may change or invalidate your current mappings.</small>
+                <div class="connection-health-actions">
+                  <button onClick={props.confirmSourceReplacement} type="button">Replace source</button>
+                  <button onClick={props.cancelSourceReplacement} type="button">Keep current</button>
+                </div>
+              </div>
+            ) : null}
+
+            {SEMANTIC_CONNECT_AUTHORING_ENABLED ? (
+              <SemanticMappingView
+                componentName={props.componentName}
+                disabled={!props.isReady || props.pendingOperation !== undefined}
+                error={props.fieldErrors.semanticRecipe}
+                figmaSnapshot={props.targetState.status === 'ready'
+                  ? props.targetState.figmaSnapshot
+                  : undefined}
+                importPath={props.importPath}
+                onApplyProposal={props.applySemanticProposal}
+                onOptionChange={props.setSemanticOption}
+                proposals={props.semanticProposals}
+                recipe={props.semanticRecipe}
+              />
+            ) : null}
           </div>
           {props.errorMessage ? (
             <Fragment>
@@ -908,6 +1025,292 @@ function EmptyComponentSelectionState(props: { message: string }): h.JSX.Element
   );
 }
 
+/**
+ * Sync Tokens tab: pick which Variable collections to export as CSS, with
+ * advanced settings (mode, px→rem, color format, name style). Export delivers
+ * one CSS file per collection, zipped when there are several.
+ */
+function SyncTokensView(props: {
+  collections: readonly TokenCollectionSummary[];
+  collectionsStatus: 'idle' | 'loading' | 'error';
+  collectionsError: string;
+  exportStatus: 'idle' | 'exporting' | 'error';
+  exportError: string;
+  onLoadCollections: () => void;
+  onExport: (collectionIds: readonly string[], options: ExportOptions) => void;
+}): h.JSX.Element {
+  const {
+    collections,
+    collectionsStatus,
+    collectionsError,
+    exportStatus,
+    exportError,
+    onLoadCollections,
+    onExport,
+  } = props;
+
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  // Per-collection selected mode ids. Empty = "default mode only".
+  const [modesByCollection, setModesByCollection] = useState<Record<string, Set<string>>>({});
+  const [query, setQuery] = useState('');
+  const [convertPxToRem, setConvertPxToRem] = useState(true);
+  const [rootFontSize, setRootFontSize] = useState<number>(16);
+  const [colorFormat, setColorFormat] = useState<ColorFormat>('hex');
+  const [nameStyle, setNameStyle] = useState<NameStyle>('kebab');
+  const [advancedOpen, setAdvancedOpen] = useState(false);
+
+  // Load once on mount.
+  useEffect(() => {
+    if (collections.length === 0 && collectionsStatus === 'idle') {
+      onLoadCollections();
+    }
+  }, []); // ponytail: mount-only; status read at fire time, not a dep.
+
+  const busy = collectionsStatus === 'loading' || exportStatus === 'exporting';
+
+  function toggleCollection(id: string): void {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) {
+        next.delete(id);
+      } else {
+        next.add(id);
+      }
+      return next;
+    });
+  }
+
+  function selectAll(): void {
+    setSelected((prev) =>
+      prev.size === filteredCollections.length ? new Set() : new Set(filteredCollections.map((c) => c.id)),
+    );
+  }
+
+  function modesFor(collection: TokenCollectionSummary): Set<string> {
+    const chosen = modesByCollection[collection.id];
+    if (chosen && chosen.size > 0) {
+      return chosen;
+    }
+    return new Set([collection.defaultModeId]);
+  }
+
+  function toggleMode(collectionId: string, modeId: string): void {
+    setModesByCollection((prev) => {
+      const current = new Set(prev[collectionId] ?? []);
+      if (current.has(modeId)) {
+        current.delete(modeId);
+      } else {
+        current.add(modeId);
+      }
+      return { ...prev, [collectionId]: current };
+    });
+  }
+
+  function handleExport(): void {
+    if (selected.size === 0) {
+      return;
+    }
+    const payloadModes: Record<string, readonly string[]> = {};
+    for (const collection of collections) {
+      if (selected.has(collection.id)) {
+        payloadModes[collection.id] = [...modesFor(collection)];
+      }
+    }
+    onExport([...selected], {
+      modesByCollection: payloadModes,
+      convertPxToRem,
+      rootFontSize: rootFontSize > 0 ? rootFontSize : 16,
+      colorFormat,
+      nameStyle,
+    });
+  }
+
+  if (collections.length === 0) {
+    if (collectionsStatus === 'error') {
+      return (
+        <EmptyInspectState
+          actionLabel="Retry"
+          icon={<IconDetach48 />}
+          label={collectionsError || 'Could not load variable collections.'}
+          onAction={onLoadCollections}
+        />
+      );
+    }
+    return (
+      <EmptyInspectState
+        icon={<IconFolder24 />}
+        label={busy ? 'Loading collections…' : 'No variable collections in this file.'}
+      />
+    );
+  }
+
+  const needle = query.trim().toLowerCase();
+  const filteredCollections = needle.length === 0
+    ? collections
+    : collections.filter((c) => c.name.toLowerCase().includes(needle));
+  const allSelected = filteredCollections.length > 0
+    && filteredCollections.every((c) => selected.has(c.id));
+  const selectedTokenCount = collections
+    .filter((c) => selected.has(c.id))
+    .reduce((sum, c) => sum + c.tokenCount, 0);
+
+  return (
+    <main aria-labelledby="tashil-sync-tokens-heading" class="inspect-content">
+      <h1 class="visually-hidden" id="tashil-sync-tokens-heading">Sync tokens</h1>
+      <Container space="medium">
+        <VerticalSpace space="medium" />
+        <Stack space="medium">
+          <section>
+            <div class="sync-tokens-section-header">
+              <Text>Collections</Text>
+              {selected.size > 0 ? (
+                <Text>
+                  {selected.size} selected · {selectedTokenCount} variables
+                </Text>
+              ) : null}
+            </div>
+            <VerticalSpace space="small" />
+            {collections.length > 4 ? (
+              <Textbox
+                onInput={(event: h.JSX.TargetedEvent<HTMLInputElement>) =>
+                  setQuery(event.currentTarget.value)
+                }
+                placeholder="Filter collections"
+                value={query}
+              />
+            ) : null}
+            <div class="sync-tokens-section-header">
+              <button
+                class="sync-tokens-link-button"
+                onClick={selectAll}
+                type="button"
+              >
+                {allSelected ? 'Clear all' : 'Select all'}
+              </button>
+            </div>
+            <VerticalSpace space="small" />
+            {filteredCollections.length === 0 ? (
+              <Text>No collections match “{query}”.</Text>
+            ) : (
+              <div class="sync-tokens-collection-list">
+                {filteredCollections.map((collection, index) => (
+                  <Fragment key={collection.id}>
+                    {index > 0 ? <Divider /> : null}
+                    <div class="sync-tokens-collection-row">
+                      <div class="sync-tokens-collection-main">
+                        <Checkbox
+                          onValueChange={() => toggleCollection(collection.id)}
+                          value={selected.has(collection.id)}
+                        >
+                          <span class="sync-tokens-collection-name">{collection.name}</span>
+                          <span class="sync-tokens-count">({collection.tokenCount})</span>
+                        </Checkbox>
+                      </div>
+                      {collection.modes.length > 1 ? (
+                        <div class="sync-tokens-modes">
+                          {collection.modes.map((mode) => {
+                            const active = modesFor(collection).has(mode.modeId);
+                            return (
+                              <button
+                                class={`sync-tokens-chip${active ? ' sync-tokens-chip-active' : ''}`}
+                                key={mode.modeId}
+                                onClick={() => toggleMode(collection.id, mode.modeId)}
+                                type="button"
+                              >
+                                {mode.name}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      ) : null}
+                    </div>
+                  </Fragment>
+                ))}
+              </div>
+            )}
+          </section>
+
+          <Disclosure
+            onClick={() => setAdvancedOpen((prev) => !prev)}
+            open={advancedOpen}
+            title="Advanced settings"
+          >
+            <Text align="center">Advanced settings</Text>
+          </Disclosure>
+          {advancedOpen ? (
+            <Container space="small">
+              <Stack space="medium">
+                <Toggle
+                  onValueChange={setConvertPxToRem}
+                  value={convertPxToRem}
+                >
+                  Convert px to rem (length-scoped variables only)
+                </Toggle>
+
+                {convertPxToRem ? (
+                  <Field id="tashil-root-font-size" label="Root font size (px)">
+                    <TextboxNumeric
+                      onNumericValueInput={(value) =>
+                        setRootFontSize(value === null ? 16 : value)
+                      }
+                      minimum={1}
+                      integer
+                      value={String(rootFontSize)}
+                    />
+                  </Field>
+                ) : null}
+
+                <Field id="tashil-color-format" label="Color format">
+                  <RadioButtons
+                    direction="horizontal"
+                    onValueChange={(value) => setColorFormat(value as ColorFormat)}
+                    options={[
+                      { value: 'hex', children: 'HEX' },
+                      { value: 'rgb', children: 'RGB' },
+                      { value: 'rgba', children: 'RGBA' },
+                      { value: 'variable', children: 'Variable' },
+                    ]}
+                    value={colorFormat}
+                  />
+                </Field>
+
+                <Field id="tashil-name-style" label="Token name style">
+                  <RadioButtons
+                    direction="horizontal"
+                    onValueChange={(value) => setNameStyle(value as NameStyle)}
+                    options={[
+                      { value: 'kebab', children: 'color-text' },
+                      { value: 'slash', children: 'color/text' },
+                      { value: 'snake', children: 'color_text' },
+                      { value: 'pascal', children: 'ColorText' },
+                    ]}
+                    value={nameStyle}
+                  />
+                </Field>
+              </Stack>
+            </Container>
+          ) : null}
+
+          {exportStatus === 'error' && exportError ? (
+            <div class="field-error" role="alert">{exportError}</div>
+          ) : null}
+          {collectionsStatus === 'error' && collectionsError ? (
+            <div class="field-error" role="alert">{collectionsError}</div>
+          ) : null}
+
+          <Button
+            disabled={selected.size === 0 || busy}
+            onClick={handleExport}
+          >
+            {exportStatus === 'exporting' ? 'Exporting…' : `Export ${selected.size || ''}`.trim()}
+          </Button>
+        </Stack>
+        <VerticalSpace space="medium" />
+      </Container>
+    </main>
+  );
+}
+
 function InspectCodeView(props: {
   inspectCodeState: InspectCodeState;
   onGoToConnect: () => void;
@@ -956,10 +1359,22 @@ function InspectCodeView(props: {
         code={output.code}
         title="Code"
       />
+      {output.runtimeRequirements ? (
+        <CodeBlock
+          code={output.runtimeRequirements}
+          title="Set in application"
+        />
+      ) : null}
       {output.diagnostics ? (
         <CodeBlock
           code={output.diagnostics}
           title="Mapping diagnostics"
+        />
+      ) : null}
+      {output.explanation ? (
+        <CodeBlock
+          code={output.explanation}
+          title="Why this structure?"
         />
       ) : null}
       <ConnectionReferencesPanel references={output.references || {}} />

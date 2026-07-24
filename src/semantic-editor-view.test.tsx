@@ -1,0 +1,223 @@
+/** @vitest-environment jsdom */
+
+import { cleanup, fireEvent, render, screen } from '@testing-library/preact';
+import { h } from 'preact';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { SemanticMappingView } from './semantic-editor-view';
+import { createRecipeDraft, setTargetOption } from './semantic/authoring';
+import { extractFigmaSemanticSnapshot } from './semantic/figma-extractor';
+import { DIALOG_SOURCE_FIXTURE, createDialogNode } from './semantic/fixtures';
+import { extractSourceContract } from './semantic/source-contract';
+import type { FigmaComponentSnapshot } from './types';
+
+function createDialogFigmaSnapshot(): FigmaComponentSnapshot {
+  return {
+    componentId: '1:23',
+    componentName: 'Dialog',
+    properties: [
+      {
+        defaultValue: 'Danger',
+        id: 'prop-intent',
+        name: 'intent',
+        options: ['Danger', 'Default'],
+        rawKey: 'intent',
+        type: 'VARIANT',
+      },
+    ],
+  };
+}
+
+function createDialogRecipeDraft() {
+  const contractResult = extractSourceContract([
+    { contents: DIALOG_SOURCE_FIXTURE, fileName: 'confirmation-dialog.tsx' },
+  ]);
+  if (!contractResult.ok) {
+    throw new Error(contractResult.message);
+  }
+  const semanticSnapshot = extractFigmaSemanticSnapshot(createDialogNode(), '1:23').snapshot;
+  return createRecipeDraft(contractResult.contract, createDialogFigmaSnapshot(), semanticSnapshot);
+}
+
+afterEach(cleanup);
+
+describe('SemanticMappingView', () => {
+  it('renders grouped code targets as the primary column with one control each', () => {
+    render(
+      <SemanticMappingView
+        componentName="ConfirmationDialog"
+        disabled={false}
+        figmaSnapshot={createDialogFigmaSnapshot()}
+        importPath="@tashilcar/ui"
+        onOptionChange={vi.fn()}
+        recipe={createDialogRecipeDraft()}
+      />,
+    );
+
+    expect(screen.getByText('Implementation mapping')).toBeTruthy();
+    expect(screen.getByText('Content')).toBeTruthy();
+    expect(screen.getByText('Variants & states')).toBeTruthy();
+    expect(screen.getByText('Actions')).toBeTruthy();
+    expect(screen.getByText('Application behavior')).toBeTruthy();
+    expect(screen.getByText('confirmAction.label')).toBeTruthy();
+
+    const control = screen.getByLabelText('Value for confirmAction.label');
+    expect((control as HTMLSelectElement).value).toContain('Primary action');
+  });
+
+  it('shows the structural mismatch note as information, not an error', () => {
+    render(
+      <SemanticMappingView
+        componentName="ConfirmationDialog"
+        disabled={false}
+        figmaSnapshot={createDialogFigmaSnapshot()}
+        importPath="@tashilcar/ui"
+        onOptionChange={vi.fn()}
+        recipe={createDialogRecipeDraft()}
+      />,
+    );
+
+    expect(screen.getByRole('note').textContent).toContain(
+      'The Figma layers and the code structure differ.',
+    );
+  });
+
+  it('renders the inline generated-code preview from captured samples', () => {
+    render(
+      <SemanticMappingView
+        componentName="ConfirmationDialog"
+        disabled={false}
+        figmaSnapshot={createDialogFigmaSnapshot()}
+        importPath="@tashilcar/ui"
+        onOptionChange={vi.fn()}
+        recipe={createDialogRecipeDraft()}
+      />,
+    );
+
+    const preview = screen.getByLabelText('Generated semantic usage preview');
+    expect(preview.textContent).toContain('<ConfirmationDialog');
+    expect(preview.textContent).toContain('title={"Delete account?"}');
+    expect(preview.textContent).toContain('onConfirm={undefined /* Set in application. */}');
+    expect(preview.textContent).not.toContain('Dialog.Header');
+  });
+
+  it('reports unresolved required targets and forwards control changes', () => {
+    const onOptionChange = vi.fn();
+    const figmaSnapshot = createDialogFigmaSnapshot();
+    const recipe = setTargetOption(createDialogRecipeDraft(), figmaSnapshot, ['title'], '');
+
+    render(
+      <SemanticMappingView
+        componentName="ConfirmationDialog"
+        disabled={false}
+        figmaSnapshot={figmaSnapshot}
+        importPath="@tashilcar/ui"
+        onOptionChange={onOptionChange}
+        recipe={recipe}
+      />,
+    );
+
+    expect(screen.getByText(/Map, set, or mark "title" before saving/).textContent)
+      .toContain('required');
+
+    const control = screen.getByLabelText('Value for title') as HTMLSelectElement;
+    fireEvent.input(control, { target: { value: 'runtime' } });
+    expect(onOptionChange).toHaveBeenCalledWith(['title'], 'runtime', undefined);
+  });
+
+  it('labels runtime targets as set in application', () => {
+    render(
+      <SemanticMappingView
+        componentName="ConfirmationDialog"
+        disabled={false}
+        figmaSnapshot={createDialogFigmaSnapshot()}
+        importPath="@tashilcar/ui"
+        onOptionChange={vi.fn()}
+        recipe={createDialogRecipeDraft()}
+      />,
+    );
+
+    const control = screen.getByLabelText('Value for onConfirm') as HTMLSelectElement;
+    expect(control.value).toBe('runtime');
+    expect(screen.getAllByText(/Set in application/).length).toBeGreaterThan(0);
+  });
+
+  it('renders nothing without a source contract', () => {
+    const { container } = render(
+      <SemanticMappingView
+        componentName="ConfirmationDialog"
+        disabled={false}
+        importPath="@tashilcar/ui"
+        onOptionChange={vi.fn()}
+        recipe={undefined}
+      />,
+    );
+
+    expect(container.innerHTML).toBe('');
+  });
+
+  it('renders reconciliation proposals with the correct actions', () => {
+    const onApplyProposal = vi.fn();
+    render(
+      <SemanticMappingView
+        componentName="ConfirmationDialog"
+        disabled={false}
+        figmaSnapshot={createDialogFigmaSnapshot()}
+        importPath="@tashilcar/ui"
+        onApplyProposal={onApplyProposal}
+        onOptionChange={vi.fn()}
+        proposals={[
+          {
+            bindingId: 'binding-confirm-label',
+            kind: 'locator-moved',
+            message: 'The Figma source for "confirmAction.label" moved.',
+            newLocator: { componentKey: 'k', fragile: false, namePath: ['Actions', 'Primary action'] },
+            targetPath: 'confirmAction.label',
+          },
+          {
+            bindingId: 'binding-title',
+            kind: 'design-removed',
+            message: 'The Figma source for "title" was not found.',
+            targetPath: 'title',
+          },
+        ]}
+        recipe={createDialogRecipeDraft()}
+      />,
+    );
+
+    expect(screen.getByText('Changes need review')).toBeTruthy();
+
+    // A safe remap offers Accept + Remove; a remove-only proposal offers only Remove.
+    const acceptButtons = screen.getAllByRole('button', { name: 'Accept remap' });
+    const removeButtons = screen.getAllByRole('button', { name: 'Remove mapping' });
+    expect(acceptButtons).toHaveLength(1);
+    expect(removeButtons).toHaveLength(2);
+
+    fireEvent.click(acceptButtons[0]);
+    expect(onApplyProposal).toHaveBeenCalledWith(
+      expect.objectContaining({ bindingId: 'binding-confirm-label', kind: 'locator-moved' }),
+      'accept',
+    );
+
+    fireEvent.click(removeButtons[1]);
+    expect(onApplyProposal).toHaveBeenCalledWith(
+      expect.objectContaining({ bindingId: 'binding-title', kind: 'design-removed' }),
+      'remove',
+    );
+  });
+
+  it('shows no reconciliation panel when there are no proposals', () => {
+    render(
+      <SemanticMappingView
+        componentName="ConfirmationDialog"
+        disabled={false}
+        figmaSnapshot={createDialogFigmaSnapshot()}
+        importPath="@tashilcar/ui"
+        onOptionChange={vi.fn()}
+        proposals={[]}
+        recipe={createDialogRecipeDraft()}
+      />,
+    );
+
+    expect(screen.queryByText('Changes need review')).toBeNull();
+  });
+});

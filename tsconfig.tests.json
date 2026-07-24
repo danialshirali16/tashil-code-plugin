@@ -16,6 +16,9 @@
     "src/source-schema.test.ts",
     "src/inspect/inspect.test.ts",
     "src/layout/imports.test.ts",
+    "src/sync-tokens/*.test.ts",
+    "src/semantic/*.test.ts",
+    "src/semantic-editor-view.test.tsx",
     "src/ui*.test.ts",
     "src/ui*.test.tsx",
     "vitest.config.ts"

@@ -1538,3 +1538,86 @@ body {
   min-width: 0;
   word-break: break-word;
 }
+
+/* --- Sync Tokens tab layout glue (component styling comes from @create-figma-plugin/ui) --- */
+
+.sync-tokens-collection-list {
+  background: var(--figma-color-bg-secondary);
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.sync-tokens-section-header {
+
+  align-items: center;
+  display: flex;
+  justify-content: space-between;
+}
+
+.sync-tokens-link-button {
+  background: none;
+  border: none;
+  color: var(--figma-color-text-brand, #0d99ff);
+  cursor: pointer;
+  font-size: 11px;
+  line-height: 16px;
+  padding: 0;
+}
+
+.sync-tokens-link-button:hover {
+  text-decoration: underline;
+}
+
+.sync-tokens-collection-row {
+  align-items: flex-start;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px 12px;
+}
+
+.sync-tokens-collection-main {
+  align-items: center;
+  display: flex;
+  min-width: 0;
+}
+
+.sync-tokens-collection-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sync-tokens-count {
+  color: var(--figma-color-text-secondary);
+  margin-left: 6px;
+}
+
+.sync-tokens-modes {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  padding-left: 28px;
+}
+
+.sync-tokens-chip {
+  background: var(--figma-color-bg);
+  border: 1px solid var(--figma-color-border);
+  border-radius: 10px;
+  color: var(--figma-color-text-secondary);
+  cursor: pointer;
+  font-size: 10px;
+  line-height: 16px;
+  padding: 2px 8px;
+}
+
+.sync-tokens-chip:hover {
+  border-color: var(--figma-color-border-strong, var(--figma-color-border));
+}
+
+.sync-tokens-chip-active {
+  background: var(--figma-color-bg-brand, #0d99ff);
+  border-color: var(--figma-color-bg-brand, #0d99ff);
+  color: var(--figma-color-text-onbrand, #fff);
+}
