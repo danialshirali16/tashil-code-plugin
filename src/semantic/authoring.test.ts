@@ -400,6 +400,87 @@ describe('per-value mapping', () => {
   });
 });
 
+describe('boolean target driven by a variant', () => {
+  function stateInputs() {
+    const contract = {
+      componentName: 'Button',
+      contentHash: 'h',
+      fileName: 'types.ts',
+      targets: [{
+        kind: 'visual' as const,
+        ownerProp: 'disabled',
+        path: ['disabled'],
+        required: false,
+        typeName: 'boolean',
+        values: [false, true],
+      }],
+    };
+    const figmaSnapshot: FigmaComponentSnapshot = {
+      componentId: '1:1',
+      componentName: 'Button',
+      properties: [{
+        id: 'p-state',
+        name: 'State',
+        // Four options — the old rule only accepted exactly two.
+        options: ['Default', 'Hover', 'Pressed', 'Disabled'],
+        rawKey: 'State',
+        type: 'VARIANT',
+      }],
+    };
+    const semanticSnapshot = { componentId: '1:1', componentName: 'Button', nestedSources: [] };
+    return { contract, figmaSnapshot, semanticSnapshot };
+  }
+
+  it('offers a multi-option variant to a boolean prop', () => {
+    const { contract, figmaSnapshot, semanticSnapshot } = stateInputs();
+    const target = contract.targets[0];
+
+    expect(buildValueOptions(target, figmaSnapshot, semanticSnapshot).map((o) => o.label))
+      .toEqual(['State']);
+  });
+
+  it('lets each option be paired with true or false', () => {
+    const { contract, figmaSnapshot, semanticSnapshot } = stateInputs();
+    let recipe = createRecipeDraft(contract, figmaSnapshot, semanticSnapshot);
+    recipe = setTargetOption(recipe, figmaSnapshot, ['disabled'], 'prop:p-state');
+
+    const row = buildTargetRows(recipe, figmaSnapshot)[0];
+    expect(row.valueMappings?.map((v) => v.sourceValue)).toEqual([false, true]);
+    expect(row.valueMappings?.[0].options).toEqual(['Default', 'Hover', 'Pressed', 'Disabled']);
+
+    recipe = setTargetValueMapping(recipe, ['disabled'], true, 'Disabled');
+    recipe = setTargetValueMapping(recipe, ['disabled'], false, 'Default');
+
+    expect(recipe.bindings[0].transform).toEqual({
+      kind: 'enum',
+      map: { Disabled: true, Default: false },
+    });
+  });
+
+  it('emits a boolean once mapped, and refuses to emit a raw option string', () => {
+    const { contract, figmaSnapshot, semanticSnapshot } = stateInputs();
+    let recipe = createRecipeDraft(contract, figmaSnapshot, semanticSnapshot);
+    recipe = setTargetOption(recipe, figmaSnapshot, ['disabled'], 'prop:p-state');
+
+    // Unmapped: the raw option string must not become a boolean prop.
+    const unmapped = resolveSemanticUsage('Button', '@tashilcar/ui', recipe, {
+      componentProperties: { State: 'Disabled' },
+    });
+    expect(unmapped.usage.jsx).not.toContain('disabled={"Disabled"}');
+    expect(
+      unmapped.explanations.find((e) => e.targetPath === 'disabled')?.reason,
+    ).toMatch(/not a boolean/);
+
+    // Mapped: a real boolean is emitted.
+    recipe = setTargetValueMapping(recipe, ['disabled'], true, 'Disabled');
+    const mapped = resolveSemanticUsage('Button', '@tashilcar/ui', recipe, {
+      componentProperties: { State: 'Disabled' },
+    });
+    expect(mapped.usage.jsx).toContain('disabled');
+    expect(mapped.usage.jsx).not.toContain('"Disabled"');
+  });
+});
+
 describe('buildValueOptions and rows', () => {
   it('offers only type-compatible design values per target', () => {
     const { contract, figmaSnapshot, semanticSnapshot } = createDialogInputs();

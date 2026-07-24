@@ -201,7 +201,33 @@ function resolveBinding(
     return raw;
   }
 
-  return applyTransform(binding.transform, raw.value);
+  const resolved = applyTransform(binding.transform, raw.value);
+  return checkTargetType(binding, resolved);
+}
+
+/**
+ * Guard the emitted literal against the target's declared type. A boolean prop
+ * bound to a multi-option variant needs each option mapped to true or false;
+ * without that mapping the raw option string would be emitted into a boolean
+ * prop, so report it instead of generating type-incorrect code.
+ */
+function checkTargetType(
+  binding: SemanticBinding,
+  resolved: ResolvedBinding,
+): ResolvedBinding {
+  if (resolved.status !== 'value' || resolved.value.kind !== 'literal') {
+    return resolved;
+  }
+
+  const expectsBoolean = binding.target.typeName.trim() === 'boolean';
+  if (expectsBoolean && typeof resolved.value.value !== 'boolean') {
+    return {
+      reason: `Design value ${JSON.stringify(String(resolved.value.value))} is not a boolean. Map each option to true or false.`,
+      status: 'unresolved',
+    };
+  }
+
+  return resolved;
 }
 
 type RawDesignValue =

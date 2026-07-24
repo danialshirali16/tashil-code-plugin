@@ -163,8 +163,10 @@ function isPropertyCompatible(
   const isBoolean = values.length === 2 && values.every((value) => typeof value === 'boolean');
 
   if (isBoolean) {
-    return property.type === 'BOOLEAN'
-      || (property.type === 'VARIANT' && property.options.length === 2);
+    // A boolean prop is often driven by one option of a multi-option variant
+    // (`disabled` ← `State=Disabled`), so accept any variant and let the
+    // per-value rows decide which options mean true and false.
+    return property.type === 'BOOLEAN' || property.type === 'VARIANT';
   }
   if (values.length > 0) {
     return property.type === 'VARIANT';
