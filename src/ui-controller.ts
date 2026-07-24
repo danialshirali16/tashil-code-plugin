@@ -116,6 +116,7 @@ export type ConnectionController = {
     action: ReconciliationAction,
   ) => void;
   isSourceReplacementPending: boolean;
+  sourceReplacementCancelRef: { current: HTMLButtonElement | null };
   confirmSourceReplacement: () => void;
   cancelSourceReplacement: () => void;
   setChildrenMode: (value: ChildrenMode) => void;
@@ -173,6 +174,7 @@ export function useConnectionController(): ConnectionController {
   const pendingMutationsRef = useRef<PendingMutationState>(initialPendingMutations);
   const [pendingMutations, setPendingMutationsState] = useState(initialPendingMutations);
   const clearCancelButtonRef = useRef<HTMLButtonElement>(null);
+  const sourceReplacementCancelRef = useRef<HTMLButtonElement>(null);
   const [isDirty, setIsDirty] = useState(false);
   const [fieldErrors, setFieldErrors] = useState<FormErrors>({});
   const [errorMessage, setErrorMessage] = useState('');
@@ -208,6 +210,14 @@ export function useConnectionController(): ConnectionController {
       clearCancelButtonRef.current?.focus();
     }
   }, [isClearConfirmationOpen]);
+
+  // An alertdialog must receive focus when it opens; land on the safe
+  // (non-destructive) "Keep current" choice.
+  useEffect(() => {
+    if (isSourceReplacementPending) {
+      sourceReplacementCancelRef.current?.focus();
+    }
+  }, [isSourceReplacementPending]);
 
   useEffect(() => {
     const offCanvasTargetState = on<CanvasTargetStateHandler>(
@@ -1195,6 +1205,7 @@ export function useConnectionController(): ConnectionController {
     semanticProposals,
     applySemanticProposal,
     isSourceReplacementPending,
+    sourceReplacementCancelRef,
     confirmSourceReplacement,
     cancelSourceReplacement,
     setChildrenMode,

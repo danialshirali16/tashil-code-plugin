@@ -2230,6 +2230,30 @@ describe('semantic connection generation', () => {
     expect(explanationBlock?.code).toContain('title — From nested text "Header / Title".');
   });
 
+  it('emits a Deprecated block but still generates code for a deprecated recipe', async () => {
+    const { codegenEvents } = await startPlugin();
+    const recipe = { ...createDialogRecipe(), lifecycle: { replacement: 'Use AlertDialog instead.', state: 'deprecated' as const } };
+    const component = createComponent('dialog-main', 'Dialog', {
+      componentProperties: {
+        intent: { type: 'VARIANT', value: 'Danger' },
+      } as unknown as InstanceNode['componentProperties'],
+      sharedPluginData: JSON.stringify({
+        componentName: 'ConfirmationDialog',
+        importPath: '@tashilcar/ui',
+        schemaVersion: CURRENT_SCHEMA_VERSION,
+        semanticRecipe: recipe,
+      }),
+    });
+    (component as unknown as { children: SceneNode[] }).children = createDialogChildren();
+
+    const blocks = await codegenEvents.get('generate')?.({ node: component });
+
+    const deprecationBlock = blocks?.find((block) => block.title === '⚠️ Deprecated');
+    expect(deprecationBlock?.code).toBe('ConfirmationDialog is deprecated. Use AlertDialog instead.');
+    // The production code is still emitted in full.
+    expect(blocks?.[0].code).toBe(APPROVED_DIALOG_CODE);
+  });
+
   it('returns the identical semantic result through Inspect Code', async () => {
     const { codegenEvents, selection } = await startPlugin();
     const component = createSemanticDialogComponent();

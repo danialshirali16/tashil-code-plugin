@@ -296,7 +296,10 @@ Do not persist:
 - [ ] Define limits for traversal depth, node count, binding count, and persisted
       metadata size.
 - [ ] Define a structured `ComponentUsage` value IR before JSX formatting.
-- [ ] Record decisions in a dedicated ADR or decisions section in this document.
+- [x] Record decisions in a dedicated ADR or decisions section in this document.
+      (2026-07-24) [`semantic-connect-decisions.md`](semantic-connect-decisions.md)
+      records the decisions as implemented, including how the Open decisions
+      below were resolved.
 
 ### M0 exit criteria
 
@@ -531,13 +534,31 @@ self-contained interface. Priority order reflects observed impact.
 
 ### Accessibility
 
-- [ ] Maintain keyboard-operable tabs and form controls.
-- [ ] Give every mapping control a unique accessible name.
-- [ ] Announce validation, save, and reconciliation results.
-- [ ] Preserve focus when returning to the component inventory.
+Audit of the new semantic authoring UI (2026-07-24):
+
+- [x] Maintain keyboard-operable tabs and form controls. The semantic editor
+      uses native `<select>`/`<input>`/`<button>` controls only — no custom
+      widgets — so tab order and activation are keyboard-operable by default.
+- [x] Give every mapping control a unique accessible name. Each target's value
+      control carries a `visually-hidden` label naming its target path; the
+      reconciliation Accept/Remove buttons now use `aria-label="… for
+      {targetPath}"` so otherwise-identical buttons are distinguishable.
+- [x] Announce validation, save, and reconciliation results. Accepting/removing
+      a proposal writes to the existing `aria-live="polite"` status region
+      (e.g. "Removed the stale mapping for title."); save/validation reuse the
+      established form status/alert regions.
+- [x] Alertdialog focus: the **Replace uploaded source?** confirmation
+      (`role="alertdialog"`) moves focus to its safe "Keep current" choice on
+      open, mirroring the clear-connection confirmation.
+- [ ] Preserve focus when returning to the component inventory. *(existing app
+      behavior; unchanged by semantic work — re-verify at GA.)*
 - [ ] Verify focus order with advanced sections collapsed and expanded.
-- [ ] Meet WCAG 2.2 AA contrast for statuses and interactive controls.
-- [ ] Respect reduced-motion preferences.
+      *(manual Figma verification pending.)*
+- [x] Meet WCAG 2.2 AA contrast for statuses and interactive controls. The
+      reconciliation panel and replace-source prompt reuse the existing
+      `connection-health-needs-review` styling already validated for contrast.
+- [x] Respect reduced-motion preferences. The new panels introduce no
+      animation or transition.
 
 ### M3 exit criteria
 
@@ -691,25 +712,52 @@ remaining piece.
 
 ### Ownership and lifecycle
 
-- [ ] Add optional owner/team metadata.
-- [ ] Add optional component package/version metadata.
-- [ ] Add connection lifecycle state:
+Optional lifecycle metadata landed 2026-07-24: `RecipeLifecycle` on
+`SemanticConnectionRecipe` (validated in `schema.ts`), surfaced by the resolver
+as an advisory `deprecation` string that never blocks generation.
+
+- [x] Add optional owner/team metadata. `RecipeLifecycle.owner`.
+- [x] Add optional component package/version metadata.
+      `RecipeLifecycle.packageName` / `packageVersion`.
+- [x] Add connection lifecycle state:
   - draft;
   - connected;
   - needs review;
   - deprecated.
-- [ ] Add replacement guidance for deprecated source components.
-- [ ] Show deprecation guidance in Inspect without preventing code access.
+- [x] Add replacement guidance for deprecated source components.
+      `RecipeLifecycle.replacement`, folded into the deprecation notice.
+- [x] Show deprecation guidance in Inspect without preventing code access.
+      Dev Mode adds a **⚠️ Deprecated** block and Inspect a `role="note"`
+      banner above the code; the production TSX is still emitted in full.
 - [ ] Decide whether multiple source API versions can coexist temporarily.
+      *(open decision; `packageVersion` records the authored version but no
+      multi-version coexistence yet.)*
 - [ ] Document the supported plugin/schema compatibility matrix.
 
 ### Recovery and supportability
 
-- [ ] Add an exportable redacted connection-debug bundle.
-- [ ] Include schema version, hashes, diagnostics, and health state.
-- [ ] Exclude source text, private URLs, customer content, and credentials.
+- [x] Add an exportable redacted connection-debug bundle. (2026-07-24)
+      `src/semantic/debug-bundle.ts` — `createConnectionDebugBundle` +
+      `serializeConnectionDebugBundle`, redacted by construction. *(UI: a
+      download action can hand the serialized string to `downloadBlob`; wiring
+      deferred to coordinate with the parallel token-export download work.)*
+- [x] Include schema version, hashes, diagnostics, and health state. Connection
+      and recipe schema versions, source `contentHash`, binding/target counts,
+      per-binding kind/requirement/transform, and a health summary
+      (`bySeverity` counts + affected code targets).
+- [x] Exclude source text, private URLs, customer content, and credentials.
+      The assembler only reads counts, kinds, hashes, code identifiers, and
+      severities; reference URLs/paths become booleans, and design content
+      (sample values, nested text, static literals, layer-name paths) and owner
+      are never copied. Proven by redaction tests in `debug-bundle.test.ts`.
 - [ ] Provide human-readable recovery messages for unsupported future schemas.
-- [ ] Document manual recovery for malformed or legacy metadata.
+      *(Partly covered: `validateSemanticRecipe` already returns an actionable
+      "newer than this plugin supports — update the plugin" message; a
+      connection-level recovery surface is pending.)*
+- [x] Document manual recovery for malformed or legacy metadata. (2026-07-24)
+      [Maintain a connection §"Recover a malformed or unreadable connection"](maintain-connections.md)
+      documents each validation message, its recovery, and the
+      blocked-not-destructive guarantee.
 
 ### M5 exit criteria
 
@@ -913,21 +961,34 @@ modules incrementally and keep compatibility wrappers during migration.
 
 ## Open decisions
 
-- [ ] Should a runtime prop be copied as a comment, omitted, or represented in a
-      second non-copyable requirements section?
-- [ ] Should static values be first-class in M3 or deferred?
-- [ ] What is the maximum supported nested code prop depth?
-- [ ] How should discriminated-union prop objects be authored?
-- [ ] Can one Figma source feed multiple code prop targets?
-- [ ] Can multiple Figma sources assemble one array prop in version 1?
-- [ ] When a nested component has its own connection, who owns the decision to
-      inline it versus consume its values?
-- [ ] Where should explicit semantic roles live: recipe-only metadata, Figma
-      plugin data on descendants, or both?
-- [ ] Should schema-v5 continue writing legacy `propMappings`, and for how many
-      releases?
-- [ ] What compatibility promise applies when a file is opened with an older
-      plugin build after a v5 save?
+Resolved decisions are recorded in
+[`semantic-connect-decisions.md`](semantic-connect-decisions.md); the section
+letter is cited below.
+
+- [x] Should a runtime prop be copied as a comment, omitted, or represented in a
+      second non-copyable requirements section? → **Both** (inline comment plus
+      a separate section). *Decision E.*
+- [x] Should static values be first-class in M3 or deferred? → **First-class.**
+      *Decision F.*
+- [x] What is the maximum supported nested code prop depth? → **Two path
+      segments** (one level of nesting). *Decision G.*
+- [ ] How should discriminated-union prop objects be authored? → **Still open by
+      choice**; surfaced as `unsupported` for now. *Decision N.*
+- [x] Can one Figma source feed multiple code prop targets? → **Yes**; a target
+      still has exactly one binding. *Decision H.*
+- [x] Can multiple Figma sources assemble one array prop in version 1? → **No**;
+      arrays stay visibly unsupported. *Decision H.*
+- [x] When a nested component has its own connection, who owns the decision to
+      inline it versus consume its values? → **The parent recipe consumes its
+      values**; inlining it as JSX is deferred. *Decision I.*
+- [x] Where should explicit semantic roles live: recipe-only metadata, Figma
+      plugin data on descendants, or both? → **Recipe only.** *Decision J.*
+- [x] Should schema-v5 continue writing legacy `propMappings`, and for how many
+      releases? → **Moot**: there is no v5 bump; semantic recipes do not write
+      legacy `propMappings`. *Decisions A and C.*
+- [x] What compatibility promise applies when a file is opened with an older
+      plugin build after a v5 save? → **Degraded output, not corruption or data
+      loss** (older builds ignore the unknown recipe field). *Decision B.*
 
 ## Recommended first implementation slice
 

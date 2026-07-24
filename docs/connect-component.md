@@ -5,6 +5,11 @@ component using the **Tashil Code** plugin. For mapping rules and examples, see
 [Visual prop mappings](prop-mapping.md); for later updates, see
 [Maintain a connection](maintain-connections.md).
 
+> When the Figma layer structure does not resemble the source component's API
+> (for example a Dialog built from Header/Footer frames mapping to a flat
+> `<ConfirmationDialog>` API), use
+> [Connect components with a different structure](semantic-connect.md).
+
 ## Goal
 
 After a component is connected, developers can select an instance in Figma Dev Mode and choose **Tashil UI** in the Code section. The plugin will show a production usage snippet, for example:

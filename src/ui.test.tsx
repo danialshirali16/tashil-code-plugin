@@ -558,6 +558,13 @@ describe('Plugin rendered interactions', () => {
     expect(prompt).toBeTruthy();
     expect(screen.queryByText('Button.next.tsx')).toBeNull();
 
+    // The alertdialog moves focus to the safe "Keep current" choice.
+    await waitFor(() => {
+      expect(document.activeElement).toBe(
+        screen.getByRole('button', { name: 'Keep current' }),
+      );
+    });
+
     // Cancelling keeps the current source; confirming applies it.
     fireEvent.click(screen.getByRole('button', { name: 'Keep current' }));
     expect(screen.queryByText('Replace uploaded source?')).toBeNull();
@@ -814,6 +821,23 @@ describe('Plugin rendered interactions', () => {
     expect(screen.getByText('Source URL')).toBeTruthy();
     expect(screen.getByText('Source path')).toBeTruthy();
     expect(screen.getByText('src/Button.tsx')).toBeTruthy();
+  });
+
+  it('shows a deprecation notice in Inspect without hiding the code', () => {
+    renderPlugin();
+    receive('INSPECT_CODE_STATE', {
+      status: 'connected',
+      output: {
+        code: 'import { ConfirmationDialog } from "@tashilcar/ui";\n\n<ConfirmationDialog />',
+        deprecation: 'ConfirmationDialog is deprecated. Use AlertDialog instead.',
+      },
+    });
+    fireEvent.click(screen.getByRole('tab', { name: 'Inspect Code' }));
+
+    expect(screen.getByText('⚠️ Deprecated')).toBeTruthy();
+    expect(screen.getByText('ConfirmationDialog is deprecated. Use AlertDialog instead.')).toBeTruthy();
+    // Code is still shown.
+    expect(document.body.textContent).toContain('<ConfirmationDialog');
   });
 
   it('renders semantic runtime requirements and explanation as separate blocks', () => {

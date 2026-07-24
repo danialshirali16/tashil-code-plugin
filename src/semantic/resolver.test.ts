@@ -166,6 +166,35 @@ describe('resolveSemanticUsage', () => {
 
     expect(validateSemanticRecipe(roundTripped)).toMatchObject({ ok: true });
   });
+
+  it('surfaces a deprecation notice without blocking code generation', () => {
+    const recipe = createDialogRecipe();
+    recipe.lifecycle = { replacement: 'Use AlertDialog instead.', state: 'deprecated' };
+
+    const result = resolveSemanticUsage('ConfirmationDialog', '@tashilcar/ui', recipe, {
+      componentProperties: { intent: 'Danger' },
+      root: createDialogNode(),
+    });
+
+    expect(result.deprecation).toBe(
+      'ConfirmationDialog is deprecated. Use AlertDialog instead.',
+    );
+    // Code is still generated in full.
+    expect(result.issues).toEqual([]);
+    expect(result.usage.jsx).toContain('title={"Delete account?"}');
+  });
+
+  it('omits the deprecation notice for non-deprecated lifecycle states', () => {
+    const recipe = createDialogRecipe();
+    recipe.lifecycle = { state: 'connected' };
+
+    const result = resolveSemanticUsage('ConfirmationDialog', '@tashilcar/ui', recipe, {
+      componentProperties: { intent: 'Danger' },
+      root: createDialogNode(),
+    });
+
+    expect(result.deprecation).toBeUndefined();
+  });
 });
 
 function resolveDialogWith(recipe: SemanticConnectionRecipe) {

@@ -24,6 +24,7 @@
     "src/semantic/resolver.ts",
     "src/semantic/schema.ts",
     "src/semantic/reconcile.ts",
+    "src/semantic/debug-bundle.ts",
     "src/semantic/source-contract.ts",
     "src/semantic/types.ts",
     "src/semantic/usage-ir.ts",

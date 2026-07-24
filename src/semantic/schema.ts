@@ -67,6 +67,10 @@ export function validateSemanticRecipe(value: unknown): RecipeValidationResult {
     return failure('Semantic recipe lastValidatedAt must be a string when present.');
   }
 
+  if (value.lifecycle !== undefined && !isRecipeLifecycle(value.lifecycle)) {
+    return failure('Semantic recipe lifecycle metadata is invalid.');
+  }
+
   if (!isFigmaSemanticSnapshot(value.figmaSnapshot)) {
     return failure('Semantic recipe has an invalid Figma semantic snapshot.');
   }
@@ -274,6 +278,22 @@ function isPersistedSourceTarget(value: unknown): boolean {
     && (value.values === undefined
       || (Array.isArray(value.values) && value.values.every(isSourcePropValue)))
     && (value.defaultValue === undefined || isSourcePropValue(value.defaultValue));
+}
+
+function isRecipeLifecycle(value: unknown): boolean {
+  if (!isRecord(value)) {
+    return false;
+  }
+  const stateOk = value.state === undefined
+    || value.state === 'draft'
+    || value.state === 'connected'
+    || value.state === 'needs-review'
+    || value.state === 'deprecated';
+  return stateOk
+    && (value.owner === undefined || typeof value.owner === 'string')
+    && (value.packageName === undefined || typeof value.packageName === 'string')
+    && (value.packageVersion === undefined || typeof value.packageVersion === 'string')
+    && (value.replacement === undefined || typeof value.replacement === 'string');
 }
 
 function isSourcePropValue(value: unknown): value is SourcePropValue {

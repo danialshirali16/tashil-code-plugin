@@ -211,6 +211,10 @@ async function generateComponentCodegenBlocks(
     },
   ];
 
+  if (output.deprecation) {
+    blocks.push(createPlainTextBlock('⚠️ Deprecated', output.deprecation));
+  }
+
   if (output.runtimeRequirements) {
     blocks.push(createPlainTextBlock('Set in application', output.runtimeRequirements));
   }
@@ -237,6 +241,7 @@ type ConnectedOutput = {
   diagnostics?: string;
   explanation?: string;
   runtimeRequirements?: string;
+  deprecation?: string;
 };
 
 /**
@@ -267,6 +272,7 @@ async function createConnectedOutput(
       diagnostics: result.issues.length > 0 ? result.issues.join('\n') : undefined,
       explanation: formatSemanticExplanations(result.explanations),
       runtimeRequirements: formatRuntimeRequirements(result.runtimeRequirements),
+      deprecation: result.deprecation,
     };
   }
 
@@ -1348,6 +1354,7 @@ async function createInspectCodeState(
       status: 'connected',
       output: {
         code: output.code,
+        deprecation: output.deprecation,
         diagnostics: output.diagnostics,
         explanation: output.explanation,
         references: createConnectionReferences(connection.metadata),
