@@ -1743,48 +1743,31 @@ body {
   width: 100%;
 }
 
-/* ---- Connect board -------------------------------------------------------
-   Both sides of the connection are visible at once: the Figma component's own
-   values on the left, the code API on the right. Selecting a code prop makes
-   the compatible Figma values clickable, so connecting is a direct gesture
-   rather than a hunt through a dropdown. */
-.connect-board {
+/* ---- Implementation mapping: one prop at a time --------------------------
+   Each prop is a summary line; opening it reveals the decision in place. The
+   answers — compatible Figma values and the non-design sources — are one
+   grouped set of peers, so nothing is ever rendered greyed out. */
+.coverage {
   border-top: 1px solid var(--figma-color-border);
-  display: grid;
-  grid-template-columns: 1fr 1fr;
+  padding: 8px 0 0;
 }
 
-.board-side {
-  min-width: 0;
-}
-
-.board-side + .board-side {
-  border-left: 1px solid var(--figma-color-border);
-}
-
-.board-head {
+.coverage > summary {
   align-items: center;
-  background: var(--figma-color-bg-secondary);
-  border-bottom: 1px solid var(--figma-color-border);
+  color: var(--figma-color-text-secondary);
+  cursor: pointer;
   display: flex;
-  gap: 6px;
-  padding: 7px 10px;
+  gap: 7px;
+  list-style: none;
+  padding-bottom: 8px;
 }
 
-.board-head strong {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
+.coverage > summary::-webkit-details-marker { display: none; }
 
-.board-head small {
-  color: var(--figma-color-text-tertiary, var(--figma-color-text-secondary));
-  margin-left: auto;
-  white-space: nowrap;
-}
-
-.side-tag {
+.coverage-tag {
+  background: rgba(162, 89, 255, 0.18);
   border-radius: 3px;
+  color: #c89bff;
   font-size: 9px;
   font-weight: 700;
   letter-spacing: 0.06em;
@@ -1792,132 +1775,94 @@ body {
   text-transform: uppercase;
 }
 
-.side-figma {
-  background: rgba(162, 89, 255, 0.18);
-  color: #c89bff;
+.coverage-list {
+  display: grid;
+  gap: 4px;
+  list-style: none;
+  margin: 0;
+  padding: 0 0 10px 4px;
 }
 
-.side-code {
-  background: rgba(20, 174, 92, 0.16);
-  color: #5fd99a;
-}
-
-.board-list {
-  max-height: 320px;
-  overflow-y: auto;
-  padding-bottom: 4px;
-}
-
-.board-empty {
-  color: var(--figma-color-text-secondary);
-  padding: 12px 10px;
-}
-
-/* Board rows are built here rather than from the library's Layer /
-   SelectableItem: those stack an absolutely positioned input over their own
-   content and render blank inside this grid. A real <button> also gives
-   keyboard operation and focus for free. */
-.board-row {
+.coverage-list li {
   align-items: center;
-  background: none;
-  border: 1px solid transparent;
-  border-radius: 5px;
-  color: var(--figma-color-text);
-  cursor: pointer;
+  color: var(--figma-color-text-secondary);
   display: flex;
-  font: inherit;
-  gap: 8px;
-  margin: 0 4px;
-  padding: 5px 7px;
-  text-align: left;
-  width: calc(100% - 8px);
+  gap: 7px;
 }
 
-.board-row:hover:not(:disabled) {
-  background: var(--figma-color-bg-hover);
-}
-
-.board-row:focus-visible {
-  border-color: var(--figma-color-border-selected);
-  outline: none;
-}
-
-.board-row[data-selected='true'] {
-  background: var(--figma-color-bg-selected);
-}
-
-/* A Figma value that cannot feed the selected code prop stays readable — it is
-   still useful information — but does not invite a click. */
-.board-row:disabled {
-  cursor: default;
-  opacity: 0.45;
-}
-
-.board-row-icon {
+.coverage-icon {
   align-items: center;
   color: var(--figma-color-icon-secondary);
   display: flex;
   flex: none;
 }
 
-.board-row[data-used='true'] .board-row-icon {
-  color: var(--figma-color-icon);
+.prop-list {
+  border-top: 1px solid var(--figma-color-border);
 }
 
-.board-row-text {
-  display: grid;
-  gap: 1px;
-  min-width: 0;
+.prop-row + .prop-row,
+.mapping-section-label + .prop-row {
+  border-top: 1px solid var(--figma-color-border);
 }
 
-.board-row-name {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.board-row[data-used='true'] .board-row-name {
-  font-weight: 600;
-}
-
-.board-row-detail {
-  color: var(--figma-color-text-tertiary, var(--figma-color-text-secondary));
-  font-size: 11px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.board-flag {
-  background: var(--figma-color-bg-brand-tertiary, rgba(13, 153, 255, 0.16));
-  border-radius: 3px;
-  color: var(--figma-color-text-brand, #7cc4ff);
-  flex: none;
-  font-size: 9px;
-  letter-spacing: 0.04em;
-  margin-left: auto;
-  padding: 2px 5px;
-  text-transform: uppercase;
-}
-
-.board-target {
-  display: grid;
-  gap: 1px;
-  min-width: 0;
-}
-
-.board-target-name {
+.prop-head {
   align-items: center;
+  background: none;
+  border: 0;
+  color: var(--figma-color-text);
+  cursor: pointer;
+  display: grid;
+  font: inherit;
+  gap: 10px;
+  grid-template-columns: 12px 1fr auto;
+  padding: 9px 10px;
+  text-align: left;
+  width: 100%;
+}
+
+.prop-head:hover { background: var(--figma-color-bg-hover); }
+
+.prop-head:focus-visible {
+  outline: 1px solid var(--figma-color-border-selected);
+  outline-offset: -1px;
+}
+
+.prop-head[aria-expanded='true'] { background: var(--figma-color-bg-secondary); }
+
+.prop-caret {
+  color: var(--figma-color-text-tertiary, var(--figma-color-text-secondary));
+  font-size: 9px;
+}
+
+.prop-name {
+  align-items: baseline;
   display: flex;
-  gap: 6px;
+  gap: 7px;
+  min-width: 0;
+}
+
+.prop-name b { font-weight: 600; }
+
+.prop-type {
+  background: var(--figma-color-bg-secondary);
+  border-radius: 4px;
+  color: var(--figma-color-text-tertiary, var(--figma-color-text-secondary));
+  font-size: 10px;
   overflow: hidden;
+  padding: 1px 5px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.board-target-value {
-  color: var(--figma-color-text-tertiary, var(--figma-color-text-secondary));
+.prop-current {
+  align-items: center;
+  color: var(--figma-color-text-secondary);
+  display: flex;
+  flex: none;
+  gap: 7px;
   font-size: 11px;
+  max-width: 45%;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -1934,122 +1879,119 @@ body {
 .dot-status[data-state='todo'] { background: var(--figma-color-text-tertiary, #7d7d7d); }
 .dot-status[data-state='blocked'] { background: var(--figma-color-icon-danger, #f24822); }
 
-@media (max-width: 520px) {
-  .connect-board {
-    grid-template-columns: 1fr;
-  }
-  .board-side + .board-side {
-    border-left: 0;
-    border-top: 1px solid var(--figma-color-border);
-  }
-}
-
-/* ---- Focused prop: one decision at a time --------------------------------
-   The kind of source is chosen by name first, so "static", "in the app" and a
-   Figma value are never mixed into one anonymous dropdown. */
-.board-hint {
+.prop-body {
   background: var(--figma-color-bg-secondary);
-  border-bottom: 1px solid var(--figma-color-border);
-  color: var(--figma-color-text-secondary);
-  padding: 6px 10px;
-}
-
-.detail-panel {
   border-top: 1px solid var(--figma-color-border);
-  display: grid;
-  gap: 8px;
-  padding: 12px;
+  padding: 11px 12px 13px 32px;
 }
 
-.detail-head {
-  align-items: baseline;
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
+.prop-question {
+  color: var(--figma-color-text);
+  margin: 0 0 8px;
 }
 
-.detail-head strong { font-size: 13px; }
+.choice-list { display: grid; gap: 3px; }
 
-.detail-head code {
-  color: var(--figma-color-text-secondary);
-  font-size: 11px;
-}
-
-.detail-req {
-  background: var(--figma-color-bg-danger-tertiary, rgba(242, 72, 34, 0.15));
-  border-radius: 3px;
-  color: var(--figma-color-text-danger, #ff8a73);
-  font-size: 9px;
-  letter-spacing: 0.04em;
-  padding: 2px 5px;
+.choice-group {
+  color: var(--figma-color-text-tertiary, var(--figma-color-text-secondary));
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 0.07em;
+  margin: 7px 0 2px;
   text-transform: uppercase;
 }
 
-.detail-question {
+.choice-group:first-child { margin-top: 0; }
+
+.choice {
+  align-items: center;
+  background: var(--figma-color-bg);
+  border: 1px solid var(--figma-color-border);
+  border-radius: 7px;
   color: var(--figma-color-text);
-  margin: 0;
-}
-
-.kind-choice {
-  background: var(--figma-color-bg-secondary);
-  border-radius: 6px;
-  display: flex;
-  gap: 2px;
-  padding: 2px;
-}
-
-.kind-button {
-  background: none;
-  border: 0;
-  border-radius: 5px;
-  color: var(--figma-color-text-secondary);
   cursor: pointer;
-  flex: 1;
+  display: flex;
   font: inherit;
-  padding: 6px 4px;
+  gap: 9px;
+  padding: 8px 10px;
+  text-align: left;
+  width: 100%;
+}
+
+.choice:hover:not(:disabled) { border-color: var(--figma-color-border-selected); }
+
+.choice:focus-visible {
+  outline: 1px solid var(--figma-color-border-selected);
+  outline-offset: 1px;
+}
+
+.choice[data-on='true'] {
+  background: var(--figma-color-bg-brand-tertiary, rgba(13, 153, 255, 0.12));
+  border-color: var(--figma-color-border-brand, #0d99ff);
+}
+
+.choice:disabled { cursor: default; opacity: 0.5; }
+
+.choice-dot {
+  border: 1.5px solid var(--figma-color-text-tertiary, #7d7d7d);
+  border-radius: 50%;
+  flex: none;
+  height: 13px;
+  position: relative;
+  width: 13px;
+}
+
+.choice[data-on='true'] .choice-dot {
+  border-color: var(--figma-color-border-brand, #0d99ff);
+}
+
+.choice[data-on='true'] .choice-dot::after {
+  background: var(--figma-color-border-brand, #0d99ff);
+  border-radius: 50%;
+  content: '';
+  height: 7px;
+  left: 2px;
+  position: absolute;
+  top: 2px;
+  width: 7px;
+}
+
+.choice-label {
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.kind-button:hover:not(:disabled) { color: var(--figma-color-text); }
-
-.kind-button[data-on='true'] {
-  background: var(--figma-color-bg-brand, #0d99ff);
-  color: var(--figma-color-text-onbrand, #fff);
-  font-weight: 600;
+.choice-detail {
+  color: var(--figma-color-text-tertiary, var(--figma-color-text-secondary));
+  font-size: 11px;
+  margin-left: auto;
+  overflow: hidden;
+  padding-left: 8px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-.kind-button:disabled { cursor: default; opacity: 0.5; }
-
-.detail-blurb,
-.detail-chosen,
-.detail-cta {
-  color: var(--figma-color-text-secondary);
-  margin: 0;
-}
-
-.detail-chosen b { color: var(--figma-color-text); }
-
-.detail-cta {
-  background: var(--figma-color-bg-brand-tertiary, rgba(13, 153, 255, 0.12));
-  border-radius: 6px;
-  color: var(--figma-color-text-brand, #7cc4ff);
-  padding: 8px 10px;
-}
-
-.detail-flag {
+.choice-flag {
   background: var(--figma-color-bg-warning-tertiary, rgba(255, 205, 41, 0.16));
   border-radius: 3px;
   color: var(--figma-color-text-warning, #ffdb70);
+  flex: none;
   font-size: 9px;
-  margin-left: 6px;
   padding: 2px 5px;
-  text-transform: uppercase;
 }
 
-.detail-body { display: grid; gap: 8px; }
+.choice-none {
+  color: var(--figma-color-text-secondary);
+  margin: 0;
+  padding: 4px 2px;
+}
 
-.detail-body .value-mapping-list {
+.prop-extra { margin-top: 11px; }
+
+.prop-extra.value-mapping-list {
   background: none;
-  border-top: 0;
-  padding: 0;
+  border-top: 1px solid var(--figma-color-border);
+  padding: 11px 0 0;
 }

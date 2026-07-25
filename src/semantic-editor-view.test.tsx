@@ -43,16 +43,22 @@ function createDialogRecipeDraft() {
   return createRecipeDraft(contractResult.contract, createDialogFigmaSnapshot(), semanticSnapshot);
 }
 
-/** Focus a code prop on the board; its editing controls then appear below. */
+/** Open a code prop; its decision then appears inline beneath it. */
 function selectTarget(targetPath: string): void {
-  // The name also appears in the detail header, so pick the board entry.
-  const button = screen.getAllByText(targetPath)
-    .map((node) => node.closest('button'))
-    .find((node): node is HTMLButtonElement => node !== null);
-  if (!button) {
-    throw new Error(`No board row for ${targetPath}`);
+  const head = screen.getAllByText(targetPath)
+    .map((node) => node.closest('.prop-head'))
+    .find((node): node is HTMLElement => node !== null);
+  if (!head) {
+    throw new Error(`No prop row for ${targetPath}`);
   }
-  fireEvent.click(button);
+  if (head.getAttribute('aria-expanded') !== 'true') {
+    fireEvent.click(head);
+  }
+}
+
+/** Pick one of the grouped answers for the open prop. */
+function chooseAnswer(name: string): void {
+  fireEvent.click(screen.getByRole('radio', { name: new RegExp(name) }));
 }
 
 afterEach(cleanup);
@@ -77,14 +83,10 @@ describe('SemanticMappingView', () => {
     expect(screen.getByText('Application behavior')).toBeTruthy();
     expect(screen.getByText('confirmAction.label')).toBeTruthy();
 
-    // Both sides of the connection are on the board.
-    expect(screen.getByText('Figma')).toBeTruthy();
-    expect(screen.getByText('Code')).toBeTruthy();
-
     selectTarget('confirmAction.label');
-    // The detail names the chosen Figma value rather than hiding it in a select.
-    expect(document.body.textContent).toContain('Using');
-    expect(document.body.textContent).toContain('Primary action / label');
+    // The chosen Figma value is one of the grouped answers, and it is selected.
+    const chosen = screen.getByRole('radio', { name: /Primary action \/ label/ });
+    expect(chosen.getAttribute('aria-checked')).toBe('true');
   });
 
   it('shows the structural mismatch note as information, not an error', () => {
@@ -143,9 +145,9 @@ describe('SemanticMappingView', () => {
       .toContain('required');
 
     selectTarget('title');
-    // The kind of source is a named choice, not an anonymous dropdown entry.
-    fireEvent.click(screen.getByRole('button', { name: 'In the app' }));
-    expect(onOptionChange).toHaveBeenCalledWith(['title'], 'runtime');
+    // Every answer is a peer choice, named rather than anonymous.
+    chooseAnswer('In the app');
+    expect(onOptionChange).toHaveBeenCalledWith(['title'], 'runtime', undefined);
   });
 
   it('labels runtime targets as set in application', () => {
@@ -161,9 +163,8 @@ describe('SemanticMappingView', () => {
     );
 
     selectTarget('onConfirm');
-    const inApp = screen.getByRole('button', { name: 'In the app' });
-    expect(inApp.getAttribute('aria-pressed')).toBe('true');
-    expect(document.body.textContent).toContain('No design value is read');
+    const inApp = screen.getByRole('radio', { name: /In the app/ });
+    expect(inApp.getAttribute('aria-checked')).toBe('true');
   });
 
   it('shows the Figma side, including values nothing maps to', () => {
@@ -189,9 +190,9 @@ describe('SemanticMappingView', () => {
       />,
     );
 
+    // The audit question is answered by one summary line, not a whole column.
+    expect(document.body.textContent).toMatch(/design values are unused/);
     expect(screen.getByText('State')).toBeTruthy();
-    expect(screen.getAllByText('Header / Title').length).toBeGreaterThan(0);
-    expect(document.body.textContent).toMatch(/\d+ unused/);
   });
 
   it('connects a Figma value to the focused code prop in one click', () => {
@@ -211,14 +212,9 @@ describe('SemanticMappingView', () => {
     );
 
     selectTarget('intent');
-    // Clicking the compatible Figma property binds it to the focused prop.
-    const figmaRow = screen.getAllByText('intent')
-      .map((node) => node.closest('button'))
-      .filter((node): node is HTMLButtonElement => node !== null)
-      .find((node) => node.title.startsWith('Connect'));
-    fireEvent.click(figmaRow!);
-
-    expect(onOptionChange).toHaveBeenCalledWith(['intent'], 'prop:prop-intent');
+    // The Figma value is chosen from the same grouped set as everything else.
+    chooseAnswer('intent');
+    expect(onOptionChange).toHaveBeenCalledWith(['intent'], 'prop:prop-intent', undefined);
   });
 
   it('lets a boolean prop take a Figma boolean property', () => {
@@ -253,17 +249,12 @@ describe('SemanticMappingView', () => {
     );
 
     selectTarget('disabled');
-    // The board tells the user what clicking will do...
-    expect(document.body.textContent).toContain('Click a value to connect it to');
+    // The boolean Figma property is offered as a normal answer, never greyed.
+    const booleanChoice = screen.getByRole('radio', { name: /hasLeadingIcon/ });
+    expect((booleanChoice as HTMLButtonElement).disabled).toBe(false);
 
-    // ...and the boolean Figma property is live, not greyed out.
-    const booleanRow = screen.getAllByText('hasLeadingIcon')
-      .map((node) => node.closest('button'))
-      .find((node): node is HTMLButtonElement => node !== null);
-    expect(booleanRow?.disabled).toBe(false);
-
-    fireEvent.click(booleanRow!);
-    expect(onOptionChange).toHaveBeenCalledWith(['disabled'], 'prop:p-hasicon');
+    fireEvent.click(booleanChoice);
+    expect(onOptionChange).toHaveBeenCalledWith(['disabled'], 'prop:p-hasicon', undefined);
   });
 
   it('renders nothing without a source contract', () => {
@@ -462,8 +453,8 @@ describe('SemanticMappingView', () => {
     );
 
     selectTarget('description');
-    fireEvent.click(screen.getByRole('button', { name: 'In the app' }));
-    expect(document.body.textContent).toContain('No design value is read');
+    chooseAnswer('In the app');
+    expect(document.body.textContent).toContain('emitted as undefined');
   });
 
   it('shows no reconciliation panel when there are no proposals', () => {
