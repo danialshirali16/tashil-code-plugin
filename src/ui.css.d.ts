@@ -1,6 +1,14 @@
 declare const styles: {
   readonly "actions": string;
   readonly "advanced-mappings": string;
+  readonly "board-empty": string;
+  readonly "board-head": string;
+  readonly "board-item-inert": string;
+  readonly "board-list": string;
+  readonly "board-side": string;
+  readonly "board-target": string;
+  readonly "board-target-name": string;
+  readonly "board-target-value": string;
   readonly "button-content": string;
   readonly "clear-confirmation-actions": string;
   readonly "clear-confirmation-title": string;
@@ -11,6 +19,7 @@ declare const styles: {
   readonly "code-section": string;
   readonly "code-section-header": string;
   readonly "code-section-heading": string;
+  readonly "connect-board": string;
   readonly "connect-empty": string;
   readonly "connection-health": string;
   readonly "connection-health-actions": string;
@@ -33,6 +42,7 @@ declare const styles: {
   readonly "detail-back": string;
   readonly "detail-component-name": string;
   readonly "detail-navigation": string;
+  readonly "dot-status": string;
   readonly "eyebrow": string;
   readonly "field": string;
   readonly "field-error": string;
@@ -151,6 +161,9 @@ declare const styles: {
   readonly "setup-step-help": string;
   readonly "setup-step-number": string;
   readonly "setup-step-title": string;
+  readonly "side-code": string;
+  readonly "side-figma": string;
+  readonly "side-tag": string;
   readonly "slot-guard": string;
   readonly "source-empty": string;
   readonly "source-file": string;

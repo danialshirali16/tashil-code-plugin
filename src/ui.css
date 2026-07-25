@@ -1742,3 +1742,124 @@ body {
   padding: 5px 8px;
   width: 100%;
 }
+
+/* ---- Connect board -------------------------------------------------------
+   Both sides of the connection are visible at once: the Figma component's own
+   values on the left, the code API on the right. Selecting a code prop makes
+   the compatible Figma values clickable, so connecting is a direct gesture
+   rather than a hunt through a dropdown. */
+.connect-board {
+  border-top: 1px solid var(--figma-color-border);
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+}
+
+.board-side {
+  min-width: 0;
+}
+
+.board-side + .board-side {
+  border-left: 1px solid var(--figma-color-border);
+}
+
+.board-head {
+  align-items: center;
+  background: var(--figma-color-bg-secondary);
+  border-bottom: 1px solid var(--figma-color-border);
+  display: flex;
+  gap: 6px;
+  padding: 7px 10px;
+}
+
+.board-head strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.board-head small {
+  color: var(--figma-color-text-tertiary, var(--figma-color-text-secondary));
+  margin-left: auto;
+  white-space: nowrap;
+}
+
+.side-tag {
+  border-radius: 3px;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  padding: 2px 5px;
+  text-transform: uppercase;
+}
+
+.side-figma {
+  background: rgba(162, 89, 255, 0.18);
+  color: #c89bff;
+}
+
+.side-code {
+  background: rgba(20, 174, 92, 0.16);
+  color: #5fd99a;
+}
+
+.board-list {
+  max-height: 320px;
+  overflow-y: auto;
+  padding-bottom: 4px;
+}
+
+.board-empty {
+  color: var(--figma-color-text-secondary);
+  padding: 12px 10px;
+}
+
+/* A Figma value that cannot feed the selected code prop stays readable — it is
+   still useful information — but does not invite a click. */
+.board-item-inert {
+  opacity: 0.4;
+  pointer-events: none;
+}
+
+.board-target {
+  display: grid;
+  gap: 1px;
+  min-width: 0;
+}
+
+.board-target-name {
+  align-items: center;
+  display: flex;
+  gap: 6px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.board-target-value {
+  color: var(--figma-color-text-tertiary, var(--figma-color-text-secondary));
+  font-size: 11px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dot-status {
+  border-radius: 50%;
+  flex: none;
+  height: 6px;
+  width: 6px;
+}
+
+.dot-status[data-state='done'] { background: var(--figma-color-icon-success, #14ae5c); }
+.dot-status[data-state='todo'] { background: var(--figma-color-text-tertiary, #7d7d7d); }
+.dot-status[data-state='blocked'] { background: var(--figma-color-icon-danger, #f24822); }
+
+@media (max-width: 520px) {
+  .connect-board {
+    grid-template-columns: 1fr;
+  }
+  .board-side + .board-side {
+    border-left: 0;
+    border-top: 1px solid var(--figma-color-border);
+  }
+}

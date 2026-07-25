@@ -43,6 +43,18 @@ function createDialogRecipeDraft() {
   return createRecipeDraft(contractResult.contract, createDialogFigmaSnapshot(), semanticSnapshot);
 }
 
+/** Focus a code prop on the board; its editing controls then appear below. */
+function selectTarget(targetPath: string): void {
+  // The name also appears in the detail header, so pick the board entry.
+  const label = screen.getAllByText(targetPath)
+    .map((node) => node.closest('label'))
+    .find((node): node is HTMLLabelElement => node !== null);
+  if (!label) {
+    throw new Error(`No selectable board item for ${targetPath}`);
+  }
+  fireEvent.click(label);
+}
+
 afterEach(cleanup);
 
 describe('SemanticMappingView', () => {
@@ -65,6 +77,11 @@ describe('SemanticMappingView', () => {
     expect(screen.getByText('Application behavior')).toBeTruthy();
     expect(screen.getByText('confirmAction.label')).toBeTruthy();
 
+    // Both sides of the connection are on the board.
+    expect(screen.getByText('Figma')).toBeTruthy();
+    expect(screen.getByText('Code')).toBeTruthy();
+
+    selectTarget('confirmAction.label');
     const control = screen.getByLabelText('Value for confirmAction.label');
     expect((control as HTMLSelectElement).value).toContain('Primary action');
   });
@@ -124,6 +141,7 @@ describe('SemanticMappingView', () => {
     expect(screen.getByText(/Map, set, or mark "title" before saving/).textContent)
       .toContain('required');
 
+    selectTarget('title');
     const control = screen.getByLabelText('Value for title') as HTMLSelectElement;
     fireEvent.input(control, { target: { value: 'runtime' } });
     expect(onOptionChange).toHaveBeenCalledWith(['title'], 'runtime', undefined);
@@ -141,9 +159,63 @@ describe('SemanticMappingView', () => {
       />,
     );
 
+    selectTarget('onConfirm');
     const control = screen.getByLabelText('Value for onConfirm') as HTMLSelectElement;
     expect(control.value).toBe('runtime');
     expect(screen.getAllByText(/Set in application/).length).toBeGreaterThan(0);
+  });
+
+  it('shows the Figma side, including values nothing maps to', () => {
+    const figmaSnapshot = createDialogFigmaSnapshot();
+    // A variant the recipe never uses: the board must surface it, since a
+    // dropdown of options could never tell you it exists.
+    figmaSnapshot.properties.push({
+      id: 'prop-state',
+      name: 'State',
+      options: ['Default', 'Disabled'],
+      rawKey: 'State',
+      type: 'VARIANT',
+    });
+
+    render(
+      <SemanticMappingView
+        componentName="ConfirmationDialog"
+        disabled={false}
+        figmaSnapshot={figmaSnapshot}
+        importPath="@tashilcar/ui"
+        onOptionChange={vi.fn()}
+        recipe={createDialogRecipeDraft()}
+      />,
+    );
+
+    expect(screen.getByText('State')).toBeTruthy();
+    expect(screen.getAllByText('Header / Title').length).toBeGreaterThan(0);
+    expect(document.body.textContent).toMatch(/\d+ unused/);
+  });
+
+  it('connects a Figma value to the focused code prop in one click', () => {
+    const onOptionChange = vi.fn();
+    const figmaSnapshot = createDialogFigmaSnapshot();
+    const recipe = setTargetOption(createDialogRecipeDraft(), figmaSnapshot, ['intent'], '');
+
+    render(
+      <SemanticMappingView
+        componentName="ConfirmationDialog"
+        disabled={false}
+        figmaSnapshot={figmaSnapshot}
+        importPath="@tashilcar/ui"
+        onOptionChange={onOptionChange}
+        recipe={recipe}
+      />,
+    );
+
+    selectTarget('intent');
+    // Clicking the compatible Figma property binds it to the focused prop.
+    const figmaItem = screen.getByText('intent', { selector: '.board-item label div' })
+      ?? screen.getAllByText('intent')[0];
+    fireEvent.click(figmaItem.closest('label')!);
+
+    expect(onOptionChange).toHaveBeenCalledWith(['intent'], 'prop:prop-intent');
   });
 
   it('renders nothing without a source contract', () => {
@@ -258,6 +330,7 @@ describe('SemanticMappingView', () => {
       />,
     );
 
+    selectTarget('fullWidth');
     const control = screen.getByLabelText('Static value for fullWidth') as HTMLSelectElement;
     expect(control.tagName).toBe('SELECT');
     expect(control.value).toBe('false');
@@ -292,6 +365,7 @@ describe('SemanticMappingView', () => {
       />,
     );
 
+    selectTarget('size');
     const control = screen.getByLabelText('Static value for size') as HTMLSelectElement;
     expect(control.tagName).toBe('SELECT');
     expect(Array.from(control.options).map((o) => o.value)).toEqual(['sm', 'md', 'lg']);
@@ -318,6 +392,7 @@ describe('SemanticMappingView', () => {
       />,
     );
 
+    selectTarget('title');
     const control = screen.getByLabelText('Static value for title') as HTMLInputElement;
     expect(control.tagName).toBe('INPUT');
     expect(control.value).toBe('Hello');
@@ -338,6 +413,7 @@ describe('SemanticMappingView', () => {
       />,
     );
 
+    selectTarget('description');
     expect(document.body.textContent).toContain('No design value is read');
     expect(document.body.textContent).toContain('Set in application.');
   });

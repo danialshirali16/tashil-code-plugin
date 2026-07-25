@@ -1,5 +1,13 @@
 import { Fragment, h } from 'preact';
 import { useState } from 'preact/hooks';
+import {
+  IconComponentProperty16,
+  IconInstance16,
+  IconText16,
+  IconVariant16,
+  Layer,
+  SelectableItem,
+} from '@create-figma-plugin/ui';
 import { renderImportLines } from './layout/imports';
 import {
   OPTION_OMITTED,
@@ -7,7 +15,10 @@ import {
   OPTION_STATIC,
   SECTION_LABELS,
   buildTargetRows,
+  getUsedSourceOptionIds,
   hasStructuralMismatch,
+  nestedOptionId,
+  propertyOptionId,
   validateRecipeDraft,
   type SemanticTargetRow,
 } from './semantic/authoring';
@@ -56,6 +67,7 @@ export type SemanticMappingViewProps = {
  */
 export function SemanticMappingView(props: SemanticMappingViewProps): h.JSX.Element | null {
   const [isDragging, setIsDragging] = useState(false);
+  const [selectedPath, setSelectedPath] = useState<string>();
   const recipe = props.recipe;
   if (!recipe?.sourceContract) {
     return null;
@@ -66,6 +78,23 @@ export function SemanticMappingView(props: SemanticMappingViewProps): h.JSX.Elem
   const contract = recipe.sourceContract;
   const preview = createPreview(props.componentName, props.importPath, recipe);
   const uploadDisabled = props.disabled || props.sourceUploading === true;
+
+  // The board's focus: which code prop is being edited. Defaults to the first
+  // prop that still needs a decision so the page opens on real work.
+  const firstUnresolved = rows.find((row) => row.optionId === '' && row.target.required)
+    ?? rows.find((row) => row.optionId === '');
+  const activePath = selectedPath ?? firstUnresolved?.targetPath ?? rows[0]?.targetPath;
+  const selectedRow = rows.find((row) => row.targetPath === activePath);
+
+  const usedSources = getUsedSourceOptionIds(recipe);
+  const compatibleIds = new Set((selectedRow?.options ?? []).map((option) => option.id));
+  const figmaItems = buildFigmaInventory(
+    props.figmaSnapshot,
+    recipe.figmaSnapshot,
+    usedSources,
+    compatibleIds,
+  );
+  const unusedSourceCount = figmaItems.filter((item) => !item.used).length;
 
   function submitFiles(files: readonly File[]): void {
     if (!uploadDisabled && files.length > 0) {
@@ -148,27 +177,99 @@ export function SemanticMappingView(props: SemanticMappingViewProps): h.JSX.Elem
         </div>
       ) : null}
 
-      <div class="mapping-rows">
-        {rows.map((row) => {
-          const sectionLabel = row.section !== previousSection
-            ? SECTION_LABELS[row.section]
-            : undefined;
-          previousSection = row.section;
-          return (
-            <Fragment key={row.targetPath}>
-              {sectionLabel ? (
-                <div class="mapping-section-label">{sectionLabel}</div>
-              ) : null}
-              <SemanticTargetRowView
-                disabled={props.disabled}
-                onOptionChange={props.onOptionChange}
-                onValueMappingChange={props.onValueMappingChange}
-                row={row}
-              />
-            </Fragment>
-          );
-        })}
+      <div class="connect-board">
+        <div class="board-side">
+          <div class="board-head">
+            <span class="side-tag side-figma">Figma</span>
+            <strong>{recipe.figmaSnapshot.componentName}</strong>
+            <small>
+              {unusedSourceCount === 0
+                ? 'all values used'
+                : `${unusedSourceCount} unused`}
+            </small>
+          </div>
+          <div class="board-list">
+            {figmaItems.length === 0 ? (
+              <div class="board-empty">This component exposes no mappable values.</div>
+            ) : figmaItems.map((item) => (
+              <Fragment key={item.id}>
+                {item.groupLabel ? (
+                  <div class="mapping-section-label">{item.groupLabel}</div>
+                ) : null}
+                <div
+                  class={item.selectable ? 'board-item' : 'board-item board-item-inert'}
+                  title={item.selectable
+                    ? `Connect to ${selectedRow?.targetPath ?? ''}`
+                    : 'Not compatible with the selected code prop'}
+                >
+                  <Layer
+                    bold={item.used}
+                    description={item.detail}
+                    icon={item.icon}
+                    onValueChange={() => {
+                      if (item.selectable && !props.disabled && selectedRow) {
+                        props.onOptionChange(selectedRow.target.path, item.id);
+                      }
+                    }}
+                    value={selectedRow?.optionId === item.id}
+                  >
+                    {item.label}
+                  </Layer>
+                </div>
+              </Fragment>
+            ))}
+          </div>
+        </div>
+
+        <div class="board-side">
+          <div class="board-head">
+            <span class="side-tag side-code">Code</span>
+            <strong>{contract.componentName}</strong>
+            <small>
+              {validation.progress.total > 0
+                ? `${validation.progress.completed} of ${validation.progress.total} required`
+                : `${rows.length} props`}
+            </small>
+          </div>
+          <div class="board-list">
+            {rows.map((row) => {
+              const sectionLabel = row.section !== previousSection
+                ? SECTION_LABELS[row.section]
+                : undefined;
+              previousSection = row.section;
+              return (
+                <Fragment key={row.targetPath}>
+                  {sectionLabel ? (
+                    <div class="mapping-section-label">{sectionLabel}</div>
+                  ) : null}
+                  <SelectableItem
+                    disabled={props.disabled}
+                    onValueChange={() => setSelectedPath(row.targetPath)}
+                    value={row.targetPath === selectedPath}
+                  >
+                    <span class="board-target">
+                      <span class="board-target-name">
+                        <span class="dot-status" data-state={targetState(row)} />
+                        {row.targetPath}
+                      </span>
+                      <span class="board-target-value">{describeRowValue(row)}</span>
+                    </span>
+                  </SelectableItem>
+                </Fragment>
+              );
+            })}
+          </div>
+        </div>
       </div>
+
+      {selectedRow ? (
+        <SemanticTargetRowView
+          disabled={props.disabled}
+          onOptionChange={props.onOptionChange}
+          onValueMappingChange={props.onValueMappingChange}
+          row={selectedRow}
+        />
+      ) : null}
 
       {validation.errors.length > 0 ? (
         <ul class="field-error" role="list">
@@ -209,6 +310,88 @@ export function SemanticMappingView(props: SemanticMappingViewProps): h.JSX.Elem
       ) : null}
     </section>
   );
+}
+
+type FigmaInventoryItem = {
+  id: string;
+  label: string;
+  detail?: string;
+  icon: h.JSX.Element;
+  /** Already consumed by some binding. */
+  used: boolean;
+  /** Valid for the code prop currently in focus, so clicking connects it. */
+  selectable: boolean;
+  groupLabel?: string;
+};
+
+/**
+ * The Figma side of the board: what this component actually offers, in Figma's
+ * own vocabulary. Showing it whole is the point — an unused property here is
+ * information ("the design has a State variant nobody mapped"), which a
+ * dropdown of options can never convey.
+ */
+function buildFigmaInventory(
+  figmaSnapshot: FigmaComponentSnapshot | undefined,
+  semanticSnapshot: SemanticConnectionRecipe['figmaSnapshot'],
+  usedSources: ReadonlySet<string>,
+  compatibleIds: ReadonlySet<string>,
+): FigmaInventoryItem[] {
+  const items: FigmaInventoryItem[] = [];
+
+  (figmaSnapshot?.properties ?? []).forEach((property, index) => {
+    const id = propertyOptionId(property);
+    items.push({
+      icon: property.type === 'VARIANT' ? <IconVariant16 /> : <IconComponentProperty16 />,
+      id,
+      label: property.name,
+      selectable: compatibleIds.has(id),
+      used: usedSources.has(id),
+      ...(property.options.length > 0
+        ? { detail: property.options.join(' · ') }
+        : { detail: property.type.toLowerCase() }),
+      ...(index === 0 ? { groupLabel: 'Properties' } : {}),
+    });
+  });
+
+  semanticSnapshot.nestedSources.forEach((descriptor, index) => {
+    const id = nestedOptionId(descriptor);
+    items.push({
+      icon: descriptor.kind === 'nested-instance'
+        ? <IconInstance16 />
+        : descriptor.kind === 'nested-text' ? <IconText16 /> : <IconComponentProperty16 />,
+      id,
+      label: descriptor.displayPath,
+      selectable: compatibleIds.has(id),
+      used: usedSources.has(id),
+      ...(descriptor.sampleValue !== undefined ? { detail: descriptor.sampleValue } : {}),
+      ...(index === 0 ? { groupLabel: 'Inside the component' } : {}),
+    });
+  });
+
+  return items;
+}
+
+/** Status of a code prop, for the dot beside its name. */
+function targetState(row: SemanticTargetRow): 'done' | 'todo' | 'blocked' {
+  if (row.optionId !== '') {
+    return 'done';
+  }
+  return row.target.required && row.target.kind === 'visual' ? 'blocked' : 'todo';
+}
+
+/** One-line answer to "what does this prop resolve to right now?". */
+function describeRowValue(row: SemanticTargetRow): string {
+  if (row.optionId === OPTION_RUNTIME) {
+    return 'set in application';
+  }
+  if (row.optionId === OPTION_OMITTED) {
+    return 'omitted';
+  }
+  if (row.optionId === OPTION_STATIC) {
+    return `static · ${String(row.staticValue ?? '')}`;
+  }
+  const option = row.options.find((candidate) => candidate.id === row.optionId);
+  return option ? option.label : 'not mapped';
 }
 
 /**

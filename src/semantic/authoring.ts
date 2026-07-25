@@ -599,6 +599,37 @@ export function deriveTransform(
   return Object.keys(map).length > 0 ? { kind: 'enum', map } : undefined;
 }
 
+/**
+ * Option ids of every Figma source a binding currently consumes, so the
+ * connect board can show which side of the design surface is already in use
+ * and — just as importantly — which parts are not.
+ */
+export function getUsedSourceOptionIds(recipe: SemanticConnectionRecipe): Set<string> {
+  const used = new Set<string>();
+
+  for (const binding of recipe.bindings) {
+    const source = binding.source;
+    switch (source.kind) {
+      case 'component-property':
+        used.add(`prop:${source.propertyId}`);
+        break;
+      case 'nested-text':
+        used.add(`nested:nested-text:${locatorKey(source.locator)}:`);
+        break;
+      case 'nested-property':
+        used.add(`nested:nested-property:${locatorKey(source.locator)}:${source.propertyName}`);
+        break;
+      case 'instance':
+        used.add(`nested:nested-instance:${locatorKey(source.locator)}:`);
+        break;
+      default:
+        break;
+    }
+  }
+
+  return used;
+}
+
 /** Build the grouped row model the editor renders. */
 export function buildTargetRows(
   recipe: SemanticConnectionRecipe,
