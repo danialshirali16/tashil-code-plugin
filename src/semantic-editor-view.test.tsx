@@ -4,7 +4,12 @@ import { cleanup, fireEvent, render, screen } from '@testing-library/preact';
 import { h } from 'preact';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { SemanticMappingView } from './semantic-editor-view';
-import { createRecipeDraft, setTargetOption } from './semantic/authoring';
+import {
+  createRecipeDraft,
+  setTargetOption,
+  OPTION_RUNTIME,
+  OPTION_STATIC,
+} from './semantic/authoring';
 import { extractFigmaSemanticSnapshot } from './semantic/figma-extractor';
 import { DIALOG_SOURCE_FIXTURE, createDialogNode } from './semantic/fixtures';
 import { extractSourceContract } from './semantic/source-contract';
@@ -225,6 +230,60 @@ describe('SemanticMappingView', () => {
     // The redaction promise is stated where the user acts on it.
     expect(document.body.textContent).toContain('Redacted: structure and health only.');
     expect(button.getAttribute('title')).toContain('no source code');
+  });
+
+  it('gives a boolean static value a true/false control, not free text', () => {
+    const onOptionChange = vi.fn();
+    const figmaSnapshot = createDialogFigmaSnapshot();
+    let recipe = createDialogRecipeDraft();
+    // Add a boolean target and mark it static.
+    recipe.sourceContract!.targets.push({
+      kind: 'visual',
+      ownerProp: 'fullWidth',
+      path: ['fullWidth'],
+      required: false,
+      typeName: 'boolean',
+      values: [false, true],
+    });
+    recipe = setTargetOption(recipe, figmaSnapshot, ['fullWidth'], OPTION_STATIC, false);
+
+    render(
+      <SemanticMappingView
+        componentName="ConfirmationDialog"
+        disabled={false}
+        figmaSnapshot={figmaSnapshot}
+        importPath="@tashilcar/ui"
+        onOptionChange={onOptionChange}
+        recipe={recipe}
+      />,
+    );
+
+    const control = screen.getByLabelText('Static value for fullWidth') as HTMLSelectElement;
+    expect(control.tagName).toBe('SELECT');
+    expect(control.value).toBe('false');
+
+    // Choosing true stores a real boolean, never the string "true".
+    fireEvent.input(control, { target: { value: 'true' } });
+    expect(onOptionChange).toHaveBeenCalledWith(['fullWidth'], OPTION_STATIC, true);
+  });
+
+  it('explains what Set in application generates', () => {
+    let recipe = createDialogRecipeDraft();
+    recipe = setTargetOption(recipe, createDialogFigmaSnapshot(), ['description'], OPTION_RUNTIME);
+
+    render(
+      <SemanticMappingView
+        componentName="ConfirmationDialog"
+        disabled={false}
+        figmaSnapshot={createDialogFigmaSnapshot()}
+        importPath="@tashilcar/ui"
+        onOptionChange={vi.fn()}
+        recipe={recipe}
+      />,
+    );
+
+    expect(document.body.textContent).toContain('No design value is read');
+    expect(document.body.textContent).toContain('Set in application.');
   });
 
   it('shows no reconciliation panel when there are no proposals', () => {

@@ -158,6 +158,8 @@ declare const styles: {
   readonly "source-prop": string;
   readonly "source-summary": string;
   readonly "spacer": string;
+  readonly "static-value-label": string;
+  readonly "static-value-row": string;
   readonly "sync-tokens-chip": string;
   readonly "sync-tokens-chip-active": string;
   readonly "sync-tokens-collection-list": string;

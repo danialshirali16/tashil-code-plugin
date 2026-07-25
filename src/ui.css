@@ -1711,3 +1711,34 @@ body {
   color: var(--figma-color-text);
   font-weight: 500;
 }
+
+/* A static value aligns under the value control of its target row, matching
+   `.mapping-property-row`'s columns so the input never collapses into the
+   label column. */
+.static-value-row {
+  align-items: center;
+  display: grid;
+  gap: 8px;
+  grid-template-columns: minmax(100px, 1fr) 12px minmax(130px, 1fr);
+  padding: 0 8px 8px;
+}
+
+.static-value-label {
+  color: var(--figma-color-text-secondary);
+  font-size: 11px;
+  grid-column: 1;
+  justify-self: end;
+}
+
+.static-value-row .select-label {
+  grid-column: 3;
+}
+
+.static-value-row input {
+  background: var(--figma-color-bg-secondary);
+  border: 1px solid var(--figma-color-border);
+  border-radius: 4px;
+  color: var(--figma-color-text);
+  padding: 5px 8px;
+  width: 100%;
+}

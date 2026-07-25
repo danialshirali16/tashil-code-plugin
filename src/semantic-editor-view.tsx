@@ -18,6 +18,7 @@ import {
   type ReconciliationProposal,
 } from './semantic/reconcile';
 import type { SemanticConnectionRecipe } from './semantic/types';
+import type { SourceTargetDescriptor } from './semantic/source-contract';
 import type { FigmaComponentSnapshot, SourcePropValue } from './types';
 
 export type SemanticMappingViewProps = {
@@ -262,6 +263,12 @@ function ReconciliationPanel(props: {
   );
 }
 
+/** A target whose only values are the two booleans. */
+function isBooleanTarget(target: SourceTargetDescriptor): boolean {
+  const values = target.values ?? [];
+  return values.length === 2 && values.every((value) => typeof value === 'boolean');
+}
+
 function SemanticTargetRowView(props: {
   disabled: boolean;
   onOptionChange: SemanticMappingViewProps['onOptionChange'];
@@ -301,7 +308,11 @@ function SemanticTargetRowView(props: {
                   props.onOptionChange(
                     target.path,
                     optionId,
-                    optionId === OPTION_STATIC ? row.staticValue ?? '' : undefined,
+                    optionId === OPTION_STATIC
+                      // Seed a type-correct default so a boolean prop never
+                      // starts life holding an empty string.
+                      ? row.staticValue ?? (isBooleanTarget(target) ? false : '')
+                      : undefined,
                   );
                 }}
                 value={row.optionId}
@@ -364,22 +375,38 @@ function SemanticTargetRowView(props: {
       ) : null}
 
       {row.optionId === OPTION_STATIC ? (
-        <div class="value-mapping-row">
+        <div class="static-value-row">
+          <span class="static-value-label" aria-hidden="true">Value</span>
           <label class="select-label">
             <span class="visually-hidden">Static value for {row.targetPath}</span>
-            <input
-              disabled={props.disabled}
-              onInput={(event) => props.onOptionChange(
-                target.path,
-                OPTION_STATIC,
-                event.currentTarget.value,
-              )}
-              placeholder="Static value"
-              type="text"
-              value={typeof row.staticValue === 'string'
-                ? row.staticValue
-                : String(row.staticValue ?? '')}
-            />
+            {isBooleanTarget(target) ? (
+              <select
+                disabled={props.disabled}
+                onInput={(event) => props.onOptionChange(
+                  target.path,
+                  OPTION_STATIC,
+                  event.currentTarget.value === 'true',
+                )}
+                value={row.staticValue === true ? 'true' : 'false'}
+              >
+                <option value="true">true</option>
+                <option value="false">false</option>
+              </select>
+            ) : (
+              <input
+                disabled={props.disabled}
+                onInput={(event) => props.onOptionChange(
+                  target.path,
+                  OPTION_STATIC,
+                  event.currentTarget.value,
+                )}
+                placeholder="Static value"
+                type="text"
+                value={typeof row.staticValue === 'string'
+                  ? row.staticValue
+                  : String(row.staticValue ?? '')}
+              />
+            )}
           </label>
         </div>
       ) : null}
@@ -388,7 +415,11 @@ function SemanticTargetRowView(props: {
         <small class="mapping-help">Suggested: {row.suggestion!.reason} Review before saving.</small>
       ) : null}
       {row.optionId === OPTION_RUNTIME ? (
-        <small class="mapping-help">Set in application — not a mapping problem.</small>
+        <small class="mapping-help">
+          No design value is read. The prop is emitted as <code>undefined</code> with a
+          “Set in application.” comment, and listed separately in Inspect so you know to
+          wire it up in code.
+        </small>
       ) : null}
     </div>
   );
