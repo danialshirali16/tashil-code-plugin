@@ -475,9 +475,12 @@ function createBindingForOption(
 
   if (optionId === OPTION_OMITTED) {
     // Only optional targets may be omitted; a required prop must be provided.
+    // The requirement is restated as optional so an omitted event prop does not
+    // carry the runtime requirement its kind would otherwise imply, which read
+    // as a contradiction wherever the binding was inspected.
     return target.required
       ? undefined
-      : { ...base, source: { kind: 'omitted' } };
+      : { ...base, requirement: 'optional', source: { kind: 'omitted' } };
   }
 
   if (optionId === OPTION_STATIC) {
