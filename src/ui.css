@@ -1943,3 +1943,113 @@ body {
     border-top: 1px solid var(--figma-color-border);
   }
 }
+
+/* ---- Focused prop: one decision at a time --------------------------------
+   The kind of source is chosen by name first, so "static", "in the app" and a
+   Figma value are never mixed into one anonymous dropdown. */
+.board-hint {
+  background: var(--figma-color-bg-secondary);
+  border-bottom: 1px solid var(--figma-color-border);
+  color: var(--figma-color-text-secondary);
+  padding: 6px 10px;
+}
+
+.detail-panel {
+  border-top: 1px solid var(--figma-color-border);
+  display: grid;
+  gap: 8px;
+  padding: 12px;
+}
+
+.detail-head {
+  align-items: baseline;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.detail-head strong { font-size: 13px; }
+
+.detail-head code {
+  color: var(--figma-color-text-secondary);
+  font-size: 11px;
+}
+
+.detail-req {
+  background: var(--figma-color-bg-danger-tertiary, rgba(242, 72, 34, 0.15));
+  border-radius: 3px;
+  color: var(--figma-color-text-danger, #ff8a73);
+  font-size: 9px;
+  letter-spacing: 0.04em;
+  padding: 2px 5px;
+  text-transform: uppercase;
+}
+
+.detail-question {
+  color: var(--figma-color-text);
+  margin: 0;
+}
+
+.kind-choice {
+  background: var(--figma-color-bg-secondary);
+  border-radius: 6px;
+  display: flex;
+  gap: 2px;
+  padding: 2px;
+}
+
+.kind-button {
+  background: none;
+  border: 0;
+  border-radius: 5px;
+  color: var(--figma-color-text-secondary);
+  cursor: pointer;
+  flex: 1;
+  font: inherit;
+  padding: 6px 4px;
+  white-space: nowrap;
+}
+
+.kind-button:hover:not(:disabled) { color: var(--figma-color-text); }
+
+.kind-button[data-on='true'] {
+  background: var(--figma-color-bg-brand, #0d99ff);
+  color: var(--figma-color-text-onbrand, #fff);
+  font-weight: 600;
+}
+
+.kind-button:disabled { cursor: default; opacity: 0.5; }
+
+.detail-blurb,
+.detail-chosen,
+.detail-cta {
+  color: var(--figma-color-text-secondary);
+  margin: 0;
+}
+
+.detail-chosen b { color: var(--figma-color-text); }
+
+.detail-cta {
+  background: var(--figma-color-bg-brand-tertiary, rgba(13, 153, 255, 0.12));
+  border-radius: 6px;
+  color: var(--figma-color-text-brand, #7cc4ff);
+  padding: 8px 10px;
+}
+
+.detail-flag {
+  background: var(--figma-color-bg-warning-tertiary, rgba(255, 205, 41, 0.16));
+  border-radius: 3px;
+  color: var(--figma-color-text-warning, #ffdb70);
+  font-size: 9px;
+  margin-left: 6px;
+  padding: 2px 5px;
+  text-transform: uppercase;
+}
+
+.detail-body { display: grid; gap: 8px; }
+
+.detail-body .value-mapping-list {
+  background: none;
+  border-top: 0;
+  padding: 0;
+}

@@ -4,6 +4,7 @@ declare const styles: {
   readonly "board-empty": string;
   readonly "board-flag": string;
   readonly "board-head": string;
+  readonly "board-hint": string;
   readonly "board-list": string;
   readonly "board-row": string;
   readonly "board-row-detail": string;
@@ -45,8 +46,17 @@ declare const styles: {
   readonly "connection-updated-at": string;
   readonly "create-figma-plugin": string;
   readonly "detail-back": string;
+  readonly "detail-blurb": string;
+  readonly "detail-body": string;
+  readonly "detail-chosen": string;
   readonly "detail-component-name": string;
+  readonly "detail-cta": string;
+  readonly "detail-flag": string;
+  readonly "detail-head": string;
   readonly "detail-navigation": string;
+  readonly "detail-panel": string;
+  readonly "detail-question": string;
+  readonly "detail-req": string;
   readonly "dot-status": string;
   readonly "eyebrow": string;
   readonly "field": string;
@@ -108,6 +118,8 @@ declare const styles: {
   readonly "inventory-status-not-connected": string;
   readonly "inventory-subheading": string;
   readonly "inventory-warning-badge": string;
+  readonly "kind-button": string;
+  readonly "kind-choice": string;
   readonly "layout-card": string;
   readonly "layout-card-name": string;
   readonly "layout-card-topline": string;

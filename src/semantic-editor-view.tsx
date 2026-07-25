@@ -66,6 +66,7 @@ export type SemanticMappingViewProps = {
 export function SemanticMappingView(props: SemanticMappingViewProps): h.JSX.Element | null {
   const [isDragging, setIsDragging] = useState(false);
   const [selectedPath, setSelectedPath] = useState<string>();
+  const [pendingKind, setPendingKind] = useState<{ path: string; kind: SourceKind }>();
   const recipe = props.recipe;
   if (!recipe?.sourceContract) {
     return null;
@@ -84,8 +85,16 @@ export function SemanticMappingView(props: SemanticMappingViewProps): h.JSX.Elem
   const activePath = selectedPath ?? firstUnresolved?.targetPath ?? rows[0]?.targetPath;
   const selectedRow = rows.find((row) => row.targetPath === activePath);
 
+  // What kind of source the focused prop uses: its saved choice, or the one
+  // the user just asked for while the detail is still being filled in.
+  const activeKind: SourceKind = (selectedRow ? kindOfRow(selectedRow) : undefined)
+    ?? (pendingKind?.path === activePath ? pendingKind.kind : undefined)
+    ?? 'figma';
+
   const usedSources = getUsedSourceOptionIds(recipe);
-  const compatibleIds = new Set((selectedRow?.options ?? []).map((option) => option.id));
+  const compatibleIds = activeKind === 'figma'
+    ? new Set((selectedRow?.options ?? []).map((option) => option.id))
+    : new Set<string>();
   const figmaItems = buildFigmaInventory(
     props.figmaSnapshot,
     recipe.figmaSnapshot,
@@ -186,6 +195,15 @@ export function SemanticMappingView(props: SemanticMappingViewProps): h.JSX.Elem
                 : `${unusedSourceCount} unused`}
             </small>
           </div>
+          {selectedRow ? (
+            <div class="board-hint">
+              {activeKind !== 'figma'
+                ? <span><b>{selectedRow.targetPath}</b> is not using a Figma value.</span>
+                : compatibleIds.size === 0
+                  ? <span>Nothing here can feed <b>{selectedRow.targetPath}</b>.</span>
+                  : <span>Click a value to connect it to <b>{selectedRow.targetPath}</b>.</span>}
+            </div>
+          ) : null}
           <div class="board-list">
             {figmaItems.length === 0 ? (
               <div class="board-empty">This component exposes no mappable values.</div>
@@ -267,6 +285,25 @@ export function SemanticMappingView(props: SemanticMappingViewProps): h.JSX.Elem
       {selectedRow ? (
         <SemanticTargetRowView
           disabled={props.disabled}
+          kind={activeKind}
+          onKindChange={(kind) => {
+            setPendingKind({ kind, path: selectedRow.targetPath });
+            if (kind === 'runtime' || kind === 'omitted') {
+              props.onOptionChange(
+                selectedRow.target.path,
+                kind === 'runtime' ? OPTION_RUNTIME : OPTION_OMITTED,
+              );
+            } else if (kind === 'static') {
+              props.onOptionChange(
+                selectedRow.target.path,
+                OPTION_STATIC,
+                selectedRow.staticValue ?? allowedStaticValues(selectedRow.target)[0] ?? '',
+              );
+            } else {
+              // Back to Figma: clear the non-design choice so the board picks.
+              props.onOptionChange(selectedRow.target.path, '');
+            }
+          }}
           onOptionChange={props.onOptionChange}
           onValueMappingChange={props.onValueMappingChange}
           row={selectedRow}
@@ -466,160 +503,183 @@ function matchAllowedValue(
   return allowed.find((value) => String(value) === raw) ?? raw;
 }
 
+type SourceKind = 'figma' | 'static' | 'runtime' | 'omitted';
+
+const KIND_LABELS: Record<SourceKind, string> = {
+  figma: 'From Figma',
+  omitted: 'Leave out',
+  runtime: 'In the app',
+  static: 'Fixed value',
+};
+
+const KIND_BLURB: Record<SourceKind, string> = {
+  figma: 'The value changes with the design.',
+  omitted: 'The prop is not written at all.',
+  runtime: 'No design value is read. The prop is emitted as undefined with a comment, and listed in Inspect so you know to wire it up.',
+  static: 'The same value every time, whatever the design shows.',
+};
+
+/** Which kind of source a row currently uses. */
+function kindOfRow(row: SemanticTargetRow): SourceKind | undefined {
+  if (row.optionId === OPTION_RUNTIME) return 'runtime';
+  if (row.optionId === OPTION_STATIC) return 'static';
+  if (row.optionId === OPTION_OMITTED) return 'omitted';
+  if (row.optionId !== '') return 'figma';
+  return undefined;
+}
+
+/**
+ * The decision surface for one code prop. The user picks *what kind* of source
+ * feeds it first — a named choice rather than a dropdown mixing Figma values
+ * with "static" and "set in application" — and only then the detail that kind
+ * needs. Choosing "From Figma" hands the job to the board on the left, which
+ * is the one place Figma values are picked.
+ */
 function SemanticTargetRowView(props: {
   disabled: boolean;
+  onKindChange: (kind: SourceKind) => void;
   onOptionChange: SemanticMappingViewProps['onOptionChange'];
   onValueMappingChange?: SemanticMappingViewProps['onValueMappingChange'];
+  kind: SourceKind;
   row: SemanticTargetRow;
 }): h.JSX.Element {
   const { row } = props;
   const target = row.target;
-  const isDesignBindable = target.kind === 'visual';
-  const isEvent = target.kind === 'event';
-  const showSelect = isDesignBindable || isEvent || target.kind === 'node';
   const allowedValues = allowedStaticValues(target);
-  const suggestionActive = row.suggestion !== undefined
-    && row.suggestion.optionId === row.optionId
-    && row.optionId !== '';
+  const chosen = row.options.find((option) => option.id === row.optionId);
+  const kinds: SourceKind[] = target.kind === 'visual' || target.kind === 'node'
+    ? (target.required ? ['figma', 'static', 'runtime'] : ['figma', 'static', 'runtime', 'omitted'])
+    : target.required ? ['runtime'] : ['runtime', 'omitted'];
 
   return (
-    <div class="mapping-row">
-      <div class="mapping-property-row">
-        <div class="source-prop">
-          <strong>{row.targetPath}</strong>
-          <small>{target.typeName}</small>
-          {target.kind === 'excluded' ? (
-            <small>Excluded by policy — styling and DOM props stay in application code.</small>
-          ) : target.kind === 'unsupported' ? (
-            <small>This type cannot be mapped visually yet.</small>
-          ) : null}
-        </div>
-        {showSelect ? (
-          <Fragment>
-            <span class="mapping-arrow" aria-hidden="true">›</span>
-            <label class="select-label">
-              <span class="visually-hidden">Value for {row.targetPath}</span>
-              <select
-                disabled={props.disabled}
-                onInput={(event) => {
-                  const optionId = event.currentTarget.value;
-                  props.onOptionChange(
-                    target.path,
-                    optionId,
-                    optionId === OPTION_STATIC
-                      // Seed a type-correct default so a constrained prop never
-                      // starts life holding a value its type rejects.
-                      ? row.staticValue ?? allowedStaticValues(target)[0] ?? ''
-                      : undefined,
-                  );
-                }}
-                value={row.optionId}
-              >
-                <option value="">Not mapped</option>
-                {isDesignBindable && row.options.length > 0 ? (
-                  <optgroup label="Figma values">
-                    {row.options.map((option) => (
-                      <option key={option.id} value={option.id}>
-                        {option.label}
-                        {option.detail ? ` (${option.detail})` : ''}
-                      </option>
-                    ))}
-                  </optgroup>
-                ) : null}
-                {isDesignBindable ? (
-                  <option value={OPTION_STATIC}>Static value…</option>
-                ) : null}
-                <option value={OPTION_RUNTIME}>Set in application</option>
-                {!target.required ? (
-                  <option value={OPTION_OMITTED}>Omitted</option>
-                ) : null}
-              </select>
-            </label>
-          </Fragment>
-        ) : null}
+    <div class="detail-panel">
+      <div class="detail-head">
+        <strong>{row.targetPath}</strong>
+        <code>{target.typeName}</code>
+        {target.required ? <span class="detail-req">required</span> : null}
       </div>
 
-      {row.valueMappings && row.valueMappings.length > 0 ? (
-        <div class="value-mapping-list">
-          {row.valueMappings.map((valueRow) => (
-            <div
-              class="value-mapping-row"
-              key={`${row.targetPath}-${String(valueRow.sourceValue)}`}
-            >
-              <code>{String(valueRow.sourceValue)}</code>
-              <span aria-hidden="true">←</span>
-              <label class="select-label">
-                <span class="visually-hidden">
-                  Figma option for {row.targetPath} {String(valueRow.sourceValue)}
-                </span>
-                <select
-                  disabled={props.disabled}
-                  onInput={(event) => props.onValueMappingChange?.(
-                    row.target.path,
-                    valueRow.sourceValue,
-                    event.currentTarget.value,
-                  )}
-                  value={valueRow.figmaOption}
-                >
-                  <option value="">Not mapped</option>
-                  {valueRow.options.map((option) => (
-                    <option key={option} value={option}>{option}</option>
+      {target.kind === 'excluded' ? (
+        <p class="mapping-help">Excluded by policy — styling and DOM props stay in application code.</p>
+      ) : target.kind === 'unsupported' ? (
+        <p class="mapping-help">This type cannot be mapped visually yet.</p>
+      ) : (
+        <Fragment>
+          <p class="detail-question">Where does this value come from?</p>
+          <div class="kind-choice" role="group" aria-label={`Value source for ${row.targetPath}`}>
+            {kinds.map((kind) => (
+              <button
+                aria-pressed={props.kind === kind}
+                class="kind-button"
+                data-on={props.kind === kind ? 'true' : undefined}
+                disabled={props.disabled}
+                key={kind}
+                onClick={() => props.onKindChange(kind)}
+                type="button"
+              >
+                {KIND_LABELS[kind]}
+              </button>
+            ))}
+          </div>
+          <p class="detail-blurb">{KIND_BLURB[props.kind]}</p>
+
+          {props.kind === 'figma' ? (
+            <div class="detail-body">
+              {row.options.length === 0 ? (
+                <p class="field-error">
+                  Nothing in this Figma component can feed a {target.typeName} prop.
+                  Add a matching property or variant in Figma, or choose another source.
+                </p>
+              ) : chosen ? (
+                <p class="detail-chosen">
+                  Using <b>{chosen.label}</b>
+                  {chosen.detail ? <span class="muted"> · {chosen.detail}</span> : null}
+                  {chosen.fragile ? <span class="detail-flag">found by layer name</span> : null}
+                </p>
+              ) : (
+                <p class="detail-cta">
+                  Pick one of the {row.options.length} highlighted values on the left.
+                </p>
+              )}
+
+              {row.valueMappings && row.valueMappings.length > 0 ? (
+                <div class="value-mapping-list">
+                  <div class="mapping-help">Which Figma option produces each value</div>
+                  {row.valueMappings.map((valueRow) => (
+                    <div
+                      class="value-mapping-row"
+                      key={`${row.targetPath}-${String(valueRow.sourceValue)}`}
+                    >
+                      <code>{String(valueRow.sourceValue)}</code>
+                      <span aria-hidden="true">←</span>
+                      <label class="select-label">
+                        <span class="visually-hidden">
+                          Figma option for {row.targetPath} {String(valueRow.sourceValue)}
+                        </span>
+                        <select
+                          disabled={props.disabled}
+                          onInput={(event) => props.onValueMappingChange?.(
+                            target.path,
+                            valueRow.sourceValue,
+                            event.currentTarget.value,
+                          )}
+                          value={valueRow.figmaOption}
+                        >
+                          <option value="">Not mapped</option>
+                          {valueRow.options.map((option) => (
+                            <option key={option} value={option}>{option}</option>
+                          ))}
+                        </select>
+                      </label>
+                    </div>
                   ))}
-                </select>
+                </div>
+              ) : null}
+
+              {row.suggestion && row.suggestion.optionId === row.optionId ? (
+                <p class="mapping-help">Suggested — {row.suggestion.reason} Review before saving.</p>
+              ) : null}
+            </div>
+          ) : null}
+
+          {props.kind === 'static' ? (
+            <div class="detail-body">
+              <label class="select-label">
+                <span class="visually-hidden">Static value for {row.targetPath}</span>
+                {allowedValues.length > 0 ? (
+                  <select
+                    disabled={props.disabled}
+                    onInput={(event) => props.onOptionChange(
+                      target.path,
+                      OPTION_STATIC,
+                      matchAllowedValue(allowedValues, event.currentTarget.value),
+                    )}
+                    value={String(row.staticValue ?? allowedValues[0])}
+                  >
+                    {allowedValues.map((value) => (
+                      <option key={String(value)} value={String(value)}>{String(value)}</option>
+                    ))}
+                  </select>
+                ) : (
+                  <input
+                    disabled={props.disabled}
+                    onInput={(event) => props.onOptionChange(
+                      target.path,
+                      OPTION_STATIC,
+                      event.currentTarget.value,
+                    )}
+                    placeholder="Value to always use"
+                    type="text"
+                    value={typeof row.staticValue === 'string'
+                      ? row.staticValue
+                      : String(row.staticValue ?? '')}
+                  />
+                )}
               </label>
             </div>
-          ))}
-        </div>
-      ) : null}
-
-      {row.optionId === OPTION_STATIC ? (
-        <div class="static-value-row">
-          <span class="static-value-label" aria-hidden="true">Value</span>
-          <label class="select-label">
-            <span class="visually-hidden">Static value for {row.targetPath}</span>
-            {allowedValues.length > 0 ? (
-              <select
-                disabled={props.disabled}
-                onInput={(event) => props.onOptionChange(
-                  target.path,
-                  OPTION_STATIC,
-                  matchAllowedValue(allowedValues, event.currentTarget.value),
-                )}
-                value={String(row.staticValue ?? allowedValues[0])}
-              >
-                {allowedValues.map((value) => (
-                  <option key={String(value)} value={String(value)}>{String(value)}</option>
-                ))}
-              </select>
-            ) : (
-              <input
-                disabled={props.disabled}
-                onInput={(event) => props.onOptionChange(
-                  target.path,
-                  OPTION_STATIC,
-                  event.currentTarget.value,
-                )}
-                placeholder="Static value"
-                type="text"
-                value={typeof row.staticValue === 'string'
-                  ? row.staticValue
-                  : String(row.staticValue ?? '')}
-              />
-            )}
-          </label>
-        </div>
-      ) : null}
-
-      {suggestionActive ? (
-        <small class="mapping-help">Suggested: {row.suggestion!.reason} Review before saving.</small>
-      ) : null}
-      {row.optionId === OPTION_RUNTIME ? (
-        <small class="mapping-help">
-          No design value is read. The prop is emitted as <code>undefined</code> with a
-          “Set in application.” comment, and listed separately in Inspect so you know to
-          wire it up in code.
-        </small>
-      ) : null}
+          ) : null}
+        </Fragment>
+      )}
     </div>
   );
 }

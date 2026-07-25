@@ -82,8 +82,9 @@ describe('SemanticMappingView', () => {
     expect(screen.getByText('Code')).toBeTruthy();
 
     selectTarget('confirmAction.label');
-    const control = screen.getByLabelText('Value for confirmAction.label');
-    expect((control as HTMLSelectElement).value).toContain('Primary action');
+    // The detail names the chosen Figma value rather than hiding it in a select.
+    expect(document.body.textContent).toContain('Using');
+    expect(document.body.textContent).toContain('Primary action / label');
   });
 
   it('shows the structural mismatch note as information, not an error', () => {
@@ -142,9 +143,9 @@ describe('SemanticMappingView', () => {
       .toContain('required');
 
     selectTarget('title');
-    const control = screen.getByLabelText('Value for title') as HTMLSelectElement;
-    fireEvent.input(control, { target: { value: 'runtime' } });
-    expect(onOptionChange).toHaveBeenCalledWith(['title'], 'runtime', undefined);
+    // The kind of source is a named choice, not an anonymous dropdown entry.
+    fireEvent.click(screen.getByRole('button', { name: 'In the app' }));
+    expect(onOptionChange).toHaveBeenCalledWith(['title'], 'runtime');
   });
 
   it('labels runtime targets as set in application', () => {
@@ -160,9 +161,9 @@ describe('SemanticMappingView', () => {
     );
 
     selectTarget('onConfirm');
-    const control = screen.getByLabelText('Value for onConfirm') as HTMLSelectElement;
-    expect(control.value).toBe('runtime');
-    expect(screen.getAllByText(/Set in application/).length).toBeGreaterThan(0);
+    const inApp = screen.getByRole('button', { name: 'In the app' });
+    expect(inApp.getAttribute('aria-pressed')).toBe('true');
+    expect(document.body.textContent).toContain('No design value is read');
   });
 
   it('shows the Figma side, including values nothing maps to', () => {
@@ -218,6 +219,51 @@ describe('SemanticMappingView', () => {
     fireEvent.click(figmaRow!);
 
     expect(onOptionChange).toHaveBeenCalledWith(['intent'], 'prop:prop-intent');
+  });
+
+  it('lets a boolean prop take a Figma boolean property', () => {
+    const onOptionChange = vi.fn();
+    const figmaSnapshot = createDialogFigmaSnapshot();
+    figmaSnapshot.properties.push({
+      id: 'p-hasicon',
+      name: 'hasLeadingIcon',
+      options: ['False', 'True'],
+      rawKey: 'hasLeadingIcon',
+      type: 'BOOLEAN',
+    });
+    const recipe = createDialogRecipeDraft();
+    recipe.sourceContract!.targets.push({
+      kind: 'visual',
+      ownerProp: 'disabled',
+      path: ['disabled'],
+      required: false,
+      typeName: 'boolean',
+      values: [false, true],
+    });
+
+    render(
+      <SemanticMappingView
+        componentName="ConfirmationDialog"
+        disabled={false}
+        figmaSnapshot={figmaSnapshot}
+        importPath="@tashilcar/ui"
+        onOptionChange={onOptionChange}
+        recipe={recipe}
+      />,
+    );
+
+    selectTarget('disabled');
+    // The board tells the user what clicking will do...
+    expect(document.body.textContent).toContain('Click a value to connect it to');
+
+    // ...and the boolean Figma property is live, not greyed out.
+    const booleanRow = screen.getAllByText('hasLeadingIcon')
+      .map((node) => node.closest('button'))
+      .find((node): node is HTMLButtonElement => node !== null);
+    expect(booleanRow?.disabled).toBe(false);
+
+    fireEvent.click(booleanRow!);
+    expect(onOptionChange).toHaveBeenCalledWith(['disabled'], 'prop:p-hasicon');
   });
 
   it('renders nothing without a source contract', () => {
@@ -416,8 +462,8 @@ describe('SemanticMappingView', () => {
     );
 
     selectTarget('description');
+    fireEvent.click(screen.getByRole('button', { name: 'In the app' }));
     expect(document.body.textContent).toContain('No design value is read');
-    expect(document.body.textContent).toContain('Set in application.');
   });
 
   it('shows no reconciliation panel when there are no proposals', () => {
