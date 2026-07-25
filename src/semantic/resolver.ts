@@ -81,6 +81,18 @@ export function resolveSemanticUsage(
   for (const binding of recipe.bindings) {
     const targetPath = formatTargetPath(binding.target);
 
+    // The source is the author's decision; the requirement only describes the
+    // target. An explicit "leave out" therefore beats the runtime requirement
+    // an event prop carries by default, or the prop would be emitted anyway.
+    if (binding.source.kind === 'omitted') {
+      explanations.push({
+        outcome: 'omitted',
+        reason: 'Intentionally omitted.',
+        targetPath,
+      });
+      continue;
+    }
+
     if (binding.requirement === 'runtime' || binding.source.kind === 'runtime') {
       const note = binding.source.kind === 'runtime' ? binding.source.note : undefined;
       runtimeRequirements.push({

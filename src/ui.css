@@ -1711,3 +1711,323 @@ body {
   color: var(--figma-color-text);
   font-weight: 500;
 }
+
+/* A static value aligns under the value control of its target row, matching
+   `.mapping-property-row`'s columns so the input never collapses into the
+   label column. */
+.static-value-row {
+  align-items: center;
+  display: grid;
+  gap: 8px;
+  grid-template-columns: minmax(100px, 1fr) 12px minmax(130px, 1fr);
+  padding: 0 8px 8px;
+}
+
+.static-value-label {
+  color: var(--figma-color-text-secondary);
+  font-size: 11px;
+  grid-column: 1;
+  justify-self: end;
+}
+
+.static-value-row .select-label {
+  grid-column: 3;
+}
+
+.static-value-row input {
+  background: var(--figma-color-bg-secondary);
+  border: 1px solid var(--figma-color-border);
+  border-radius: 4px;
+  color: var(--figma-color-text);
+  padding: 5px 8px;
+  width: 100%;
+}
+
+/* ---- Implementation mapping: one prop at a time --------------------------
+   Each prop is a summary line; opening it reveals the decision in place. The
+   answers — compatible Figma values and the non-design sources — are one
+   grouped set of peers, so nothing is ever rendered greyed out. */
+.coverage {
+  border-top: 1px solid var(--figma-color-border);
+  padding: 8px 0 0;
+}
+
+.coverage > summary {
+  align-items: center;
+  color: var(--figma-color-text-secondary);
+  cursor: pointer;
+  display: flex;
+  gap: 7px;
+  list-style: none;
+  padding-bottom: 8px;
+}
+
+.coverage > summary::-webkit-details-marker { display: none; }
+
+.coverage-tag {
+  background: rgba(162, 89, 255, 0.18);
+  border-radius: 3px;
+  color: #c89bff;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  padding: 2px 5px;
+  text-transform: uppercase;
+}
+
+.coverage-list {
+  display: grid;
+  gap: 4px;
+  list-style: none;
+  margin: 0;
+  padding: 0 0 10px 4px;
+}
+
+.coverage-list li {
+  align-items: center;
+  color: var(--figma-color-text-secondary);
+  display: flex;
+  gap: 7px;
+}
+
+.coverage-icon {
+  align-items: center;
+  color: var(--figma-color-icon-secondary);
+  display: flex;
+  flex: none;
+}
+
+.prop-list {
+  border-top: 1px solid var(--figma-color-border);
+}
+
+.prop-row + .prop-row,
+.mapping-section-label + .prop-row {
+  border-top: 1px solid var(--figma-color-border);
+}
+
+.prop-head {
+  align-items: center;
+  background: none;
+  border: 0;
+  color: var(--figma-color-text);
+  cursor: pointer;
+  display: grid;
+  font: inherit;
+  gap: 10px;
+  grid-template-columns: 12px 1fr auto;
+  padding: 9px 10px;
+  text-align: left;
+  width: 100%;
+}
+
+.prop-head:hover { background: var(--figma-color-bg-hover); }
+
+.prop-head:focus-visible {
+  outline: 1px solid var(--figma-color-border-selected);
+  outline-offset: -1px;
+}
+
+.prop-head[aria-expanded='true'] { background: var(--figma-color-bg-secondary); }
+
+.prop-caret {
+  color: var(--figma-color-text-tertiary, var(--figma-color-text-secondary));
+  font-size: 9px;
+}
+
+.prop-name {
+  align-items: baseline;
+  display: flex;
+  gap: 7px;
+  min-width: 0;
+}
+
+.prop-name b { font-weight: 600; }
+
+.prop-type {
+  background: var(--figma-color-bg-secondary);
+  border-radius: 4px;
+  color: var(--figma-color-text-tertiary, var(--figma-color-text-secondary));
+  font-size: 10px;
+  overflow: hidden;
+  padding: 1px 5px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.prop-current {
+  align-items: center;
+  color: var(--figma-color-text-secondary);
+  display: flex;
+  flex: none;
+  gap: 7px;
+  font-size: 11px;
+  max-width: 45%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dot-status {
+  border-radius: 50%;
+  flex: none;
+  height: 6px;
+  width: 6px;
+}
+
+.dot-status[data-state='done'] { background: var(--figma-color-icon-success, #14ae5c); }
+.dot-status[data-state='todo'] { background: var(--figma-color-text-tertiary, #7d7d7d); }
+.dot-status[data-state='blocked'] { background: var(--figma-color-icon-danger, #f24822); }
+
+.prop-body {
+  background: var(--figma-color-bg-secondary);
+  border-top: 1px solid var(--figma-color-border);
+  padding: 11px 12px 13px 32px;
+}
+
+.prop-question {
+  color: var(--figma-color-text);
+  margin: 0 0 8px;
+}
+
+.choice-list { display: grid; gap: 3px; }
+
+.choice-group {
+  color: var(--figma-color-text-tertiary, var(--figma-color-text-secondary));
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 0.07em;
+  margin: 7px 0 2px;
+  text-transform: uppercase;
+}
+
+.choice-group:first-child { margin-top: 0; }
+
+.choice {
+  align-items: center;
+  background: var(--figma-color-bg);
+  border: 1px solid var(--figma-color-border);
+  border-radius: 7px;
+  color: var(--figma-color-text);
+  cursor: pointer;
+  display: flex;
+  font: inherit;
+  gap: 9px;
+  padding: 8px 10px;
+  text-align: left;
+  width: 100%;
+}
+
+.choice:hover:not(:disabled) { border-color: var(--figma-color-border-selected); }
+
+.choice:focus-visible {
+  outline: 1px solid var(--figma-color-border-selected);
+  outline-offset: 1px;
+}
+
+.choice[data-on='true'] {
+  background: rgba(13, 153, 255, 0.14);
+  border-color: var(--figma-color-bg-brand, #0d99ff);
+  box-shadow: inset 0 0 0 1px var(--figma-color-bg-brand, #0d99ff);
+}
+
+.choice:disabled { cursor: default; opacity: 0.5; }
+
+.choice-dot {
+  border: 1.5px solid var(--figma-color-text-tertiary, #7d7d7d);
+  border-radius: 50%;
+  flex: none;
+  height: 13px;
+  position: relative;
+  width: 13px;
+}
+
+.choice[data-on='true'] .choice-dot {
+  border-color: var(--figma-color-bg-brand, #0d99ff);
+}
+
+.choice[data-on='true'] .choice-dot::after {
+  background: var(--figma-color-bg-brand, #0d99ff);
+  border-radius: 50%;
+  content: '';
+  height: 7px;
+  left: 2px;
+  position: absolute;
+  top: 2px;
+  width: 7px;
+}
+
+.choice-label {
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.choice-detail {
+  color: var(--figma-color-text-tertiary, var(--figma-color-text-secondary));
+  font-size: 11px;
+  margin-left: auto;
+  overflow: hidden;
+  padding-left: 8px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.choice-flag {
+  background: var(--figma-color-bg-warning-tertiary, rgba(255, 205, 41, 0.16));
+  border-radius: 3px;
+  color: var(--figma-color-text-warning, #ffdb70);
+  flex: none;
+  font-size: 9px;
+  padding: 2px 5px;
+}
+
+.choice-none {
+  color: var(--figma-color-text-secondary);
+  margin: 0;
+  padding: 4px 2px;
+}
+
+.prop-extra { margin-top: 11px; }
+
+.prop-extra.value-mapping-list {
+  background: none;
+  border-top: 1px solid var(--figma-color-border);
+  padding: 11px 0 0;
+}
+
+/* ---- Narrow panel (the plugin opens near 400px) -------------------------- */
+@media (max-width: 460px) {
+  .prop-head {
+    gap: 7px;
+    grid-template-columns: 12px 1fr;
+    padding: 8px;
+  }
+
+  /* The resolved value moves under the name rather than squeezing it. */
+  .prop-current {
+    grid-column: 2;
+    max-width: 100%;
+    padding-top: 1px;
+  }
+
+  .prop-body { padding: 10px 8px 12px 20px; }
+
+  .choice {
+    align-items: flex-start;
+    flex-wrap: wrap;
+    padding: 7px 9px;
+  }
+
+  .choice-detail {
+    flex-basis: 100%;
+    margin-left: 22px;
+    padding-left: 0;
+    white-space: normal;
+  }
+
+  .value-mapping-row { grid-template-columns: 1fr 12px 1fr; }
+
+  .mapping-card-footer { flex-wrap: wrap; }
+}

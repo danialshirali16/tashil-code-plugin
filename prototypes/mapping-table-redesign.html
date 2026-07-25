@@ -1,0 +1,388 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Implementation mapping — redesign options</title>
+<style>
+  :root {
+    --bg: #1e1e1e;
+    --bg-2: #2c2c2c;
+    --bg-3: #383838;
+    --border: #444;
+    --text: #ffffff;
+    --text-2: #b3b3b3;
+    --text-3: #8c8c8c;
+    --brand: #0d99ff;
+    --ok: #14ae5c;
+    --warn: #ffcd29;
+    --danger: #f24822;
+    --mono: ui-monospace, SFMono-Regular, Menlo, monospace;
+  }
+  * { box-sizing: border-box; }
+  body {
+    background: #141414;
+    color: var(--text);
+    font: 12px/1.45 Inter, -apple-system, system-ui, sans-serif;
+    margin: 0;
+    padding: 32px 24px 64px;
+  }
+  .page { margin: 0 auto; max-width: 1180px; }
+  h1 { font-size: 20px; margin: 0 0 6px; }
+  .sub { color: var(--text-2); margin: 0 0 28px; max-width: 70ch; }
+  h2 { font-size: 14px; margin: 0 0 4px; }
+  .why { color: var(--text-2); margin: 0 0 14px; max-width: 78ch; }
+  .why b { color: var(--text); font-weight: 600; }
+
+  .problems {
+    background: var(--bg-2); border: 1px solid var(--border); border-radius: 8px;
+    margin-bottom: 32px; padding: 16px 18px;
+  }
+  .problems ul { margin: 8px 0 0; padding-left: 18px; }
+  .problems li { color: var(--text-2); margin-bottom: 5px; }
+  .problems li b { color: var(--text); font-weight: 600; }
+
+  .option { margin-bottom: 40px; }
+  .tag {
+    background: var(--bg-3); border-radius: 4px; color: var(--text-2);
+    display: inline-block; font-size: 10px; letter-spacing: .06em;
+    margin-bottom: 8px; padding: 3px 7px; text-transform: uppercase;
+  }
+
+  /* ---- shared card chrome (matches the plugin) ---- */
+  .card {
+    background: var(--bg); border: 1px solid var(--border); border-radius: 10px;
+    overflow: hidden;
+  }
+  .card-head {
+    align-items: flex-start; border-bottom: 1px solid var(--border);
+    display: flex; gap: 12px; justify-content: space-between; padding: 14px 16px;
+  }
+  .card-title { font-size: 13px; font-weight: 600; }
+  .card-help { color: var(--text-2); margin-top: 2px; }
+  .btn {
+    background: var(--brand); border: 0; border-radius: 6px; color: #fff;
+    cursor: pointer; font-size: 11px; font-weight: 600; padding: 7px 12px;
+    white-space: nowrap;
+  }
+  .summary {
+    align-items: center; border-bottom: 1px solid var(--border); display: flex;
+    gap: 10px; padding: 10px 16px;
+  }
+  .code-badge {
+    background: #2f7d4f; border-radius: 5px; color: #fff; font-family: var(--mono);
+    font-size: 11px; padding: 5px 7px;
+  }
+  .summary small { color: var(--text-2); display: block; }
+  .progress-pill {
+    background: var(--bg-3); border-radius: 999px; color: var(--text-2);
+    font-size: 11px; margin-left: auto; padding: 4px 10px;
+  }
+  .group {
+    background: var(--bg-2); color: var(--text-3); font-size: 10px;
+    font-weight: 700; letter-spacing: .07em; padding: 7px 16px;
+    text-transform: uppercase;
+  }
+  select, input[type=text] {
+    background: var(--bg-3); border: 1px solid transparent; border-radius: 6px;
+    color: var(--text); font: inherit; padding: 6px 8px; width: 100%;
+  }
+  select:focus, input:focus { border-color: var(--brand); outline: none; }
+  .mono { font-family: var(--mono); }
+  .muted { color: var(--text-3); }
+
+  /* ================= OPTION A — compact table ================= */
+  .a-row {
+    align-items: center; border-bottom: 1px solid var(--border);
+    display: grid; gap: 12px; grid-template-columns: 1fr 260px; padding: 8px 16px;
+  }
+  .a-row:hover { background: #242424; }
+  .a-name { align-items: baseline; display: flex; flex-wrap: wrap; gap: 7px; }
+  .a-name b { font-size: 12px; font-weight: 600; }
+  .a-type {
+    background: var(--bg-3); border-radius: 4px; color: var(--text-3);
+    font-family: var(--mono); font-size: 10px; padding: 1px 5px;
+  }
+  .req { color: var(--danger); }
+  .a-unmapped select { color: var(--text-3); }
+  .a-sub {
+    border-bottom: 1px solid var(--border); display: grid; gap: 6px;
+    padding: 2px 16px 10px 16px;
+  }
+  .a-pair {
+    align-items: center; display: grid; gap: 10px;
+    grid-template-columns: 1fr 240px; padding-left: 14px;
+  }
+  .a-pair .lhs { color: var(--text-2); font-family: var(--mono); font-size: 11px; }
+  .a-hint {
+    color: var(--text-3); display: flex; gap: 6px; padding: 0 16px 8px 30px;
+  }
+  .a-hint .dot { color: var(--brand); }
+  .chip {
+    background: rgba(13,153,255,.14); border-radius: 4px; color: #7cc4ff;
+    font-size: 10px; padding: 2px 6px;
+  }
+  .chip-warn { background: rgba(255,205,41,.14); color: #ffdb70; }
+
+  /* ================= OPTION B — accordion ================= */
+  .b-row { border-bottom: 1px solid var(--border); }
+  .b-head {
+    align-items: center; cursor: pointer; display: grid; gap: 12px;
+    grid-template-columns: 16px 1fr auto; padding: 10px 16px;
+  }
+  .b-head:hover { background: #242424; }
+  .b-caret { color: var(--text-3); font-size: 10px; }
+  .b-value { align-items: center; display: flex; gap: 8px; }
+  .b-status { border-radius: 999px; height: 6px; width: 6px; }
+  .s-ok { background: var(--ok); }
+  .s-todo { background: var(--text-3); }
+  .s-warn { background: var(--warn); }
+  .b-body {
+    background: #191919; border-top: 1px solid var(--border);
+    display: grid; gap: 10px; padding: 12px 16px 14px 44px;
+  }
+  .b-field { display: grid; gap: 5px; }
+  .b-label { color: var(--text-2); font-size: 11px; }
+  .b-pairs { display: grid; gap: 6px; }
+  .b-pair { align-items: center; display: grid; gap: 10px; grid-template-columns: 90px 1fr; }
+
+  /* ================= OPTION C — two panes ================= */
+  .c-wrap { display: grid; grid-template-columns: 1fr 300px; }
+  .c-left { border-right: 1px solid var(--border); }
+  .c-item {
+    border-bottom: 1px solid var(--border); cursor: pointer;
+    display: grid; gap: 2px; padding: 9px 16px;
+  }
+  .c-item.sel { background: rgba(13,153,255,.10); box-shadow: inset 2px 0 0 var(--brand); }
+  .c-item:hover:not(.sel) { background: #242424; }
+  .c-top { align-items: baseline; display: flex; gap: 7px; }
+  .c-val { color: var(--text-2); font-size: 11px; }
+  .c-pane { display: grid; gap: 12px; padding: 14px; }
+  .c-pane h3 { font-size: 12px; margin: 0; }
+  .c-empty { color: var(--text-3); padding: 14px; }
+
+  .verdict {
+    background: var(--bg-2); border: 1px solid var(--border); border-left: 3px solid var(--brand);
+    border-radius: 6px; color: var(--text-2); margin-top: 12px; padding: 12px 14px;
+  }
+  .verdict b { color: var(--text); }
+</style>
+</head>
+<body>
+<div class="page">
+
+  <h1>Implementation mapping — redesign options</h1>
+  <p class="sub">Three directions for the mapping table, using your real Button data. Same information in all three; they differ in how much is shown at once and where editing happens.</p>
+
+  <div class="problems">
+    <b>What's wrong with the current table</b>
+    <ul>
+      <li><b>The suggestion note is orphaned.</b> "Suggested: Figma property size matches size" sits below the value rows and directly above <span class="mono">color</span> — it looks like it belongs to the wrong prop.</li>
+      <li><b>"Not mapped" shouts.</b> It's the default state repeated seven times at full contrast, so the eye can't find what's actually done or what needs work.</li>
+      <li><b>Everything is expanded forever.</b> Value pairs stay open once a property is chosen, so eight props scroll far beyond one screen.</li>
+      <li><b>Weak hierarchy.</b> Value pairs look almost like sibling rows rather than children of their prop.</li>
+      <li><b>The <span class="mono">←</span> reads backwards</b> and the decorative <span class="mono">›</span> adds noise.</li>
+      <li><b>Type names cost a whole line</b> under every prop name.</li>
+      <li><b>No sense of progress</b> — nothing tells you how close to done you are.</li>
+    </ul>
+  </div>
+
+  <!-- ============ OPTION A ============ -->
+  <section class="option">
+    <span class="tag">Option A</span>
+    <h2>Compact table, inline pairs</h2>
+    <p class="why">Closest to today, tightened. Type becomes an inline badge, unmapped rows are <b>dimmed instead of loud</b>, the suggestion attaches directly under the row it belongs to, and value pairs are visually nested. <b>Least disruptive</b>; still long for big components.</p>
+
+    <div class="card">
+      <div class="card-head">
+        <div>
+          <div class="card-title">Implementation mapping</div>
+          <div class="card-help">Connect each code prop of the public API to the design value that feeds it.</div>
+        </div>
+        <button class="btn">Replace source</button>
+      </div>
+      <div class="summary">
+        <span class="code-badge">&lt;/&gt;</span>
+        <span><b>Button</b><small>Code target · <b>types.ts</b></small></span>
+        <span class="progress-pill">2 of 8 mapped</span>
+      </div>
+
+      <div class="group">Variants &amp; states</div>
+
+      <div class="a-row">
+        <div class="a-name"><b>size</b><span class="a-type">ButtonSizeType</span></div>
+        <select><option>size (md · sm)</option><option>Not mapped</option></select>
+      </div>
+      <div class="a-sub">
+        <div class="a-pair"><span class="lhs">small</span><select><option>sm</option><option>md</option><option>Not mapped</option></select></div>
+        <div class="a-pair"><span class="lhs">medium</span><select><option>md</option><option>sm</option><option>Not mapped</option></select></div>
+        <div class="a-pair"><span class="lhs">large</span><select><option>Not mapped</option><option>sm</option><option>md</option></select></div>
+      </div>
+      <div class="a-hint"><span class="dot">●</span><span>Suggested from Figma property <b>size</b>. <span class="chip-warn chip">large has no Figma option</span></span></div>
+
+      <div class="a-row a-unmapped">
+        <div class="a-name"><b>color</b><span class="a-type">ButtonColorType</span></div>
+        <select><option>Not mapped</option></select>
+      </div>
+      <div class="a-row a-unmapped">
+        <div class="a-name"><b>variant</b><span class="a-type">ButtonVariantType</span></div>
+        <select><option>Not mapped</option></select>
+      </div>
+      <div class="a-row a-unmapped">
+        <div class="a-name"><b>disabled</b><span class="a-type">boolean</span></div>
+        <select><option>Not mapped</option></select>
+      </div>
+      <div class="a-row">
+        <div class="a-name"><b>fullWidth</b><span class="a-type">boolean</span></div>
+        <select><option>Static value…</option></select>
+      </div>
+      <div class="a-sub">
+        <div class="a-pair"><span class="lhs">value</span><select><option>true</option><option>false</option></select></div>
+      </div>
+      <div class="a-row a-unmapped">
+        <div class="a-name"><b>loading</b><span class="a-type">boolean</span></div>
+        <select><option>Not mapped</option></select>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ OPTION B ============ -->
+  <section class="option">
+    <span class="tag">Option B — recommended</span>
+    <h2>One line per prop, expand to edit</h2>
+    <p class="why">Every prop collapses to a single line showing <b>what it resolves to right now</b>. Click to expand and edit; only what you're working on is open. A status dot makes done / to-do / needs-attention scannable. <b>Eight props fit on one screen</b>, and it scales to InfoModal's 27.</p>
+
+    <div class="card">
+      <div class="card-head">
+        <div>
+          <div class="card-title">Implementation mapping</div>
+          <div class="card-help">Connect each code prop of the public API to the design value that feeds it.</div>
+        </div>
+        <button class="btn">Replace source</button>
+      </div>
+      <div class="summary">
+        <span class="code-badge">&lt;/&gt;</span>
+        <span><b>Button</b><small>Code target · <b>types.ts</b></small></span>
+        <span class="progress-pill">2 of 8 mapped</span>
+      </div>
+
+      <div class="group">Variants &amp; states</div>
+
+      <div class="b-row">
+        <div class="b-head">
+          <span class="b-caret">▾</span>
+          <div class="a-name"><b>size</b><span class="a-type">ButtonSizeType</span></div>
+          <div class="b-value"><span class="b-status s-warn"></span><span class="muted">Figma · size</span></div>
+        </div>
+        <div class="b-body">
+          <div class="b-field">
+            <span class="b-label">Value comes from</span>
+            <select><option>Figma property — size (md · sm)</option><option>Static value…</option><option>Set in application</option><option>Omitted</option></select>
+          </div>
+          <div class="b-field">
+            <span class="b-label">Which Figma option produces each value</span>
+            <div class="b-pairs">
+              <div class="b-pair"><span class="lhs mono">small</span><select><option>sm</option><option>md</option></select></div>
+              <div class="b-pair"><span class="lhs mono">medium</span><select><option>md</option><option>sm</option></select></div>
+              <div class="b-pair"><span class="lhs mono">large</span><select><option>Not mapped</option><option>sm</option></select></div>
+            </div>
+          </div>
+          <div class="a-hint" style="padding-left:0"><span class="dot">●</span><span>Suggested because Figma property <b>size</b> matches <b>size</b>. <span class="chip">Review before saving</span></span></div>
+        </div>
+      </div>
+
+      <div class="b-row"><div class="b-head">
+        <span class="b-caret">▸</span>
+        <div class="a-name"><b>color</b><span class="a-type">ButtonColorType</span></div>
+        <div class="b-value"><span class="b-status s-todo"></span><span class="muted">Not mapped</span></div>
+      </div></div>
+      <div class="b-row"><div class="b-head">
+        <span class="b-caret">▸</span>
+        <div class="a-name"><b>variant</b><span class="a-type">ButtonVariantType</span></div>
+        <div class="b-value"><span class="b-status s-todo"></span><span class="muted">Not mapped</span></div>
+      </div></div>
+      <div class="b-row"><div class="b-head">
+        <span class="b-caret">▸</span>
+        <div class="a-name"><b>disabled</b><span class="a-type">boolean</span></div>
+        <div class="b-value"><span class="b-status s-todo"></span><span class="muted">Not mapped</span></div>
+      </div></div>
+      <div class="b-row"><div class="b-head">
+        <span class="b-caret">▸</span>
+        <div class="a-name"><b>fullWidth</b><span class="a-type">boolean</span></div>
+        <div class="b-value"><span class="b-status s-ok"></span><span class="mono">true</span></div>
+      </div></div>
+      <div class="b-row"><div class="b-head">
+        <span class="b-caret">▸</span>
+        <div class="a-name"><b>loading</b><span class="a-type">boolean</span></div>
+        <div class="b-value"><span class="b-status s-ok"></span><span class="muted">Set in application</span></div>
+      </div></div>
+      <div class="b-row"><div class="b-head">
+        <span class="b-caret">▸</span>
+        <div class="a-name"><b>iconOnly</b><span class="a-type">boolean</span></div>
+        <div class="b-value"><span class="b-status s-todo"></span><span class="muted">Not mapped</span></div>
+      </div></div>
+    </div>
+  </section>
+
+  <!-- ============ OPTION C ============ -->
+  <section class="option">
+    <span class="tag">Option C</span>
+    <h2>List left, editor right</h2>
+    <p class="why">The prop list stays scannable on the left; all editing happens in a fixed pane on the right. <b>Best for long components</b> — the list never grows as you edit. Costs horizontal space, which is tight in a Figma plugin panel.</p>
+
+    <div class="card">
+      <div class="card-head">
+        <div>
+          <div class="card-title">Implementation mapping</div>
+          <div class="card-help">Connect each code prop of the public API to the design value that feeds it.</div>
+        </div>
+        <button class="btn">Replace source</button>
+      </div>
+      <div class="summary">
+        <span class="code-badge">&lt;/&gt;</span>
+        <span><b>Button</b><small>Code target · <b>types.ts</b></small></span>
+        <span class="progress-pill">2 of 8 mapped</span>
+      </div>
+
+      <div class="c-wrap">
+        <div class="c-left">
+          <div class="group">Variants &amp; states</div>
+          <div class="c-item sel">
+            <div class="c-top"><b>size</b><span class="a-type">ButtonSizeType</span></div>
+            <div class="c-val">Figma · size <span class="chip-warn chip">1 value unmapped</span></div>
+          </div>
+          <div class="c-item"><div class="c-top"><b>color</b><span class="a-type">ButtonColorType</span></div><div class="c-val muted">Not mapped</div></div>
+          <div class="c-item"><div class="c-top"><b>variant</b><span class="a-type">ButtonVariantType</span></div><div class="c-val muted">Not mapped</div></div>
+          <div class="c-item"><div class="c-top"><b>disabled</b><span class="a-type">boolean</span></div><div class="c-val muted">Not mapped</div></div>
+          <div class="c-item"><div class="c-top"><b>fullWidth</b><span class="a-type">boolean</span></div><div class="c-val mono">true</div></div>
+          <div class="c-item"><div class="c-top"><b>loading</b><span class="a-type">boolean</span></div><div class="c-val muted">Set in application</div></div>
+        </div>
+        <div class="c-pane">
+          <h3>size</h3>
+          <div class="b-field">
+            <span class="b-label">Value comes from</span>
+            <select><option>Figma property — size</option><option>Static value…</option><option>Set in application</option><option>Omitted</option></select>
+          </div>
+          <div class="b-field">
+            <span class="b-label">Each value</span>
+            <div class="b-pairs">
+              <div class="b-pair"><span class="lhs mono">small</span><select><option>sm</option></select></div>
+              <div class="b-pair"><span class="lhs mono">medium</span><select><option>md</option></select></div>
+              <div class="b-pair"><span class="lhs mono">large</span><select><option>Not mapped</option></select></div>
+            </div>
+          </div>
+          <div class="a-hint" style="padding:0"><span class="dot">●</span><span>Suggested from <b>size</b>.</span></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <div class="verdict">
+    <b>My recommendation: Option B.</b> It fixes every problem listed above without needing horizontal space the plugin panel doesn't have, and it's the only one that stays usable at InfoModal's 27 props. Option A is the safest if you want a smaller change; Option C is strongest for very long lists but cramped at typical plugin widths.
+    <br><br>
+    All three keep the rules already built: code props stay the primary column, one control per target, per-value pairs, suggestions requiring review, and constrained static values.
+  </div>
+
+</div>
+</body>
+</html>

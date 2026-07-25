@@ -495,7 +495,8 @@ describe('Plugin rendered interactions', () => {
     expect(screen.queryByText('Source & prop mappings')).toBeNull();
     // The Implementation mapping editor owns the per-prop controls; the legacy
     // visual rows are hidden so the same prop is never shown twice.
-    expect(screen.getByLabelText('Value for variant')).toBeTruthy();
+    // The board lists the code prop; its controls open when it is focused.
+    expect(screen.getAllByText('variant').length).toBeGreaterThan(0);
     expect(screen.queryByLabelText('Figma property for variant')).toBeNull();
 
     const replacement = new File([], 'Button.next.tsx', { type: 'text/typescript' });

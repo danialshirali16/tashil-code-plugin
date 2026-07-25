@@ -283,6 +283,40 @@ describe('setTargetOption', () => {
     ).toMatchObject({ outcome: 'omitted', reason: 'Intentionally omitted.' });
   });
 
+  it('honours Leave out on an event prop instead of emitting it', () => {
+    // Reproduces a real debug bundle: onClick recorded as
+    // { requirement: 'runtime', sourceKind: 'omitted' }. The runtime
+    // requirement an event carries by default must not override the author's
+    // explicit decision to leave the prop out.
+    const { contract, figmaSnapshot, semanticSnapshot } = createDialogInputs();
+    // An optional callback, as `onClick?: MouseEventHandler` really is.
+    contract.targets.push({
+      kind: 'event',
+      ownerProp: 'onClick',
+      path: ['onClick'],
+      required: false,
+      typeName: '() => void',
+    });
+    let recipe = createRecipeDraft(contract, figmaSnapshot, semanticSnapshot);
+    recipe = setTargetOption(recipe, figmaSnapshot, ['onClick'], OPTION_OMITTED);
+
+    const binding = recipe.bindings.find((b) => b.target.path.join('.') === 'onClick');
+    expect(binding?.source).toEqual({ kind: 'omitted' });
+    // The stored requirement no longer contradicts the stored source.
+    expect(binding?.requirement).toBe('optional');
+
+    const result = resolveSemanticUsage('ConfirmationDialog', '@tashilcar/ui', recipe, {
+      componentProperties: { intent: 'Danger' },
+      root: createDialogNode(),
+    });
+
+    expect(result.usage.jsx).not.toContain('onClick');
+    expect(result.runtimeRequirements.map((r) => r.targetPath)).not.toContain('onClick');
+    expect(
+      result.explanations.find((e) => e.targetPath === 'onClick'),
+    ).toMatchObject({ outcome: 'omitted' });
+  });
+
   it('refuses to omit a required target', () => {
     const { contract, figmaSnapshot, semanticSnapshot } = createDialogInputs();
     const recipe = createRecipeDraft(contract, figmaSnapshot, semanticSnapshot);
@@ -482,17 +516,23 @@ describe('boolean target driven by a variant', () => {
 });
 
 describe('buildValueOptions and rows', () => {
-  it('offers only type-compatible design values per target', () => {
+  it('offers every design value, fitting ones first and the rest flagged', () => {
     const { contract, figmaSnapshot, semanticSnapshot } = createDialogInputs();
     const intent = contract.targets.find((target) => target.path.join('.') === 'intent')!;
     const title = contract.targets.find((target) => target.path.join('.') === 'title')!;
 
+    // Hiding a real Figma property makes it look unavailable, so everything is
+    // listed; only the ordering and the flag differ.
     const intentOptions = buildValueOptions(intent, figmaSnapshot, semanticSnapshot);
-    expect(intentOptions.map((option) => option.label)).toEqual(['intent']);
+    expect(intentOptions[0]).toMatchObject({ label: 'intent' });
+    expect(intentOptions[0].needsCheck).toBeUndefined();
+    expect(intentOptions.length).toBeGreaterThan(1);
+    expect(intentOptions.slice(1).every((option) => option.needsCheck === true)).toBe(true);
 
     const titleOptions = buildValueOptions(title, figmaSnapshot, semanticSnapshot);
-    expect(titleOptions.some((option) => option.label === 'Header / Title')).toBe(true);
-    expect(titleOptions.some((option) => option.label === 'intent')).toBe(false);
+    expect(titleOptions.find((option) => option.label === 'Header / Title')?.needsCheck)
+      .toBeUndefined();
+    expect(titleOptions.find((option) => option.label === 'intent')?.needsCheck).toBe(true);
   });
 
   it('flags fragile locators on their options', () => {
