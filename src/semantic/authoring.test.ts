@@ -482,17 +482,23 @@ describe('boolean target driven by a variant', () => {
 });
 
 describe('buildValueOptions and rows', () => {
-  it('offers only type-compatible design values per target', () => {
+  it('offers every design value, fitting ones first and the rest flagged', () => {
     const { contract, figmaSnapshot, semanticSnapshot } = createDialogInputs();
     const intent = contract.targets.find((target) => target.path.join('.') === 'intent')!;
     const title = contract.targets.find((target) => target.path.join('.') === 'title')!;
 
+    // Hiding a real Figma property makes it look unavailable, so everything is
+    // listed; only the ordering and the flag differ.
     const intentOptions = buildValueOptions(intent, figmaSnapshot, semanticSnapshot);
-    expect(intentOptions.map((option) => option.label)).toEqual(['intent']);
+    expect(intentOptions[0]).toMatchObject({ label: 'intent' });
+    expect(intentOptions[0].needsCheck).toBeUndefined();
+    expect(intentOptions.length).toBeGreaterThan(1);
+    expect(intentOptions.slice(1).every((option) => option.needsCheck === true)).toBe(true);
 
     const titleOptions = buildValueOptions(title, figmaSnapshot, semanticSnapshot);
-    expect(titleOptions.some((option) => option.label === 'Header / Title')).toBe(true);
-    expect(titleOptions.some((option) => option.label === 'intent')).toBe(false);
+    expect(titleOptions.find((option) => option.label === 'Header / Title')?.needsCheck)
+      .toBeUndefined();
+    expect(titleOptions.find((option) => option.label === 'intent')?.needsCheck).toBe(true);
   });
 
   it('flags fragile locators on their options', () => {

@@ -58,17 +58,19 @@ describe('connected nested instance extraction', () => {
     expect(snapshot.nestedSources.some((s) => s.displayPath === 'Label')).toBe(true);
   });
 
-  it('offers a connected instance only for targets that expect a component', () => {
+  it('leads with a connected instance for targets that expect a component', () => {
     const { snapshot } = extractFigmaSemanticSnapshot(buttonWithConnectedIcon(), '1:1');
 
     const nodeOptions = buildValueOptions(nodeTarget('renderLeftIcon'), undefined, snapshot);
-    expect(nodeOptions.map((o) => o.label)).toContain('Leading icon');
+    expect(nodeOptions[0].label).toBe('Leading icon');
+    expect(nodeOptions[0].needsCheck).toBeUndefined();
     const instanceDescriptor = snapshot.nestedSources.find((s) => s.kind === 'nested-instance')!;
     expect(nodeOptions.map((o) => o.id)).toContain(nestedOptionId(instanceDescriptor));
 
-    // A string prop must not be offered a whole component.
+    // A string prop can still see the component, but it is flagged rather than
+    // hidden — only the component's author knows whether it makes sense.
     const textOptions = buildValueOptions(visualTarget('label'), undefined, snapshot);
-    expect(textOptions.map((o) => o.label)).not.toContain('Leading icon');
+    expect(textOptions.find((o) => o.label === 'Leading icon')?.needsCheck).toBe(true);
   });
 });
 

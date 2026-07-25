@@ -1926,8 +1926,9 @@ body {
 }
 
 .choice[data-on='true'] {
-  background: var(--figma-color-bg-brand-tertiary, rgba(13, 153, 255, 0.12));
-  border-color: var(--figma-color-border-brand, #0d99ff);
+  background: rgba(13, 153, 255, 0.14);
+  border-color: var(--figma-color-bg-brand, #0d99ff);
+  box-shadow: inset 0 0 0 1px var(--figma-color-bg-brand, #0d99ff);
 }
 
 .choice:disabled { cursor: default; opacity: 0.5; }
@@ -1942,11 +1943,11 @@ body {
 }
 
 .choice[data-on='true'] .choice-dot {
-  border-color: var(--figma-color-border-brand, #0d99ff);
+  border-color: var(--figma-color-bg-brand, #0d99ff);
 }
 
 .choice[data-on='true'] .choice-dot::after {
-  background: var(--figma-color-border-brand, #0d99ff);
+  background: var(--figma-color-bg-brand, #0d99ff);
   border-radius: 50%;
   content: '';
   height: 7px;
@@ -1994,4 +1995,39 @@ body {
   background: none;
   border-top: 1px solid var(--figma-color-border);
   padding: 11px 0 0;
+}
+
+/* ---- Narrow panel (the plugin opens near 400px) -------------------------- */
+@media (max-width: 460px) {
+  .prop-head {
+    gap: 7px;
+    grid-template-columns: 12px 1fr;
+    padding: 8px;
+  }
+
+  /* The resolved value moves under the name rather than squeezing it. */
+  .prop-current {
+    grid-column: 2;
+    max-width: 100%;
+    padding-top: 1px;
+  }
+
+  .prop-body { padding: 10px 8px 12px 20px; }
+
+  .choice {
+    align-items: flex-start;
+    flex-wrap: wrap;
+    padding: 7px 9px;
+  }
+
+  .choice-detail {
+    flex-basis: 100%;
+    margin-left: 22px;
+    padding-left: 0;
+    white-space: normal;
+  }
+
+  .value-mapping-row { grid-template-columns: 1fr 12px 1fr; }
+
+  .mapping-card-footer { flex-wrap: wrap; }
 }

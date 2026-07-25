@@ -57,6 +57,12 @@ export type SemanticValueOption = {
   /** Sample value or short description shown next to the label. */
   detail?: string;
   fragile?: boolean;
+  /**
+   * The types do not obviously line up. Still offered — a designer knows their
+   * own component, and the per-value pairs can bridge most mismatches — but
+   * flagged so the choice is deliberate.
+   */
+  needsCheck?: boolean;
 };
 
 /** One source value and the Figma option that should produce it. */
@@ -199,38 +205,50 @@ function isNestedCompatible(
   return values.length === 0 || isBoolean;
 }
 
-/** Build the selectable design values for one code target, stable order. */
+/**
+ * Every design value this component offers, for one code target. Values whose
+ * type obviously fits come first; the rest follow, marked `needsCheck` rather
+ * than hidden, because hiding them makes a real property look unavailable and
+ * only the person who built the component knows what it means.
+ */
 export function buildValueOptions(
   target: SourceTargetDescriptor,
   figmaSnapshot: FigmaComponentSnapshot | undefined,
   semanticSnapshot: FigmaSemanticSnapshot,
 ): SemanticValueOption[] {
-  const options: SemanticValueOption[] = [];
+  const fitting: SemanticValueOption[] = [];
+  const rest: SemanticValueOption[] = [];
 
   for (const property of figmaSnapshot?.properties ?? []) {
+    const option: SemanticValueOption = {
+      detail: property.type === 'VARIANT'
+        ? property.options.join(' · ')
+        : property.type.toLowerCase(),
+      id: propertyOptionId(property),
+      label: property.name,
+    };
     if (isPropertyCompatible(target, property)) {
-      options.push({
-        id: propertyOptionId(property),
-        label: property.name,
-        detail: property.type === 'VARIANT'
-          ? property.options.join(' · ')
-          : property.type.toLowerCase(),
-      });
+      fitting.push(option);
+    } else {
+      rest.push({ ...option, needsCheck: true });
     }
   }
 
   for (const descriptor of semanticSnapshot.nestedSources) {
+    const option: SemanticValueOption = {
+      id: nestedOptionId(descriptor),
+      label: descriptor.displayPath,
+      ...(descriptor.sampleValue !== undefined ? { detail: descriptor.sampleValue } : {}),
+      ...(descriptor.locator.fragile ? { fragile: true } : {}),
+    };
     if (isNestedCompatible(target, descriptor)) {
-      options.push({
-        id: nestedOptionId(descriptor),
-        label: descriptor.displayPath,
-        ...(descriptor.sampleValue !== undefined ? { detail: descriptor.sampleValue } : {}),
-        ...(descriptor.locator.fragile ? { fragile: true } : {}),
-      });
+      fitting.push(option);
+    } else {
+      rest.push({ ...option, needsCheck: true });
     }
   }
 
-  return options;
+  return [...fitting, ...rest];
 }
 
 /**

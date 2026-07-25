@@ -467,12 +467,14 @@ function PropRow(props: {
                       <p class="choice-none">
                         Nothing in this Figma component can feed a {target.typeName} prop.
                       </p>
-                    ) : row.options.map((option) => (
+                    ) : orderedOptions(row).map((option) => (
                       <Choice
                         checked={row.optionId === option.id}
                         detail={option.detail}
                         disabled={props.disabled}
-                        flag={option.fragile ? 'by layer name' : undefined}
+                        flag={option.needsCheck
+                          ? 'check types'
+                          : option.fragile ? 'by layer name' : undefined}
                         key={option.id}
                         label={option.label}
                         onSelect={() => choose(option.id)}
@@ -513,36 +515,40 @@ function PropRow(props: {
                 <div class="prop-extra">
                   <label class="select-label">
                     <span class="visually-hidden">Static value for {row.targetPath}</span>
-                    {allowedValues.length > 0 ? (
-                      <select
-                        disabled={props.disabled}
-                        onInput={(event) => props.onOptionChange(
-                          target.path,
-                          OPTION_STATIC,
-                          matchAllowedValue(allowedValues, event.currentTarget.value),
-                        )}
-                        value={String(row.staticValue ?? allowedValues[0])}
-                      >
-                        {allowedValues.map((value) => (
-                          <option key={String(value)} value={String(value)}>{String(value)}</option>
-                        ))}
-                      </select>
-                    ) : (
-                      <input
-                        disabled={props.disabled}
-                        onInput={(event) => props.onOptionChange(
-                          target.path,
-                          OPTION_STATIC,
-                          event.currentTarget.value,
-                        )}
-                        placeholder="Value to always use"
-                        type="text"
-                        value={typeof row.staticValue === 'string'
-                          ? row.staticValue
-                          : String(row.staticValue ?? '')}
-                      />
-                    )}
+                    <input
+                      disabled={props.disabled}
+                      list={allowedValues.length > 0 ? `vals-${row.targetPath}` : undefined}
+                      onInput={(event) => props.onOptionChange(
+                        target.path,
+                        OPTION_STATIC,
+                        // Recover the declared value when the text names one, so
+                        // typing `true` stores a boolean rather than a string.
+                        matchAllowedValue(allowedValues, event.currentTarget.value),
+                      )}
+                      placeholder="Value to always use"
+                      type="text"
+                      value={String(row.staticValue ?? '')}
+                    />
                   </label>
+                  {allowedValues.length > 0 ? (
+                    <Fragment>
+                      <datalist id={`vals-${row.targetPath}`}>
+                        {allowedValues.map((value) => (
+                          <option key={String(value)} value={String(value)} />
+                        ))}
+                      </datalist>
+                      {staticValueIsLegal(row, allowedValues) ? (
+                        <small class="mapping-help">
+                          Accepts {allowedValues.map((value) => String(value)).join(', ')}
+                        </small>
+                      ) : (
+                        <small class="field-error">
+                          {target.typeName} only accepts{' '}
+                          {allowedValues.map((value) => String(value)).join(', ')}.
+                        </small>
+                      )}
+                    </Fragment>
+                  ) : null}
                 </div>
               ) : null}
 
@@ -589,6 +595,23 @@ function PropRow(props: {
       ) : null}
     </div>
   );
+}
+
+/** The chosen answer leads, so it stays visible without scanning the list. */
+function orderedOptions(row: SemanticTargetRow): SemanticTargetRow['options'] {
+  const chosen = row.options.filter((option) => option.id === row.optionId);
+  return chosen.length === 0
+    ? row.options
+    : [...chosen, ...row.options.filter((option) => option.id !== row.optionId)];
+}
+
+/** True when a typed static value is one the target's type actually allows. */
+function staticValueIsLegal(
+  row: SemanticTargetRow,
+  allowed: readonly SourcePropValue[],
+): boolean {
+  return allowed.length === 0
+    || allowed.some((value) => String(value) === String(row.staticValue ?? ''));
 }
 
 /** A single answer. Rendered as a real radio so the group is keyboard-operable. */

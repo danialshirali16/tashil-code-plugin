@@ -370,11 +370,12 @@ describe('SemanticMappingView', () => {
     );
 
     selectTarget('fullWidth');
-    const control = screen.getByLabelText('Static value for fullWidth') as HTMLSelectElement;
-    expect(control.tagName).toBe('SELECT');
-    expect(control.value).toBe('false');
+    const control = screen.getByLabelText('Static value for fullWidth') as HTMLInputElement;
+    // A text box, with the declared values offered as suggestions.
+    expect(control.tagName).toBe('INPUT');
+    expect(control.getAttribute('list')).toBe('vals-fullWidth');
 
-    // Choosing true stores a real boolean, never the string "true".
+    // Typing a declared value still stores a real boolean, not the string.
     fireEvent.input(control, { target: { value: 'true' } });
     expect(onOptionChange).toHaveBeenCalledWith(['fullWidth'], OPTION_STATIC, true);
   });
@@ -405,9 +406,10 @@ describe('SemanticMappingView', () => {
     );
 
     selectTarget('size');
-    const control = screen.getByLabelText('Static value for size') as HTMLSelectElement;
-    expect(control.tagName).toBe('SELECT');
-    expect(Array.from(control.options).map((o) => o.value)).toEqual(['sm', 'md', 'lg']);
+    const control = screen.getByLabelText('Static value for size') as HTMLInputElement;
+    expect(control.tagName).toBe('INPUT');
+    // The legal values are suggestions, and the accepted set is stated.
+    expect(document.body.textContent).toContain('Accepts sm, md, lg');
 
     fireEvent.input(control, { target: { value: 'lg' } });
     expect(onOptionChange).toHaveBeenCalledWith(['size'], OPTION_STATIC, 'lg');
