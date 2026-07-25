@@ -263,10 +263,22 @@ function ReconciliationPanel(props: {
   );
 }
 
-/** A target whose only values are the two booleans. */
-function isBooleanTarget(target: SourceTargetDescriptor): boolean {
-  const values = target.values ?? [];
-  return values.length === 2 && values.every((value) => typeof value === 'boolean');
+/**
+ * The legal values a static entry may take. A prop typed `boolean` or as a
+ * literal union has a closed set, so the user picks from it and can never
+ * author a value the source type would reject. Open types (`string`, `number`)
+ * have no such set and fall back to free text.
+ */
+function allowedStaticValues(target: SourceTargetDescriptor): readonly SourcePropValue[] {
+  return target.values ?? [];
+}
+
+/** Recover the typed value behind a select's string option. */
+function matchAllowedValue(
+  allowed: readonly SourcePropValue[],
+  raw: string,
+): SourcePropValue {
+  return allowed.find((value) => String(value) === raw) ?? raw;
 }
 
 function SemanticTargetRowView(props: {
@@ -280,6 +292,7 @@ function SemanticTargetRowView(props: {
   const isDesignBindable = target.kind === 'visual';
   const isEvent = target.kind === 'event';
   const showSelect = isDesignBindable || isEvent || target.kind === 'node';
+  const allowedValues = allowedStaticValues(target);
   const suggestionActive = row.suggestion !== undefined
     && row.suggestion.optionId === row.optionId
     && row.optionId !== '';
@@ -309,9 +322,9 @@ function SemanticTargetRowView(props: {
                     target.path,
                     optionId,
                     optionId === OPTION_STATIC
-                      // Seed a type-correct default so a boolean prop never
-                      // starts life holding an empty string.
-                      ? row.staticValue ?? (isBooleanTarget(target) ? false : '')
+                      // Seed a type-correct default so a constrained prop never
+                      // starts life holding a value its type rejects.
+                      ? row.staticValue ?? allowedStaticValues(target)[0] ?? ''
                       : undefined,
                   );
                 }}
@@ -379,18 +392,19 @@ function SemanticTargetRowView(props: {
           <span class="static-value-label" aria-hidden="true">Value</span>
           <label class="select-label">
             <span class="visually-hidden">Static value for {row.targetPath}</span>
-            {isBooleanTarget(target) ? (
+            {allowedValues.length > 0 ? (
               <select
                 disabled={props.disabled}
                 onInput={(event) => props.onOptionChange(
                   target.path,
                   OPTION_STATIC,
-                  event.currentTarget.value === 'true',
+                  matchAllowedValue(allowedValues, event.currentTarget.value),
                 )}
-                value={row.staticValue === true ? 'true' : 'false'}
+                value={String(row.staticValue ?? allowedValues[0])}
               >
-                <option value="true">true</option>
-                <option value="false">false</option>
+                {allowedValues.map((value) => (
+                  <option key={String(value)} value={String(value)}>{String(value)}</option>
+                ))}
               </select>
             ) : (
               <input

@@ -267,6 +267,62 @@ describe('SemanticMappingView', () => {
     expect(onOptionChange).toHaveBeenCalledWith(['fullWidth'], OPTION_STATIC, true);
   });
 
+  it('constrains a literal-union static value to its legal options', () => {
+    const onOptionChange = vi.fn();
+    const figmaSnapshot = createDialogFigmaSnapshot();
+    let recipe = createDialogRecipeDraft();
+    recipe.sourceContract!.targets.push({
+      kind: 'visual',
+      ownerProp: 'size',
+      path: ['size'],
+      required: false,
+      typeName: "'sm' | 'md' | 'lg'",
+      values: ['sm', 'md', 'lg'],
+    });
+    recipe = setTargetOption(recipe, figmaSnapshot, ['size'], OPTION_STATIC, 'sm');
+
+    render(
+      <SemanticMappingView
+        componentName="ConfirmationDialog"
+        disabled={false}
+        figmaSnapshot={figmaSnapshot}
+        importPath="@tashilcar/ui"
+        onOptionChange={onOptionChange}
+        recipe={recipe}
+      />,
+    );
+
+    const control = screen.getByLabelText('Static value for size') as HTMLSelectElement;
+    expect(control.tagName).toBe('SELECT');
+    expect(Array.from(control.options).map((o) => o.value)).toEqual(['sm', 'md', 'lg']);
+
+    fireEvent.input(control, { target: { value: 'lg' } });
+    expect(onOptionChange).toHaveBeenCalledWith(['size'], OPTION_STATIC, 'lg');
+  });
+
+  it('keeps free text for an open string prop', () => {
+    const figmaSnapshot = createDialogFigmaSnapshot();
+    // `title` is a plain string: no closed set, so any text is legal.
+    const recipe = setTargetOption(
+      createDialogRecipeDraft(), figmaSnapshot, ['title'], OPTION_STATIC, 'Hello',
+    );
+
+    render(
+      <SemanticMappingView
+        componentName="ConfirmationDialog"
+        disabled={false}
+        figmaSnapshot={figmaSnapshot}
+        importPath="@tashilcar/ui"
+        onOptionChange={vi.fn()}
+        recipe={recipe}
+      />,
+    );
+
+    const control = screen.getByLabelText('Static value for title') as HTMLInputElement;
+    expect(control.tagName).toBe('INPUT');
+    expect(control.value).toBe('Hello');
+  });
+
   it('explains what Set in application generates', () => {
     let recipe = createDialogRecipeDraft();
     recipe = setTargetOption(recipe, createDialogFigmaSnapshot(), ['description'], OPTION_RUNTIME);
