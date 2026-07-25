@@ -1813,11 +1813,91 @@ body {
   padding: 12px 10px;
 }
 
+/* Board rows are built here rather than from the library's Layer /
+   SelectableItem: those stack an absolutely positioned input over their own
+   content and render blank inside this grid. A real <button> also gives
+   keyboard operation and focus for free. */
+.board-row {
+  align-items: center;
+  background: none;
+  border: 1px solid transparent;
+  border-radius: 5px;
+  color: var(--figma-color-text);
+  cursor: pointer;
+  display: flex;
+  font: inherit;
+  gap: 8px;
+  margin: 0 4px;
+  padding: 5px 7px;
+  text-align: left;
+  width: calc(100% - 8px);
+}
+
+.board-row:hover:not(:disabled) {
+  background: var(--figma-color-bg-hover);
+}
+
+.board-row:focus-visible {
+  border-color: var(--figma-color-border-selected);
+  outline: none;
+}
+
+.board-row[data-selected='true'] {
+  background: var(--figma-color-bg-selected);
+}
+
 /* A Figma value that cannot feed the selected code prop stays readable — it is
    still useful information — but does not invite a click. */
-.board-item-inert {
-  opacity: 0.4;
-  pointer-events: none;
+.board-row:disabled {
+  cursor: default;
+  opacity: 0.45;
+}
+
+.board-row-icon {
+  align-items: center;
+  color: var(--figma-color-icon-secondary);
+  display: flex;
+  flex: none;
+}
+
+.board-row[data-used='true'] .board-row-icon {
+  color: var(--figma-color-icon);
+}
+
+.board-row-text {
+  display: grid;
+  gap: 1px;
+  min-width: 0;
+}
+
+.board-row-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.board-row[data-used='true'] .board-row-name {
+  font-weight: 600;
+}
+
+.board-row-detail {
+  color: var(--figma-color-text-tertiary, var(--figma-color-text-secondary));
+  font-size: 11px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.board-flag {
+  background: var(--figma-color-bg-brand-tertiary, rgba(13, 153, 255, 0.16));
+  border-radius: 3px;
+  color: var(--figma-color-text-brand, #7cc4ff);
+  flex: none;
+  font-size: 9px;
+  letter-spacing: 0.04em;
+  margin-left: auto;
+  padding: 2px 5px;
+  text-transform: uppercase;
 }
 
 .board-target {

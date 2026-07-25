@@ -5,8 +5,6 @@ import {
   IconInstance16,
   IconText16,
   IconVariant16,
-  Layer,
-  SelectableItem,
 } from '@create-figma-plugin/ui';
 import { renderImportLines } from './layout/imports';
 import {
@@ -196,26 +194,30 @@ export function SemanticMappingView(props: SemanticMappingViewProps): h.JSX.Elem
                 {item.groupLabel ? (
                   <div class="mapping-section-label">{item.groupLabel}</div>
                 ) : null}
-                <div
-                  class={item.selectable ? 'board-item' : 'board-item board-item-inert'}
+                <button
+                  class="board-row"
+                  data-selected={selectedRow?.optionId === item.id ? 'true' : undefined}
+                  data-used={item.used ? 'true' : undefined}
+                  disabled={props.disabled || !item.selectable}
+                  onClick={() => {
+                    if (selectedRow) {
+                      props.onOptionChange(selectedRow.target.path, item.id);
+                    }
+                  }}
                   title={item.selectable
-                    ? `Connect to ${selectedRow?.targetPath ?? ''}`
+                    ? `Connect "${item.label}" to ${selectedRow?.targetPath ?? ''}`
                     : 'Not compatible with the selected code prop'}
+                  type="button"
                 >
-                  <Layer
-                    bold={item.used}
-                    description={item.detail}
-                    icon={item.icon}
-                    onValueChange={() => {
-                      if (item.selectable && !props.disabled && selectedRow) {
-                        props.onOptionChange(selectedRow.target.path, item.id);
-                      }
-                    }}
-                    value={selectedRow?.optionId === item.id}
-                  >
-                    {item.label}
-                  </Layer>
-                </div>
+                  <span class="board-row-icon" aria-hidden="true">{item.icon}</span>
+                  <span class="board-row-text">
+                    <span class="board-row-name">{item.label}</span>
+                    {item.detail ? (
+                      <span class="board-row-detail">{item.detail}</span>
+                    ) : null}
+                  </span>
+                  {item.used ? <span class="board-flag">used</span> : null}
+                </button>
               </Fragment>
             ))}
           </div>
@@ -242,19 +244,19 @@ export function SemanticMappingView(props: SemanticMappingViewProps): h.JSX.Elem
                   {sectionLabel ? (
                     <div class="mapping-section-label">{sectionLabel}</div>
                   ) : null}
-                  <SelectableItem
+                  <button
+                    class="board-row"
+                    data-selected={row.targetPath === activePath ? 'true' : undefined}
                     disabled={props.disabled}
-                    onValueChange={() => setSelectedPath(row.targetPath)}
-                    value={row.targetPath === selectedPath}
+                    onClick={() => setSelectedPath(row.targetPath)}
+                    type="button"
                   >
-                    <span class="board-target">
-                      <span class="board-target-name">
-                        <span class="dot-status" data-state={targetState(row)} />
-                        {row.targetPath}
-                      </span>
-                      <span class="board-target-value">{describeRowValue(row)}</span>
+                    <span class="dot-status" data-state={targetState(row)} />
+                    <span class="board-row-text">
+                      <span class="board-row-name">{row.targetPath}</span>
+                      <span class="board-row-detail">{describeRowValue(row)}</span>
                     </span>
-                  </SelectableItem>
+                  </button>
                 </Fragment>
               );
             })}

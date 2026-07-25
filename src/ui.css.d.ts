@@ -2,9 +2,14 @@ declare const styles: {
   readonly "actions": string;
   readonly "advanced-mappings": string;
   readonly "board-empty": string;
+  readonly "board-flag": string;
   readonly "board-head": string;
-  readonly "board-item-inert": string;
   readonly "board-list": string;
+  readonly "board-row": string;
+  readonly "board-row-detail": string;
+  readonly "board-row-icon": string;
+  readonly "board-row-name": string;
+  readonly "board-row-text": string;
   readonly "board-side": string;
   readonly "board-target": string;
   readonly "board-target-name": string;

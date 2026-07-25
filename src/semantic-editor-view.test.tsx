@@ -46,13 +46,13 @@ function createDialogRecipeDraft() {
 /** Focus a code prop on the board; its editing controls then appear below. */
 function selectTarget(targetPath: string): void {
   // The name also appears in the detail header, so pick the board entry.
-  const label = screen.getAllByText(targetPath)
-    .map((node) => node.closest('label'))
-    .find((node): node is HTMLLabelElement => node !== null);
-  if (!label) {
-    throw new Error(`No selectable board item for ${targetPath}`);
+  const button = screen.getAllByText(targetPath)
+    .map((node) => node.closest('button'))
+    .find((node): node is HTMLButtonElement => node !== null);
+  if (!button) {
+    throw new Error(`No board row for ${targetPath}`);
   }
-  fireEvent.click(label);
+  fireEvent.click(button);
 }
 
 afterEach(cleanup);
@@ -211,9 +211,11 @@ describe('SemanticMappingView', () => {
 
     selectTarget('intent');
     // Clicking the compatible Figma property binds it to the focused prop.
-    const figmaItem = screen.getByText('intent', { selector: '.board-item label div' })
-      ?? screen.getAllByText('intent')[0];
-    fireEvent.click(figmaItem.closest('label')!);
+    const figmaRow = screen.getAllByText('intent')
+      .map((node) => node.closest('button'))
+      .filter((node): node is HTMLButtonElement => node !== null)
+      .find((node) => node.title.startsWith('Connect'));
+    fireEvent.click(figmaRow!);
 
     expect(onOptionChange).toHaveBeenCalledWith(['intent'], 'prop:prop-intent');
   });
