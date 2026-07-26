@@ -47,9 +47,9 @@ body {
   box-shadow: 0 14px 40px rgb(0 0 0 / 14%);
   display: flex;
   flex-direction: column;
-  height: min(92vh, 780px);
+  height: min(92vh, 1005px);
   overflow: hidden;
-  width: min(100%, 600px);
+  width: min(100%, 768px);
 }
 
 .titlebar,
