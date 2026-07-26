@@ -1,7 +1,9 @@
 import { describe, expect, it, vi } from 'vitest';
 import * as ts from 'typescript';
+import { createUsageSnippet } from '../codegen';
 import { extractLayout } from './figma-layout-extractor';
 import {
+  absolutePositionedChild,
   component,
   connection,
   duplicateNamesAcrossPackages,
@@ -11,6 +13,7 @@ import {
   rawText,
   text,
   unconnectedInstance,
+  unsupportedVector,
   verticalForm,
 } from './fixtures';
 import { generateLayout } from './generate-layout';
@@ -149,18 +152,114 @@ describe('full React layout generation', () => {
     }
   });
 
+  it('matches standalone usage for the same live connected instance', async () => {
+    const metadata = connection({
+      childrenMode: 'none',
+      componentName: 'Button',
+      importPath: '@tashilcar/swiss-army-knife',
+      propMappings: {
+        Disabled: {
+          true: { prop: 'disabled', value: true },
+        },
+        Size: {
+          Large: { prop: 'size', value: 'lg' },
+        },
+      },
+    });
+    const button = component(
+      'c:parity',
+      'Button',
+      JSON.stringify(metadata),
+    );
+    const liveInstance = instance('i:parity', 'Button', button, {
+      componentProperties: {
+        'Disabled#boolean': { type: 'BOOLEAN', value: true },
+        'Size#variant': { type: 'VARIANT', value: 'Large' },
+      },
+    });
+
+    const generated = await generate(frame('f:parity', 'Parity frame', [
+      liveInstance,
+    ]));
+    const standalone = createUsageSnippet(metadata, {
+      componentProperties: { Disabled: true, Size: 'Large' },
+      displayText: 'Button',
+      instanceSwaps: {},
+    });
+    const standaloneJsx = standalone.code.split('\n').slice(-1)[0];
+
+    expect(generated.tsx).toContain(
+      'import { Button } from "@tashilcar/swiss-army-knife";',
+    );
+    expect(standalone.code).toContain(
+      'import { Button } from "@tashilcar/swiss-army-knife";',
+    );
+    expect(standaloneJsx).toBe('<Button disabled size={"lg"} />');
+    expect(generated.tsx).toContain(standaloneJsx);
+  });
+
   it('keeps non-auto-layout children and reports manual positioning', async () => {
     const freeform = frame(
       'f:free',
       'Freeform card',
-      [text('t:title', 'Title', 'Account')],
+      [text('t:title', 'Title', 'Account', {
+        x: 24,
+        y: 32,
+        width: 120,
+        height: 20,
+      })],
       { layoutMode: 'NONE' },
     );
     const generated = await generate(freeform);
 
     expect(generated.tsx).toContain('Account');
-    expect(generated.diagnostics).toEqual([
+    expect(generated.tsx).toContain('const FreeformCardRoot = styled.div`');
+    expect(generated.tsx).toContain('position: relative;');
+    expect(generated.tsx).toContain('height: 200px;');
+    expect(generated.tsx).toContain('const Title = styled.span`');
+    expect(generated.tsx).toContain('position: absolute;');
+    expect(generated.tsx).toContain('left: 24px;');
+    expect(generated.tsx).toContain('top: 32px;');
+    expect(generated.tsx).toContain('width: 120px;');
+    expect(generated.tsx).toContain('height: 20px;');
+    expect(generated.tsx).not.toContain('{/* FRAME:');
+    expect(generated.diagnostics).toEqual(expect.arrayContaining([
       expect.objectContaining({ reason: 'unsupported-layout-mode' }),
+      expect.objectContaining({ reason: 'absolute-positioning' }),
+    ]));
+  });
+
+  it('generates an absolute ordinary child inside auto layout', async () => {
+    const generated = await generate(absolutePositionedChild());
+
+    expectValidTsx(generated.tsx);
+    expect(generated.tsx).toContain('const CardWithBadgeRoot = styled.div`');
+    expect(generated.tsx).toContain('display: flex;');
+    expect(generated.tsx).toContain('position: relative;');
+    expect(generated.tsx).toContain('const Badge = styled.span`');
+    expect(generated.tsx).toContain('position: absolute;');
+    expect(generated.tsx).toContain('left: 248px;');
+    expect(generated.tsx).toContain('top: 16px;');
+    expect(generated.tsx).toContain('width: 48px;');
+    expect(generated.tsx).toContain('height: 24px;');
+    expect(generated.tsx).toContain('<Badge>New</Badge>');
+    expect(generated.tsx).not.toContain('{/* FRAME:');
+    expect(generated.diagnostics).toEqual([
+      expect.objectContaining({ reason: 'absolute-positioning' }),
+    ]);
+  });
+
+  it('preserves an unsupported asset as a comment and diagnostic', async () => {
+    const generated = await generate(frame('f:asset', 'Asset card', [
+      unsupportedVector(),
+    ]));
+
+    expect(generated.tsx).toContain('{/* VECTOR: Divider */}');
+    expect(generated.diagnostics).toEqual([
+      expect.objectContaining({
+        nodeId: 'v:divider',
+        reason: 'unsupported-node',
+      }),
     ]);
   });
 
