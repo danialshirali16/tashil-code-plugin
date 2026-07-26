@@ -39,6 +39,10 @@ describe('formatTokenName', () => {
     expect(formatTokenName('Color/Text/Primary', 'slash')).toBe('color/text/primary');
   });
 
+  it('dot: separates normalized groups with periods', () => {
+    expect(formatTokenName('Color/Primary/Hover', 'dot')).toBe('color.primary.hover');
+  });
+
   it('snake: underscores between segments', () => {
     expect(formatTokenName('Color/Text/Primary', 'snake')).toBe('color_text_primary');
   });
@@ -126,6 +130,59 @@ describe('formatTokenValue', () => {
     const t = token({ name: 'flag', resolvedType: 'BOOLEAN', value: { kind: 'boolean', value: true } });
     expect(formatTokenValue(t, baseOptions)).toBe('true');
   });
+
+  it('uses the concrete value retained on a resolved color alias', () => {
+    const t = token({
+      name: 'Color/Primary',
+      resolvedType: 'COLOR',
+      value: {
+        kind: 'alias',
+        value: {
+          targetName: 'Reference/Blue/500',
+          resolvedValue: { kind: 'color', value: { r: 0.05, g: 0.6, b: 1 } },
+        },
+      },
+    });
+    expect(formatTokenValue(t, baseOptions)).toBe('#0d99ff');
+  });
+
+  it('formats alias references with the selected token naming style', () => {
+    const t = token({
+      name: 'Color/Primary',
+      resolvedType: 'COLOR',
+      value: {
+        kind: 'alias',
+        value: {
+          targetName: 'Reference/Blue/500',
+          resolvedValue: { kind: 'color', value: { r: 0.05, g: 0.6, b: 1 } },
+        },
+      },
+    });
+    expect(formatTokenValue(t, {
+      ...baseOptions,
+      colorFormat: 'variable',
+      nameStyle: 'dot',
+    })).toBe('var(--reference.blue.500)');
+  });
+
+  it('applies px-to-rem conversion to resolved numeric aliases', () => {
+    const t = token({
+      name: 'Spacing/4',
+      resolvedType: 'FLOAT',
+      scopes: ['GAP'],
+      value: {
+        kind: 'alias',
+        value: {
+          targetName: 'Reference/Spacing/16',
+          resolvedValue: { kind: 'number', value: 16 },
+        },
+      },
+    });
+    expect(formatTokenValue(t, {
+      ...baseOptions,
+      convertPxToRem: true,
+    })).toBe('1rem');
+  });
 });
 
 describe('serializeCollection', () => {
@@ -147,7 +204,7 @@ describe('serializeCollection', () => {
     expect(css).toContain('--spacing-4: 16;');
   });
 
-  it('skips aliases that resolve to nothing usable', () => {
+  it('preserves unresolved aliases as references instead of dropping them', () => {
     const collection: TokenCollection = {
       id: 'c1',
       name: 'Primitive',
@@ -157,7 +214,7 @@ describe('serializeCollection', () => {
         token({ name: 'Radius/Sm', resolvedType: 'FLOAT', value: { kind: 'alias', value: { targetName: 'Other/Radius' } } }),
       ],
     };
-    // Non-color alias with no concrete value → no declaration line.
-    expect(serializeCollection(collection, baseOptions)).not.toContain('--radius-sm:');
+    expect(serializeCollection(collection, baseOptions))
+      .toContain('--radius-sm: var(--other-radius);');
   });
 });

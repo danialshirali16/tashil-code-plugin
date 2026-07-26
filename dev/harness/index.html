@@ -8,13 +8,13 @@
 <link rel="stylesheet" href="/node_modules/@create-figma-plugin/ui/lib/css/base.css">
 <link rel="stylesheet" href="/node_modules/@create-figma-plugin/ui/lib/css/theme.css">
 <style>
-  body { background: #2c2c2c; margin: 0; font-family: Inter, sans-serif; }
-  /* The plugin panel opens near this width; the frame makes overflow obvious. */
-  #frame { width: 400px; margin: 0; border-right: 1px solid #555; min-height: 100vh; }
+  body { background: #f5f5f5; margin: 0; font-family: Inter, sans-serif; }
+  /* Keep visual QA at the same width configured by the production plugin. */
+  #frame { width: 480px; margin: 0; border-right: 1px solid #ddd; min-height: 100vh; }
   #root { background: var(--figma-color-bg); min-height: 100vh; }
 </style>
 </head>
-<body class="figma-dark figma-dark-theme">
+<body class="figma-light figma-light-theme">
   <div id="frame"><div id="root"></div></div>
   <script type="module" src="/dev/harness/main.tsx"></script>
 </body>

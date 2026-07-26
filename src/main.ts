@@ -73,6 +73,7 @@ import type {
   ColorValue,
   ExportFile,
   ExportOptions,
+  ResolvedTokenValue,
   Token,
   TokenCollection,
   TokenCollectionSummary,
@@ -799,6 +800,9 @@ async function exportTokens(
   const wantSet = new Set(collectionIds);
   try {
     const collections = await figma.variables.getLocalVariableCollectionsAsync();
+    const collectionsById = new Map(
+      collections.map((collection) => [collection.id, collection]),
+    );
     const files: ExportFile[] = [];
     for (const collection of collections) {
       if (latestTokensExportId !== operationId) {
@@ -816,7 +820,11 @@ async function exportTokens(
           return;
         }
         const mode = collection.modes.find((m) => m.modeId === modeId);
-        const tokens = await collectTokens(collection, modeId);
+        const tokens = await collectTokens(collection, modeId, {
+          collectionsById,
+          modeIdsByCollection: new Map([[collection.id, modeId]]),
+          preferredModeName: mode?.name ?? '',
+        });
         const domain: TokenCollection = {
           id: collection.id,
           name: collection.name,
@@ -851,9 +859,16 @@ async function exportTokens(
   }
 }
 
+type TokenResolutionContext = {
+  collectionsById: Map<string, VariableCollection>;
+  modeIdsByCollection: Map<string, string>;
+  preferredModeName: string;
+};
+
 async function collectTokens(
   collection: VariableCollection,
   modeId: string,
+  context: TokenResolutionContext,
 ): Promise<Token[]> {
   const tokens: Token[] = [];
   for (const variableId of collection.variableIds) {
@@ -865,7 +880,7 @@ async function collectTokens(
     if (raw === undefined) {
       continue;
     }
-    const value = await normalizeValue(raw, variable.resolvedType, modeId);
+    const value = await normalizeValue(raw, variable.resolvedType, context);
     if (value === null) {
       continue;
     }
@@ -883,7 +898,7 @@ async function collectTokens(
 async function normalizeValue(
   raw: VariableValue,
   resolvedType: VariableResolvedDataType,
-  modeId: string,
+  context: TokenResolutionContext,
 ): Promise<TokenValue | null> {
   if (typeof raw === 'boolean') {
     return { kind: 'boolean', value: raw };
@@ -899,16 +914,13 @@ async function normalizeValue(
   if (maybeAlias.type === 'VARIABLE_ALIAS' && typeof maybeAlias.id === 'string') {
     const target = await figma.variables.getVariableByIdAsync(maybeAlias.id);
     const targetName = target?.name ?? '';
-    const alias: AliasValue = { targetName };
-    // ponytail: when the alias resolves to a color, surface the color too so
-    // 'hex'/'rgb'/'rgba' formats have something concrete to render; when the
-    // consumer wants 'variable', serialize.ts prefers the alias name.
-    if (target !== null && target.resolvedType === 'COLOR') {
-      const resolved = await resolveColorValue(target, modeId);
-      if (resolved !== null) {
-        return { kind: 'color', value: resolved };
-      }
-    }
+    const resolvedValue = target === null
+      ? null
+      : await resolveVariableValue(target, context, new Set());
+    const alias: AliasValue = {
+      targetName,
+      ...(resolvedValue === null ? {} : { resolvedValue }),
+    };
     return { kind: 'alias', value: alias };
   }
   if (resolvedType === 'COLOR' || isColorShape(raw)) {
@@ -920,7 +932,20 @@ async function normalizeValue(
   return null;
 }
 
-async function resolveColorValue(variable: Variable, modeId: string): Promise<ColorValue | null> {
+async function resolveVariableValue(
+  variable: Variable,
+  context: TokenResolutionContext,
+  visitedVariableIds: Set<string>,
+): Promise<ResolvedTokenValue | null> {
+  if (visitedVariableIds.has(variable.id)) {
+    return null;
+  }
+  visitedVariableIds.add(variable.id);
+
+  const modeId = await resolveVariableModeId(variable, context);
+  if (modeId === null) {
+    return null;
+  }
   const raw = variable.valuesByMode[modeId];
   if (raw === undefined) {
     return null;
@@ -929,9 +954,63 @@ async function resolveColorValue(variable: Variable, modeId: string): Promise<Co
     const alias = raw as { type?: string; id?: string };
     if (alias.type === 'VARIABLE_ALIAS' && typeof alias.id === 'string') {
       const target = await figma.variables.getVariableByIdAsync(alias.id);
-      return target === null ? null : resolveColorValue(target, modeId);
+      return target === null
+        ? null
+        : resolveVariableValue(target, context, visitedVariableIds);
     }
-    return toColorValue(raw);
+  }
+  return normalizeResolvedValue(raw, variable.resolvedType);
+}
+
+async function resolveVariableModeId(
+  variable: Variable,
+  context: TokenResolutionContext,
+): Promise<string | null> {
+  const cachedModeId = context.modeIdsByCollection.get(variable.variableCollectionId);
+  if (cachedModeId !== undefined) {
+    return cachedModeId;
+  }
+
+  let collection = context.collectionsById.get(variable.variableCollectionId);
+  if (collection === undefined) {
+    collection = await figma.variables.getVariableCollectionByIdAsync(
+      variable.variableCollectionId,
+    ) ?? undefined;
+    if (collection !== undefined) {
+      context.collectionsById.set(collection.id, collection);
+    }
+  }
+  if (collection === undefined) {
+    return null;
+  }
+
+  const preferredModeName = context.preferredModeName.trim().toLocaleLowerCase();
+  const matchingMode = preferredModeName.length === 0
+    ? undefined
+    : collection.modes.find(
+      (mode) => mode.name.trim().toLocaleLowerCase() === preferredModeName,
+    );
+  const modeId = matchingMode?.modeId ?? collection.defaultModeId;
+  context.modeIdsByCollection.set(collection.id, modeId);
+  return modeId;
+}
+
+function normalizeResolvedValue(
+  raw: VariableValue,
+  resolvedType: VariableResolvedDataType,
+): ResolvedTokenValue | null {
+  if (typeof raw === 'boolean') {
+    return { kind: 'boolean', value: raw };
+  }
+  if (typeof raw === 'number') {
+    return { kind: 'number', value: raw };
+  }
+  if (typeof raw === 'string') {
+    return { kind: 'string', value: raw };
+  }
+  if (resolvedType === 'COLOR' || isColorShape(raw)) {
+    const color = toColorValue(raw);
+    return color === null ? null : { kind: 'color', value: color };
   }
   return null;
 }

@@ -12,4 +12,7 @@ Build app UI in `src/`. Keep `.openai/hosting.json`, `worker/index.js`, `scripts
 
 - Use the “Export Builder” layout selected by the user on 2026-07-26.
 - Keep Output settings expanded by default.
+- Hide Root font size whenever px→rem conversion is disabled.
+- Keep the Output settings surface white.
+- Show a live token/CSS preview that reacts to output-setting changes.
 - The preview is a decision checkpoint only; do not alter the production plugin page until the user accepts it.

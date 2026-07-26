@@ -26,6 +26,15 @@ const slug = (value) =>
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/(^-|-$)/g, "");
 
+const formatPreviewName = (parts, style) => {
+  if (style === "slash") return parts.join("/");
+  if (style === "snake") return parts.join("_");
+  if (style === "pascal") {
+    return parts.map((part) => part.charAt(0).toUpperCase() + part.slice(1)).join("");
+  }
+  return parts.join("-");
+};
+
 function CheckControl({ checked, label, onChange }) {
   return (
     <label className="check-control" aria-label={label}>
@@ -123,6 +132,22 @@ export function App() {
   const focusedModes = focusedCollection
     ? modes[focusedCollection.id] || new Set([focusedCollection.modes[0]])
     : new Set();
+  const previewColor = {
+    hex: "#0d99ff",
+    rgb: "rgb(13, 153, 255)",
+    rgba: "rgba(13, 153, 255, 0.82)",
+    variable: `var(--${formatPreviewName(["reference", "color", "blue", "500"], nameStyle)})`,
+  }[colorFormat];
+  const safeRootSize = Number(rootSize) > 0 ? Number(rootSize) : 16;
+  const previewLength = (pixels) =>
+    convertRem ? `${Number((pixels / safeRootSize).toFixed(4))}rem` : String(pixels);
+  const previewLines = [
+    ":root {",
+    `  --${formatPreviewName(["color", "text", "primary"], nameStyle)}: ${previewColor};`,
+    `  --${formatPreviewName(["spacing", "4"], nameStyle)}: ${previewLength(16)};`,
+    `  --${formatPreviewName(["radius", "small"], nameStyle)}: ${previewLength(8)};`,
+    "}",
+  ];
 
   return (
     <main className="stage">
@@ -257,19 +282,20 @@ export function App() {
                   />
                   <span className="switch" aria-hidden="true" />
                 </label>
-                <label className="numeric-field">
-                  <span>Root font size</span>
-                  <span className={convertRem ? "input-shell" : "input-shell disabled"}>
-                    <input
-                      disabled={!convertRem}
-                      min="1"
-                      onChange={(event) => setRootSize(event.target.value)}
-                      type="number"
-                      value={rootSize}
-                    />
-                    <span>px</span>
-                  </span>
-                </label>
+                {convertRem ? (
+                  <label className="numeric-field">
+                    <span>Root font size</span>
+                    <span className="input-shell">
+                      <input
+                        min="1"
+                        onChange={(event) => setRootSize(event.target.value)}
+                        type="number"
+                        value={rootSize}
+                      />
+                      <span>px</span>
+                    </span>
+                  </label>
+                ) : null}
               </div>
 
               <div className="format-settings">
@@ -295,6 +321,13 @@ export function App() {
                   ]}
                   value={nameStyle}
                 />
+              </div>
+              <div className="token-preview" aria-live="polite">
+                <div className="preview-heading">
+                  <strong>CSS preview</strong>
+                  <span>Updates with your output settings</span>
+                </div>
+                <pre><code>{previewLines.join("\n")}</code></pre>
               </div>
             </div>
           </section>

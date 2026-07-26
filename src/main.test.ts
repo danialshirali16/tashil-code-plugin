@@ -8,10 +8,12 @@ import {
   type ConnectionMetadata,
   type InspectCodeState,
   type MappingDocument,
+  type ExportTokensResultHandler,
   type ScaffoldResultHandler,
   type UiTargetState,
 } from './types';
 import { createDialogRecipe } from './semantic/fixtures';
+import type { ExportOptions } from './sync-tokens/types';
 
 type MessageHandler = (payload: unknown) => void;
 
@@ -200,7 +202,12 @@ async function flushPromises(): Promise<void> {
   await Promise.resolve();
 }
 
-async function startPlugin(): Promise<{
+type StartPluginOptions = {
+  variableCollections?: VariableCollection[];
+  variables?: Variable[];
+};
+
+async function startPlugin(options: StartPluginOptions = {}): Promise<{
   codegenCustomSettings: Record<string, string>;
   codegenEvents: Map<string, CodegenGenerateHandler>;
   figmaEvents: Map<string, () => void>;
@@ -217,6 +224,14 @@ async function startPlugin(): Promise<{
   const nodesById = new Map<string, BaseNode>();
   const openExternal = vi.fn();
   const pages: PageNode[] = [];
+  const variableCollections = options.variableCollections ?? [];
+  const variables = options.variables ?? [];
+  const variableCollectionsById = new Map(
+    variableCollections.map((collection) => [collection.id, collection]),
+  );
+  const variablesById = new Map(
+    variables.map((variable) => [variable.id, variable]),
+  );
   const selection: SceneNode[] = [];
   const pushSelection = selection.push.bind(selection);
   const spliceSelection = selection.splice.bind(selection);
@@ -255,6 +270,13 @@ async function startPlugin(): Promise<{
     }),
     root: { children: pages },
     ui: { resize: vi.fn() },
+    variables: {
+      getLocalVariableCollectionsAsync: vi.fn(() => Promise.resolve(variableCollections)),
+      getVariableByIdAsync: vi.fn((id: string) => Promise.resolve(variablesById.get(id) ?? null)),
+      getVariableCollectionByIdAsync: vi.fn(
+        (id: string) => Promise.resolve(variableCollectionsById.get(id) ?? null),
+      ),
+    },
   });
 
   const plugin = await import('./main');
@@ -282,6 +304,112 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.unstubAllGlobals();
+});
+
+describe('Sync Tokens export', () => {
+  it('resolves cross-collection aliases using the target collection mode', async () => {
+    const references = {
+      id: 'references',
+      name: 'References',
+      modes: [
+        { modeId: 'references-light', name: 'Light' },
+        { modeId: 'references-dark', name: 'Dark' },
+      ],
+      defaultModeId: 'references-light',
+      variableIds: ['reference-blue', 'reference-spacing'],
+    } as unknown as VariableCollection;
+    const product = {
+      id: 'product',
+      name: 'Product Tokens',
+      modes: [
+        { modeId: 'product-zhina', name: 'Zhina' },
+        { modeId: 'product-dark', name: 'Dark' },
+      ],
+      defaultModeId: 'product-zhina',
+      variableIds: ['product-color', 'product-spacing'],
+    } as unknown as VariableCollection;
+
+    const referenceBlue = {
+      id: 'reference-blue',
+      name: 'Reference/Blue/500',
+      resolvedType: 'COLOR',
+      scopes: ['ALL_FILLS'],
+      valuesByMode: {
+        'references-light': { r: 0.05, g: 0.6, b: 1 },
+        'references-dark': { r: 0.01, g: 0.2, b: 0.4 },
+      },
+      variableCollectionId: references.id,
+    } as unknown as Variable;
+    const referenceSpacing = {
+      id: 'reference-spacing',
+      name: 'Reference/Spacing/16',
+      resolvedType: 'FLOAT',
+      scopes: ['GAP'],
+      valuesByMode: {
+        'references-light': 16,
+        'references-dark': 20,
+      },
+      variableCollectionId: references.id,
+    } as unknown as Variable;
+    const productColor = {
+      id: 'product-color',
+      name: 'Color/Primary/Hover',
+      resolvedType: 'COLOR',
+      scopes: ['ALL_FILLS'],
+      valuesByMode: {
+        'product-zhina': { type: 'VARIABLE_ALIAS', id: referenceBlue.id },
+        'product-dark': { type: 'VARIABLE_ALIAS', id: referenceBlue.id },
+      },
+      variableCollectionId: product.id,
+    } as unknown as Variable;
+    const productSpacing = {
+      id: 'product-spacing',
+      name: 'Spacing/4',
+      resolvedType: 'FLOAT',
+      scopes: ['GAP'],
+      valuesByMode: {
+        'product-zhina': { type: 'VARIABLE_ALIAS', id: referenceSpacing.id },
+        'product-dark': { type: 'VARIABLE_ALIAS', id: referenceSpacing.id },
+      },
+      variableCollectionId: product.id,
+    } as unknown as Variable;
+
+    await startPlugin({
+      variableCollections: [references, product],
+      variables: [referenceBlue, referenceSpacing, productColor, productSpacing],
+    });
+
+    const options: ExportOptions = {
+      colorFormat: 'hex',
+      convertPxToRem: true,
+      modesByCollection: { product: ['product-zhina', 'product-dark'] },
+      nameStyle: 'dot',
+      rootFontSize: 16,
+    };
+    utilityMocks.handlers.get('EXPORT_TOKENS')?.({
+      collectionIds: ['product'],
+      operationId: 'export-aliases',
+      options,
+    });
+
+    await vi.waitFor(() => {
+      expect(emittedPayloads<
+        Parameters<ExportTokensResultHandler['handler']>[0]
+      >('EXPORT_TOKENS_RESULT')).toHaveLength(1);
+    });
+
+    const result = emittedPayloads<
+      Parameters<ExportTokensResultHandler['handler']>[0]
+    >('EXPORT_TOKENS_RESULT')[0];
+    expect(result.ok).toBe(true);
+    expect(result.files?.[0]?.name).toBe('product-tokens-zhina.css');
+    expect(result.files?.[0]?.css).toContain('--color.primary.hover: #0d99ff;');
+    expect(result.files?.[0]?.css).toContain('--spacing.4: 1rem;');
+    expect(result.files?.[1]?.name).toBe('product-tokens-dark.css');
+    expect(result.files?.[1]?.css).toContain('--color.primary.hover: #033366;');
+    expect(result.files?.[1]?.css).toContain('--spacing.4: 1.25rem;');
+    expect(result.files?.map((file) => file.css).join('\n')).not.toContain('#000000');
+  });
 });
 
 describe('selection synchronization', () => {

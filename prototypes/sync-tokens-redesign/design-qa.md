@@ -2,6 +2,7 @@
 
 - Source visual truth: embedded in `qa/source-vs-implementation.png`
 - Browser-rendered implementation: `qa/implementation-final.png`
+- Latest feedback-state capture: `qa/implementation-feedback-final.png`
 - Combined comparison evidence: `qa/source-vs-implementation.png`
 - Browser viewport: 960 × 1061 CSS px
 - Source pixels: 1096 × 1435
@@ -29,12 +30,16 @@ No actionable P0, P1, or P2 differences remain.
 - File copy control changed to a visible “Copied” state.
 - Export action changed the summary to “Export prepared successfully.”
 - Browser console warnings/errors checked: none.
+- Disabling px→rem removed the Root font size control; enabling it restored the control.
+- Selecting slash rewrote the preview to `--color/text/primary`, `--spacing/4`, and `--radius/small`.
+- The settings surface renders white and the live preview remains readable at a 567 × 730 browser viewport.
 
 ## Comparison history
 
 1. Initial comparison found the output configuration lacked the selected design’s containing surface and per-file copy affordances.
 2. Added the containing output panel and working copy controls.
 3. Post-fix comparison confirmed the selected hierarchy, controls, and visual grouping. Remaining differences are P3-level density refinements only.
+4. User-feedback pass added conditional Root font size visibility, a white settings surface, and a responsive live CSS preview. Browser verification found no console errors or layout-blocking issues.
 
 ## Follow-up polish
 

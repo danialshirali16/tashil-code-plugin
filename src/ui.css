@@ -1541,45 +1541,79 @@ body {
 
 /* --- Sync Tokens tab layout glue (component styling comes from @create-figma-plugin/ui) --- */
 
-.sync-tokens-collection-list {
-  background: var(--figma-color-bg-secondary);
-  border-radius: 6px;
+.sync-tokens-view {
+  display: flex;
+  flex-direction: column;
+  grid-row: 2;
+  min-height: 0;
   overflow: hidden;
 }
 
-.sync-tokens-section-header {
-
-  align-items: center;
-  display: flex;
-  justify-content: space-between;
+.sync-tokens-scroll {
+  display: grid;
+  flex: 1 1 auto;
+  gap: 16px;
+  min-height: 0;
+  overflow: auto;
+  padding: 16px;
 }
 
-.sync-tokens-link-button {
-  background: none;
-  border: none;
-  color: var(--figma-color-text-brand, #0d99ff);
-  cursor: pointer;
+.sync-tokens-intro {
+  display: grid;
+  gap: 4px;
+}
+
+.sync-tokens-intro h1 {
+  font-size: 16px;
+  font-weight: 600;
+  line-height: 24px;
+  margin: 0;
+}
+
+.sync-tokens-intro p,
+.sync-tokens-output-heading p {
+  color: var(--figma-color-text-secondary);
   font-size: 11px;
   line-height: 16px;
-  padding: 0;
+  margin: 0;
 }
 
-.sync-tokens-link-button:hover {
-  text-decoration: underline;
+.sync-tokens-toolbar {
+  align-items: center;
+  display: grid;
+  gap: 8px;
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+
+.sync-tokens-step {
+  display: grid;
+  gap: 8px;
+}
+
+.sync-tokens-step > h2 {
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 16px;
+  margin: 0;
+}
+
+.sync-tokens-collection-list {
+  background: var(--figma-color-bg);
+  border: 1px solid var(--figma-color-border);
+  border-radius: 5px;
+  display: grid;
+  overflow: hidden;
 }
 
 .sync-tokens-collection-row {
-  align-items: flex-start;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  padding: 8px 12px;
+  align-items: center;
+  display: grid;
+  min-height: 40px;
+  padding: 4px 8px;
 }
 
-.sync-tokens-collection-main {
-  align-items: center;
-  display: flex;
-  min-width: 0;
+.sync-tokens-collection-row + .sync-tokens-collection-row {
+  border-top: 1px solid var(--figma-color-border);
 }
 
 .sync-tokens-collection-name {
@@ -1593,33 +1627,231 @@ body {
   margin-left: 6px;
 }
 
-.sync-tokens-modes {
-  align-items: center;
-  display: flex;
-  flex-wrap: wrap;
-  gap: 4px;
-  padding-left: 28px;
+.sync-tokens-row-selected {
+  background: var(--figma-color-bg-brand-tertiary);
 }
 
-.sync-tokens-chip {
+.sync-tokens-empty-result,
+.sync-tokens-output-empty {
   background: var(--figma-color-bg);
   border: 1px solid var(--figma-color-border);
-  border-radius: 10px;
+  border-radius: 5px;
   color: var(--figma-color-text-secondary);
-  cursor: pointer;
+  font-size: 11px;
+  line-height: 16px;
+  padding: 12px;
+}
+
+.sync-tokens-output-panel,
+.sync-tokens-settings-panel {
+  background: var(--figma-color-bg);
+  border: 1px solid var(--figma-color-border);
+  border-radius: 5px;
+  overflow: hidden;
+}
+
+.sync-tokens-output-group {
+  display: grid;
+  gap: 8px;
+  padding: 12px;
+}
+
+.sync-tokens-output-group + .sync-tokens-output-group {
+  border-top: 1px solid var(--figma-color-border);
+}
+
+.sync-tokens-output-heading {
+  align-items: start;
+  display: flex;
+  gap: 8px;
+  justify-content: space-between;
+}
+
+.sync-tokens-output-heading h3 {
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 16px;
+  margin: 0;
+}
+
+.sync-tokens-output-heading > span {
+  background: var(--figma-color-bg-brand-tertiary);
+  border-radius: 3px;
+  color: var(--figma-color-text-brand);
+  font-size: 9px;
+  line-height: 14px;
+  padding: 1px 5px;
+  white-space: nowrap;
+}
+
+.sync-tokens-mode-list {
+  border: 1px solid var(--figma-color-border);
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.sync-tokens-mode-row {
+  align-items: center;
+  display: grid;
+  gap: 4px;
+  grid-template-columns: minmax(92px, 0.7fr) minmax(0, 1fr) 32px;
+  min-height: 36px;
+  padding: 2px 4px 2px 8px;
+}
+
+.sync-tokens-mode-row + .sync-tokens-mode-row {
+  border-top: 1px solid var(--figma-color-border);
+}
+
+.sync-tokens-mode-control {
+  min-width: 0;
+}
+
+.sync-tokens-file-name {
+  color: var(--figma-color-text-secondary);
   font-size: 10px;
   line-height: 16px;
-  padding: 2px 8px;
+  overflow: hidden;
+  text-align: right;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-.sync-tokens-chip:hover {
-  border-color: var(--figma-color-border-strong, var(--figma-color-border));
+.sync-tokens-settings-panel {
+  display: grid;
+  gap: 16px;
+  grid-template-columns: minmax(130px, 0.8fr) minmax(220px, 1.2fr);
+  padding: 12px;
 }
 
-.sync-tokens-chip-active {
-  background: var(--figma-color-bg-brand, #0d99ff);
-  border-color: var(--figma-color-bg-brand, #0d99ff);
-  color: var(--figma-color-text-onbrand, #fff);
+.sync-tokens-unit-settings,
+.sync-tokens-format-settings {
+  align-content: start;
+  display: grid;
+  gap: 12px;
+}
+
+.sync-tokens-number-input {
+  align-items: center;
+  border: 1px solid var(--figma-color-border);
+  border-radius: 2px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  overflow: hidden;
+}
+
+.sync-tokens-number-input:focus-within {
+  border-color: var(--figma-color-border-brand-strong);
+  box-shadow: inset 0 0 0 1px var(--figma-color-border-brand-strong);
+}
+
+.sync-tokens-number-input > div {
+  min-width: 0;
+}
+
+.sync-tokens-number-input input {
+  border: 0;
+}
+
+.sync-tokens-number-input > span {
+  border-left: 1px solid var(--figma-color-border);
+  color: var(--figma-color-text-secondary);
+  font-size: 11px;
+  line-height: 16px;
+  padding: 3px 8px;
+}
+
+.sync-tokens-preview {
+  border-top: 1px solid var(--figma-color-border);
+  display: grid;
+  gap: 8px;
+  grid-column: 1 / -1;
+  padding-top: 12px;
+}
+
+.sync-tokens-preview-heading {
+  align-items: baseline;
+  display: flex;
+  gap: 8px;
+  justify-content: space-between;
+}
+
+.sync-tokens-preview-heading strong {
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 16px;
+}
+
+.sync-tokens-preview-heading span {
+  color: var(--figma-color-text-secondary);
+  font-size: 9px;
+  line-height: 14px;
+}
+
+.sync-tokens-preview pre {
+  background: var(--figma-color-bg-secondary);
+  border: 1px solid var(--figma-color-border);
+  border-radius: 4px;
+  color: var(--figma-color-text);
+  font-family: var(--font-stack-monospace, ui-monospace, monospace);
+  font-size: 10px;
+  line-height: 16px;
+  margin: 0;
+  overflow: auto;
+  padding: 8px 10px;
+  white-space: pre;
+}
+
+.sync-tokens-footer {
+  align-items: center;
+  background: var(--figma-color-bg);
+  border-top: 1px solid var(--figma-color-border);
+  display: flex;
+  flex: 0 0 auto;
+  gap: 12px;
+  justify-content: space-between;
+  min-height: 56px;
+  padding: 8px 16px;
+}
+
+.sync-tokens-export-summary {
+  align-items: center;
+  display: flex;
+  gap: 8px;
+  min-width: 0;
+}
+
+.sync-tokens-export-summary > div {
+  display: grid;
+  min-width: 0;
+}
+
+.sync-tokens-export-summary strong {
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 16px;
+  white-space: nowrap;
+}
+
+.sync-tokens-export-summary span {
+  color: var(--figma-color-text-secondary);
+  font-size: 9px;
+  line-height: 14px;
+}
+
+@media (max-width: 400px) {
+  .sync-tokens-settings-panel {
+    grid-template-columns: 1fr;
+  }
+
+  .sync-tokens-mode-row {
+    grid-template-columns: minmax(80px, 0.8fr) minmax(0, 1fr) 32px;
+  }
+
+  .sync-tokens-preview-heading span,
+  .sync-tokens-export-summary span {
+    display: none;
+  }
 }
 
 /* --- Connect setup steps -------------------------------------------------
