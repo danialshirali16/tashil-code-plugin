@@ -183,6 +183,9 @@ describe('full React layout generation', () => {
     const tokenized = frame('f:tokens', 'Token card', [], {
       css: {
         display: 'flex',
+        color: 'var(--color-text-default, #111827)',
+        background: 'var(--colors-background-neutral-default, #fff)',
+        'border-color': 'var(--color/border/neutral/default, #e5e7eb)',
         gap: 'var(--spacing-400, 1rem)',
         padding: 'var(--spacing-600, 1.5rem)',
         'border-radius': 'var(--radius-large, 0.75rem)',
@@ -193,11 +196,35 @@ describe('full React layout generation', () => {
 
     const generated = await generate(tokenized);
 
+    expect(generated.tsx).toContain("import colors from 'styles/colors';");
+    expect(generated.tsx).toContain('color: ${colors.text.default};');
+    expect(generated.tsx).toContain(
+      'background: ${colors.background.neutral.default};',
+    );
+    expect(generated.tsx).toContain(
+      'border-color: ${colors.border.neutral.default};',
+    );
     expect(generated.tsx).toContain('gap: var(--spacing-400, 1rem);');
     expect(generated.tsx).toContain('padding: var(--spacing-600, 1.5rem);');
     expect(generated.tsx).toContain(
       'box-shadow: var(--shadow-card, 0 4px 12px rgb(0 0 0 / 8%));',
     );
     expect(generated.tsx).toContain('font-size: var(--font-size-body, 1rem);');
+  });
+
+  it('does not add the colors import for literal colors or non-color tokens', async () => {
+    const literal = frame('f:literal-colors', 'Literal colors', [], {
+      css: {
+        background: '#fff',
+        color: 'var(--font-size-body, 1rem)',
+      },
+    });
+
+    const generated = await generate(literal);
+
+    expectValidTsx(generated.tsx);
+    expect(generated.tsx).not.toContain("from 'styles/colors'");
+    expect(generated.tsx).toContain('background: #fff;');
+    expect(generated.tsx).toContain('color: var(--font-size-body, 1rem);');
   });
 });

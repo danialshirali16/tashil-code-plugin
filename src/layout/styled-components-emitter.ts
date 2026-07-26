@@ -25,6 +25,41 @@ export type StyledRegistry = {
   namesByNodeId: Map<string, string>;
 };
 
+const COLOR_PROPERTIES = new Set([
+  'background',
+  'background-color',
+  'border-color',
+  'border-block-color',
+  'border-block-end-color',
+  'border-block-start-color',
+  'border-bottom-color',
+  'border-inline-color',
+  'border-inline-end-color',
+  'border-inline-start-color',
+  'border-left-color',
+  'border-right-color',
+  'border-top-color',
+  'caret-color',
+  'color',
+  'fill',
+  'flood-color',
+  'outline-color',
+  'stop-color',
+  'stroke',
+  'text-decoration-color',
+]);
+
+const COLOR_TOKEN_NAMESPACES = new Set([
+  'background',
+  'border',
+  'fill',
+  'foreground',
+  'icon',
+  'stroke',
+  'surface',
+  'text',
+]);
+
 class NameRegistry {
   private readonly used: Set<string>;
 
@@ -77,8 +112,7 @@ export function renderStyledDefinitions(
   return definitions
     .map((definition) => {
       const declarations = definition.declarations
-        .map(({ property, value }) =>
-          `  ${escapeTemplateValue(property)}: ${escapeTemplateValue(value)};`)
+        .map((declaration) => renderDeclaration(declaration))
         .join('\n');
       return [
         `const ${definition.name} = styled.${definition.tag}\``,
@@ -87,6 +121,59 @@ export function renderStyledDefinitions(
       ].join('\n');
     })
     .join('\n\n');
+}
+
+export function usesColorTokens(
+  definitions: readonly StyledDefinition[],
+): boolean {
+  return definitions.some(({ declarations }) =>
+    declarations.some((declaration) =>
+      colorTokenExpression(declaration) !== null));
+}
+
+export function colorTokenExpression(
+  declaration: Pick<CssDeclaration, 'property' | 'value'>,
+): string | null {
+  const property = declaration.property.trim().toLowerCase();
+  if (!COLOR_PROPERTIES.has(property)) {
+    return null;
+  }
+
+  const match = declaration.value.trim().match(
+    /^var\(\s*--([a-zA-Z0-9_./-]+)(?:\s*,[\s\S]*)?\)$/,
+  );
+  if (!match) {
+    return null;
+  }
+
+  const segments = match[1]
+    .split(/[./_-]+/)
+    .map((segment) => segment.trim().toLowerCase())
+    .filter(Boolean);
+  if (segments[0] === 'color' || segments[0] === 'colors') {
+    segments.shift();
+  } else if (!segments[0] || !COLOR_TOKEN_NAMESPACES.has(segments[0])) {
+    return null;
+  }
+  if (segments.length === 0) {
+    return null;
+  }
+
+  return segments.reduce(
+    (expression, segment) =>
+      /^[a-z_$][a-z0-9_$]*$/i.test(segment)
+        ? `${expression}.${segment}`
+        : `${expression}[${JSON.stringify(segment)}]`,
+    'colors',
+  );
+}
+
+function renderDeclaration({ property, value }: CssDeclaration): string {
+  const expression = colorTokenExpression({ property, value });
+  const renderedValue = expression
+    ? '${' + expression + '}'
+    : escapeTemplateValue(value);
+  return `  ${escapeTemplateValue(property)}: ${renderedValue};`;
 }
 
 function collectDefinitions(

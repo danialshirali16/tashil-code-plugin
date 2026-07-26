@@ -8,6 +8,7 @@ import {
   createStyledRegistry,
   renderStyledDefinitions,
   type StyledRegistry,
+  usesColorTokens,
 } from './styled-components-emitter';
 import type {
   CompositionNode,
@@ -40,9 +41,11 @@ export function renderTsx(document: LayoutDocument): RenderedTsx {
     componentName,
     importedNames,
   );
+  const hasColorTokens = usesColorTokens(styled.definitions);
   const styledNames = new Set(styled.definitions.map(({ name }) => name));
   const aliases = createImportAliases(importedNames, new Set([
     'styled',
+    ...(hasColorTokens ? ['colors'] : []),
     componentName,
     ...styledNames,
   ]));
@@ -55,6 +58,9 @@ export function renderTsx(document: LayoutDocument): RenderedTsx {
   const header = [
     ...(styled.definitions.length > 0
       ? ['import styled from "styled-components";']
+      : []),
+    ...(hasColorTokens
+      ? ["import colors from 'styles/colors';"]
       : []),
     ...(importBlock ? [importBlock] : []),
   ];

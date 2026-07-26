@@ -38,11 +38,14 @@ plugin's Design mode, Tashil Code generates one complete styled-components
 
 ```tsx
 import styled from "styled-components";
+import colors from 'styles/colors';
 import { Button } from "@tashilcar/swiss-army-knife";
 
 const PaymentFormRoot = styled.div`
   display: flex;
   flex-direction: column;
+  color: ${colors.text.default};
+  background: ${colors.background.neutral.default};
   gap: var(--spacing-400, 1rem);
   padding: var(--spacing-600, 1.5rem);
 `;
@@ -59,10 +62,11 @@ export function PaymentForm() {
 The generated tree preserves visible frame/group/section/text layers in
 document order. Connected instances become their real production React usages
 and remain atomic—the generator never expands component internals. Figma CSS
-variables are preserved for layout, typography, colors, borders, radii, and
-effects inside the generated styled declarations. Unconnected components are
-reported as JSX markers and generation notes instead of being silently
-expanded.
+color variables are converted to references from the frontend
+`styles/colors` token object. Variables for layout, typography, radii, and
+effects retain their CSS custom-property references inside generated styled
+declarations. Unconnected components are reported as JSX markers and generation
+notes instead of being silently expanded.
 
 Dev Mode also keeps the selected layer's token-aware **Layout** and **Style**
 CSS inspection blocks from Figma's own CSS engine.
