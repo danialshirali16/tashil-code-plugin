@@ -1,99 +1,88 @@
-# Inspect a frame
+# Generate and inspect a frame
 
-Tashil Code inspects any single selected layer the way Figma's own Dev Mode
-inspect panel does — and adds the connected Tashil component code that panel
-cannot show. The same result appears in two places:
+Tashil Code generates a complete React component for a selected frame, group,
+section, or text layer, including its visible inner layout layers and connected
+Tashil components. The result appears in two places:
 
 - **Figma Dev Mode** — select the **Tashil UI** language in the Code section.
 - **Tashil Code → Inspect Code** — inside the plugin, in Design mode, so
   teammates without a Dev Mode seat get the same inspection.
 
-Selecting a **connected component instance** still produces the component's
-usage snippet exactly as before. This guide covers every other selection:
-frames, groups, sections, text, vectors — anything.
+Selecting a **connected component instance** still produces that component's
+standalone usage snippet. Vector and other leaf selections retain selected-node
+CSS inspection rather than pretending to reconstruct unavailable geometry.
 
 ## What you see
 
-### Layout
+### React module
 
-The node's structural CSS: `display`, `flex-direction`, `gap`, `padding`,
-alignment, and sizing. The declarations come from Figma's own CSS engine
-(`getCSSAsync`) and are passed through unmodified, so values backed by Figma
-variables keep their token form:
+The `.tsx` output includes wrappers for visible layout layers and real usages
+for connected instances:
 
-```css
-display: flex;
-padding: 12px var(--spacer-2, 0.5rem);
-justify-content: space-between;
-align-items: center;
+```tsx
+import styled from "styled-components";
+import { Button } from "@tashilcar/swiss-army-knife";
+
+const PaymentFormRoot = styled.div`
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-400, 1rem);
+  padding: var(--spacing-600, 1.5rem);
+`;
+
+export function PaymentForm() {
+  return (
+    <PaymentFormRoot>
+      <Button variant={"primary"}>Submit</Button>
+    </PaymentFormRoot>
+  );
+}
 ```
 
-### Style
+### Styled declarations
 
-The node's visual CSS: background, border, radius, shadow, opacity,
-typography. Shown only when the node has visual declarations:
-
-```css
-border-bottom: 1px solid var(--color-border);
-```
-
-Layout and Style are split with a fixed property table (structural properties
-→ Layout; everything else → Style), and each section is copyable on its own.
+Auto-layout direction, wrapping, gaps, padding, alignment, sizing, typography,
+color, borders, radii, opacity, and supported effects are emitted inside named
+styled components. Bound Figma variables retain their
+`var(--token, fallback)` form.
 
 ### Connected components
 
-For a frame, the plugin walks its visible layers and lists every **connected**
-component instance inside it as ready-to-paste code — the same output you
-would get selecting each instance individually, with imports deduplicated and
-each usage labeled with a source comment relative to the selected frame:
+Instances are **atomic**: the traversal never enters a component instance.
+Instead, the saved connection produces its production import and JSX, including
+mapped variants and semantic connections. Imports are deduplicated across the
+whole selected design and consolidated into
+`@tashilcar/swiss-army-knife`. Import, root, and styled-component name
+collisions receive matching deterministic aliases.
 
-```tsx
-import { Button } from "@tashilcar/ui";
+### Selected-layer CSS in Dev Mode
 
-//./ Frame 1430105165 / Button
-<Button variant={"primary"}>
-  Submit
-</Button>
-```
+Dev Mode also includes the selected node's **Layout** and **Style** CSS blocks
+from `getCSSAsync()`. These are passed through unmodified, so bound values keep
+their `var(--token, fallback)` form.
 
-Instances are **atomic**: the traversal never enters a component instance, so
-component internals are never re-generated as layout code. Toggle the source
-comments with the **Layer path comments** preference in Dev Mode's code panel
-settings (next to the language dropdown).
+### Generation notes
 
-### Notes
-
-Anything the inspection could not turn into code becomes a note instead of
+Anything the generator could not safely turn into code becomes a note instead of
 being silently dropped:
 
-- an instance with **no saved connection** (`"Button" is not connected to a
-  production component`) — connect it via **Connect component** and it will
-  appear in the code list;
+- an instance with **no saved connection** (`{/* FRAME: Button */}`) — connect
+  it via **Connect component** and it will become a production component usage;
 - an instance whose stored connection is broken or whose main component is
   missing;
-- a very large frame truncated at the node budget;
-- a runtime where Figma cannot produce CSS for the node.
-
-## Why this shape
-
-The plugin deliberately does **not** generate full TSX + CSS Modules for a
-frame tree. Generated wrappers, invented class names, and scaffolded files
-fight the conventions of the codebase they land in and usually get discarded.
-What developers actually copy are the CSS values (with design tokens) and the
-correct component usage — so that is exactly what the plugin produces, and
-nothing else. The full rationale is recorded in
-[Layout Composer Architecture Decisions](layout-composer-decisions.md), ADR D.
+- unsupported assets, preserved as JSX comments;
+- non-auto-layout frames, whose children remain in document order but may need
+  manual positioning;
+- a very large tree truncated at the node/depth budget.
 
 ## Troubleshooting
 
-- **A component I expect is missing from the list** — check the Notes
-  section: it is almost always an unconnected instance. Open **Connect
-  component**, save a connection on its main component, and reselect.
-- **The Style section is empty** — the node has no visual declarations;
-  that's normal for pure layout wrappers.
-- **No CSS sections at all** — the running Figma surface could not produce
-  CSS for this node (see the note shown). The connected-components list still
-  works.
+- **A component is a JSX marker** — open **Connect component**, save a valid
+  connection on its main component, and reselect the frame.
+- **An ordinary frame is not connected** — ordinary frames do not require
+  connections and are generated as styled components.
+- **No styled import** — the selected root has no generated styles, as with a
+  standalone unstyled text node.
 - **`background: --token-name;` without `var()`** — Figma's CSS engine emits
   the raw variable name when it cannot resolve a fallback value; the plugin
   passes Figma's output through unmodified.

@@ -2,7 +2,7 @@
  * Layout composer intermediate representation (Phase 1).
  *
  * Figma-independent. These types describe a *resolved* layout document that
- * the TSX and CSS Modules emitters consume. They contain serializable values
+ * the styled-components TSX emitter consumes. They contain serializable values
  * only — no Figma node references. The extraction layer (Phase 2) is the only
  * place that touches Figma types and produces this IR.
  *
@@ -21,7 +21,7 @@ export type ComponentImport = {
   importedName: string;
   /** Name used in generated JSX/TSX. Equals `importedName` when unambiguous. */
   localName: string;
-  /** Module specifier, e.g. `@tashilcar/ui`. */
+  /** Persisted module specifier; composed layouts normalize it to the Swiss Army Knife package. */
   modulePath: string;
 };
 
@@ -98,6 +98,17 @@ export type ChildStyle = {
   height?: number;
 };
 
+/**
+ * One CSS declaration captured from Figma or derived from layout properties.
+ * Values are already serialized CSS strings. In particular, Figma-emitted
+ * `var(--token, fallback)` values must pass through unchanged.
+ */
+export type CssDeclaration = {
+  property: string;
+  value: string;
+  source: 'figma-css' | 'layout';
+};
+
 export type CompositionNode =
   | ComponentCompositionNode
   | ContainerCompositionNode
@@ -128,6 +139,8 @@ export type ContainerCompositionNode = {
   className: string;
   element: 'div';
   layout: LayoutStyle;
+  /** Token-aware visual/typography/layout CSS returned by `getCSSAsync()`. */
+  declarations: CssDeclaration[];
   children: CompositionNode[];
   /** How this container behaves as a flex item in its parent. */
   childStyle?: ChildStyle;
@@ -140,6 +153,8 @@ export type TextCompositionNode = {
   layerPath: string[];
   className?: string;
   text: string;
+  /** Token-aware text CSS returned by `getCSSAsync()`. */
+  declarations: CssDeclaration[];
   /** How this text behaves as a flex item in its parent. */
   childStyle?: ChildStyle;
 };
@@ -172,7 +187,8 @@ export type LayoutDiagnosticReason =
   | 'name-collision'
   | 'node-limit'
   | 'depth-limit'
-  | 'root-fixed-size-omitted';
+  | 'root-fixed-size-omitted'
+  | 'css-unavailable';
 
 export type LayoutDiagnostic = {
   severity: 'info' | 'warning' | 'error';
@@ -189,9 +205,15 @@ export type LayoutDocument = {
 };
 
 export type GeneratedLayout = {
+  componentName: string;
   componentCount: number;
   wrapperCount: number;
   tsx: string;
-  css: string;
   diagnostics: LayoutDiagnostic[];
+};
+
+/** Full-tree styled-components output plus selection metadata shown to users. */
+export type ReactLayoutResult = GeneratedLayout & {
+  nodeName: string;
+  nodeType: string;
 };

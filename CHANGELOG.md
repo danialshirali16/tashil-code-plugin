@@ -6,6 +6,11 @@ All notable changes to Tashil Code are documented in this file.
 
 ### Added
 
+- Restored full selected-tree React generation: frames, groups, sections, and
+  text now produce one complete styled-components `.tsx` module in Dev Mode and
+  Inspect Code. Token-aware Figma CSS is preserved inside styled declarations,
+  connected instances import from `@tashilcar/swiss-army-knife`, and
+  unconnected instances remain atomic JSX markers.
 - Added **semantic connect**: connect a Figma component to a production React
   component even when the layer structure does not resemble the source API
   (for example a Header/Footer Dialog mapping to a flat `<ConfirmationDialog>`).
@@ -37,14 +42,7 @@ All notable changes to Tashil Code are documented in this file.
   "Layer path comments" Dev Mode codegen preference.
 - Added inspection diagnostics for unconnected, broken, and truncated
   descendants, and graceful degradation when CSS is unavailable.
-- Added the [Inspect a frame](docs/inspect-frame.md) user guide.
-
-### Changed
-
-- Replaced the planned frame-to-TSX/CSS-Modules code generation with the
-  inspection model above; connected-component snippet output is unchanged.
-  Rationale recorded in ADR D of the layout-composer decisions document.
-
+- Added the [Generate and inspect a frame](docs/inspect-frame.md) user guide.
 - Added local `.ts` and `.tsx` source uploads with multi-file and drag-and-drop support.
 - Added automatic extraction of component props, literal-union values, runtime defaults, children, and icon slots.
 - Added a visual editor for mapping code props and values to compatible Figma component properties.

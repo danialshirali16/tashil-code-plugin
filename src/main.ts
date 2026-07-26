@@ -11,6 +11,12 @@ import {
 } from './codegen';
 import { normalizeHttpUrl, normalizeOptionalHttpUrl } from './external-url';
 import { renderImportLines } from './layout/imports';
+import type { LayoutSourceNode } from './layout/figma-layout-extractor';
+import {
+  generateReactLayout,
+  supportsReactLayout,
+} from './layout/react-layout';
+import type { ReactLayoutResult } from './layout/types';
 import { createSemanticNodeTree } from './semantic/figma-adapter';
 import { extractFigmaSemanticSnapshot } from './semantic/figma-extractor';
 import type { FigmaSemanticSnapshot } from './semantic/types';
@@ -23,7 +29,7 @@ import { createReactPropIdentifier } from './prop-mappings';
 import { formatCssBlock } from './inspect/css-partition';
 import { formatConnectedComponentsSnippet } from './inspect/usage-snippet';
 import { inspectFrame, type InspectableNode } from './inspect/inspect-frame';
-import type { FrameInspection, InspectionDiagnostic } from './inspect/types';
+import type { FrameInspection } from './inspect/types';
 import {
   CONNECTION_KEY,
   CONNECTION_NAMESPACE,
@@ -159,9 +165,9 @@ figma.codegen.on('generate', async (event) => generateCodegenBlocks(event.node))
 /**
  * Produce Dev Mode codegen blocks for a selected node. A connected component
  * (instance/component/component-set) follows the existing single-component
- * branch, byte-identical to before. Every other node gets Dev-Mode-parity
- * inspection: a Layout CSS block, a Style CSS block, and a connected-components
- * note — the roadmap's Phase D contract.
+ * branch, byte-identical to before. A supported design root additionally
+ * produces a complete React component and CSS Module for its visible subtree;
+ * the selected-layer inspection blocks remain additive.
  */
 async function generateCodegenBlocks(node: SceneNode): Promise<CodegenBlock[]> {
   try {
@@ -169,6 +175,31 @@ async function generateCodegenBlocks(node: SceneNode): Promise<CodegenBlock[]> {
 
     if (selection) {
       return generateComponentCodegenBlocks(selection, node);
+    }
+
+    if (supportsReactLayout(node)) {
+      const [layoutResult, inspectionResult] = await Promise.allSettled([
+        generateReactLayout(node as unknown as LayoutSourceNode),
+        inspectSceneNode(node),
+      ]);
+      const blocks: CodegenBlock[] = [];
+      if (layoutResult.status === 'fulfilled') {
+        blocks.push(...generateReactLayoutBlocks(layoutResult.value));
+      } else {
+        blocks.push(createPlainTextBlock(
+          'React generation notes',
+          `React generation failed: ${formatUnexpectedError(layoutResult.reason)}`,
+        ));
+      }
+      if (inspectionResult.status === 'fulfilled') {
+        blocks.push(...generateInspectionBlocks(inspectionResult.value));
+      } else {
+        blocks.push(createPlainTextBlock(
+          'Inspection notes',
+          `Selected-layer inspection failed: ${formatUnexpectedError(inspectionResult.reason)}`,
+        ));
+      }
+      return blocks;
     }
 
     return generateInspectionBlocks(await inspectSceneNode(node));
@@ -180,6 +211,30 @@ async function generateCodegenBlocks(node: SceneNode): Promise<CodegenBlock[]> {
       ),
     ];
   }
+}
+
+/** Complete styled-components React module for a selected design tree. */
+function generateReactLayoutBlocks(layout: ReactLayoutResult): CodegenBlock[] {
+  const blocks: CodegenBlock[] = [
+    {
+      title: `${layout.componentName}.tsx`,
+      language: 'TYPESCRIPT',
+      code: layout.tsx,
+    },
+  ];
+
+  const diagnostics = formatDiagnostics(layout.diagnostics);
+  if (diagnostics) {
+    blocks.push(createPlainTextBlock('React generation notes', diagnostics));
+  }
+
+  return blocks;
+}
+
+function formatUnexpectedError(error: unknown): string {
+  return error instanceof Error && error.message.trim() !== ''
+    ? error.message
+    : 'Unknown error.';
 }
 
 /**
@@ -362,7 +417,7 @@ function generateInspectionBlocks(inspection: FrameInspection): CodegenBlock[] {
     });
   }
 
-  const diagnostics = formatInspectionDiagnostics(inspection.diagnostics);
+  const diagnostics = formatDiagnostics(inspection.diagnostics);
   if (diagnostics) {
     blocks.push(createPlainTextBlock('Notes', diagnostics));
   }
@@ -1327,7 +1382,7 @@ async function createInspectCodeState(
       status: 'invalid-selection',
       message: [
         `${selectedNodes.length} layers selected.`,
-        'Select a single layer to inspect its layout, style, and connected components.',
+        'Select a single layer to generate its React layout.',
       ].join('\n'),
     };
   }
@@ -1363,9 +1418,18 @@ async function createInspectCodeState(
     };
   }
 
-  // Inspection path: any other single node gets Dev-Mode-parity Layout/Style
-  // CSS plus its connected components — the same FrameInspection Dev Mode uses.
   if (selectedNode) {
+    if (supportsReactLayout(selectedNode)) {
+      return {
+        status: 'layout',
+        layout: await generateReactLayout(
+          selectedNode as unknown as LayoutSourceNode,
+        ),
+      };
+    }
+
+    // Leaves that are not meaningful React tree roots retain selected-node
+    // Dev-Mode-parity CSS inspection.
     return {
       status: 'inspection',
       inspection: await inspectSceneNode(selectedNode),
@@ -1733,7 +1797,13 @@ function createPlainTextBlock(title: string, code: string): CodegenBlock {
  * line is the diagnostic message, prefixed with its severity. Layer paths are
  * included to make the note actionable. Returns null when there are none.
  */
-function formatInspectionDiagnostics(diagnostics: readonly InspectionDiagnostic[]): string | null {
+function formatDiagnostics(
+  diagnostics: ReadonlyArray<{
+    layerPath?: string[];
+    message: string;
+    severity: 'error' | 'info' | 'warning';
+  }>,
+): string | null {
   if (diagnostics.length === 0) {
     return null;
   }

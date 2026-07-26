@@ -27,7 +27,7 @@ that — it exposes flat and nested **props** instead. Semantic connect maps the
 API, and generates the real code:
 
 ```tsx
-import { ConfirmationDialog } from "@tashilcar/ui";
+import { ConfirmationDialog } from "@tashilcar/swiss-army-knife";
 
 <ConfirmationDialog
   intent={"danger"}

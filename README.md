@@ -13,6 +13,8 @@ reference links in Dev Mode.
 - Visually map source props and values to Figma variant, boolean, text, and
   instance-swap properties.
 - Generate React/TSX for the Figma instance currently selected in Dev Mode.
+- Generate a complete styled-components React module for a selected frame,
+  group, section, or text layer, including its nested connected components.
 - Store optional Storybook and source references alongside the connection.
 - Detect source and Figma drift so mappings can be reviewed before they break.
 
@@ -20,54 +22,59 @@ The plugin has two workflows:
 
 - **Connect component** — design-system owners select a main component or
   component set and save its code-generation metadata.
-- **Tashil UI codegen** — developers select a connected instance in Dev Mode and
-  copy the generated usage snippet.
+- **Tashil UI codegen** — developers select a connected instance for its usage
+  snippet, or a design frame for complete styled-components React output.
 
 Only **Component name** and **Import path** are required. Storybook and source
 references are optional. Source parsing happens locally: the plugin saves the
 extracted prop schema and a content hash, never the uploaded source text.
 
-## Frame inspection
+## React layout generation
 
-When you select a frame, group, section, text, or vector in Figma Dev Mode
+When you select a frame, group, section, or text layer in Figma Dev Mode
 (using the **Tashil UI** codegen language) or open **Inspect Code** in the
-plugin's Design mode, you see structural and visual CSS alongside connected
-component code:
-
-```css
-display: flex;
-flex-direction: column;
-padding: 12px var(--spacer-3, 1rem);
-gap: var(--spacer-2, 0.5rem);
-align-items: center;
-```
+plugin's Design mode, Tashil Code generates one complete styled-components
+`.tsx` module:
 
 ```tsx
-import { Button } from "@tashilcar/ui";
+import styled from "styled-components";
+import { Button } from "@tashilcar/swiss-army-knife";
 
-//./ Frame 1430105165 / Button
-<Button variant={"primary"}>
-  Submit
-</Button>
+const PaymentFormRoot = styled.div`
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-400, 1rem);
+  padding: var(--spacing-600, 1.5rem);
+`;
+
+export function PaymentForm() {
+  return (
+    <PaymentFormRoot>
+      <Button variant={"primary"}>Submit</Button>
+    </PaymentFormRoot>
+  );
+}
 ```
 
-The **Layout** section shows structural CSS (display, flex-direction, gap,
-padding, alignment, sizing) from Figma's own CSS engine. **Style** shows
-visual CSS (background, border, radius, shadow) when present. **Connected
-components** lists ready-to-paste TypeScript for every connected instance
-inside the frame, with deduplicated imports and optional source comments per
-layer. Toggle source comments with the **Layer path comments** preference in
-Dev Mode's code panel settings. Unconnected or broken instances surface as
-diagnostics instead of being silently dropped.
+The generated tree preserves visible frame/group/section/text layers in
+document order. Connected instances become their real production React usages
+and remain atomic—the generator never expands component internals. Figma CSS
+variables are preserved for layout, typography, colors, borders, radii, and
+effects inside the generated styled declarations. Unconnected components are
+reported as JSX markers and generation notes instead of being silently
+expanded.
 
-See [Inspect a frame](docs/inspect-frame.md) for the full guide.
+Dev Mode also keeps the selected layer's token-aware **Layout** and **Style**
+CSS inspection blocks from Figma's own CSS engine.
+
+See [Generate and inspect a frame](docs/inspect-frame.md) for the full guide.
 
 ## Documentation
 
 - [Project brief](docs/project-brief.md) — product scope, runtime flow,
   architecture, privacy model, and frame-inspection status.
-- [Inspect a frame](docs/inspect-frame.md) — Layout/Style CSS sections and the
-  connected-components code list, in Dev Mode and Inspect Code.
+- [Generate and inspect a frame](docs/inspect-frame.md) — full styled-components
+  output, connected-component boundaries, and selected-layer CSS inspection.
 - [Connect a component](docs/connect-component.md) — setup from Figma selection
   to Dev Mode output.
 - [Visual prop mappings](docs/prop-mapping.md) — source/Figma mapping rules,
@@ -124,7 +131,7 @@ Import `manifest.json` in Figma from:
   authoring state and compilation to runtime JSON.
 - `src/codegen.ts` — generated imports, TSX, and mapping diagnostics.
 - `src/connection-health.ts` — source/Figma drift detection and health status.
-- `src/inspect/` — Dev-Mode-parity frame inspection: Layout/Style CSS
+- `src/inspect/` — Dev-Mode-parity selected-layer inspection: Layout/Style CSS
   partitioning of `getCSSAsync()` output and connected-component enumeration.
-- `src/layout/` — shared component-resolution plumbing (instance resolution,
-  per-generation caches, import rendering) reused by inspection and codegen.
+- `src/layout/` — full selected-tree styled-components React generation, component
+  resolution, traversal limits, naming, and import rendering.

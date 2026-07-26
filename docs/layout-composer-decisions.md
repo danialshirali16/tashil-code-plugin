@@ -183,6 +183,48 @@ is now authoritative.
 Instance atomicity is unchanged and non-negotiable: connected and unconnected
 instance internals are never traversed or emitted.
 
+## E. Restore full-tree React generation (2026-07-26)
+
+**Decision:** restore the selected-tree React/TSX and CSS Modules path as an
+additive capability. A frame, group, section, or text selection now produces a
+complete React module in Dev Mode and Inspect Code. Dev Mode keeps the
+selected-layer Layout/Style inspection blocks introduced by ADR D.
+
+The restored path reuses the current semantic/legacy component resolver, so a
+connected instance becomes its real production usage and remains an atomic
+boundary. The extractor, naming, TSX emitter, CSS Module emitter, and
+orchestrator were recovered from git history and updated to:
+
+- emit valid bracket access for kebab-case CSS Module names;
+- keep same-name imports from different packages synchronized with JSX aliases;
+- carry flex-child grow/stretch/fill/fixed sizing into CSS;
+- traverse non-auto-layout frames in document order with an explicit warning;
+- keep stale-result, depth, and node-budget guards.
+
+Unsupported leaves and absolute positioning are never silently discarded:
+they become JSX comments plus actionable generation notes. Figma geometry that
+cannot be represented safely is not invented.
+
+## F. Styled-components output and unified component library (2026-07-26)
+
+**Decision:** selected-tree generation emits one styled-components `.tsx`
+module. Generated CSS Modules, class-name references, and separate
+`.module.css` blocks are retired.
+
+Ordinary layers receive named styled declarations. Figma's `getCSSAsync()`
+values are carried into the layout IR so bound variables remain
+`var(--token, fallback)` references for spacing, sizing, typography, colors,
+borders, radii, opacity, and effects. Structural fallbacks are used only for
+properties Figma CSS did not provide.
+
+All connected production components in a composed layout are imported from
+`@tashilcar/swiss-army-knife`. Imports, the generated root export, styled
+declarations, and assets share a deterministic symbol namespace.
+
+Unconnected component instances remain atomic and render as a visible
+`{/* FRAME: Layer name */}` marker plus a diagnostic. Ordinary non-component
+frames do not require a connection and are generated normally.
+
 ## Phase 0 artifacts
 
 - This document (Sections A–C) — supported matrix + refactor decision + IR

@@ -70,19 +70,27 @@ export function collectByPath(
   const ownerOfBare = new Map<string, string>();
   // bareName -> next alias suffix (starts at 2 on first collision).
   const nextAliasSuffix = new Map<string, number>();
+  // modulePath + importedName -> stable local alias. Repeated usages of the
+  // same export from the same package must reuse one symbol.
+  const localByImport = new Map<string, string>();
 
   for (const entry of imports) {
     const list = byPath.get(entry.modulePath) ?? [];
+    const importKey = `${entry.modulePath}\u0000${entry.importedName}`;
 
-    let localName = entry.importedName;
-    const owner = ownerOfBare.get(entry.importedName);
-    if (owner !== undefined && owner !== entry.modulePath) {
-      // Conflict: a different module already owns the bare name. Alias this one.
-      const suffix = nextAliasSuffix.get(entry.importedName) ?? 2;
-      localName = `${entry.importedName}${suffix}`;
-      nextAliasSuffix.set(entry.importedName, suffix + 1);
-    } else if (owner === undefined) {
-      ownerOfBare.set(entry.importedName, entry.modulePath);
+    let localName = localByImport.get(importKey);
+    if (!localName) {
+      localName = entry.importedName;
+      const owner = ownerOfBare.get(entry.importedName);
+      if (owner !== undefined && owner !== entry.modulePath) {
+        // Conflict: a different module already owns the bare name. Alias this one.
+        const suffix = nextAliasSuffix.get(entry.importedName) ?? 2;
+        localName = `${entry.importedName}${suffix}`;
+        nextAliasSuffix.set(entry.importedName, suffix + 1);
+      } else if (owner === undefined) {
+        ownerOfBare.set(entry.importedName, entry.modulePath);
+      }
+      localByImport.set(importKey, localName);
     }
 
     list.push({ importedName: entry.importedName, localName });
