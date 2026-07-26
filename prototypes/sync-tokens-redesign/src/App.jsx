@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import {
   IconCheck,
+  IconCopy,
   IconFileCode,
   IconHelpCircle,
   IconSearch,
@@ -68,6 +69,7 @@ export function App() {
   const [colorFormat, setColorFormat] = useState("hex");
   const [nameStyle, setNameStyle] = useState("kebab");
   const [exported, setExported] = useState(false);
+  const [copiedFile, setCopiedFile] = useState("");
 
   const filtered = useMemo(() => {
     const needle = query.trim().toLowerCase();
@@ -208,6 +210,7 @@ export function App() {
                 {focusedCollection.modes.map((mode) => {
                   const checked = focusedModes.has(mode);
                   const suffix = focusedCollection.modes.length > 1 ? `-${slug(mode)}` : "";
+                  const filename = `${slug(focusedCollection.name)}${suffix}.css`;
                   return (
                     <div className={checked ? "mode-row selected" : "mode-row"} key={mode}>
                       <CheckControl
@@ -222,7 +225,16 @@ export function App() {
                       >
                         {mode}
                       </button>
-                      <span className="filename">{slug(focusedCollection.name)}{suffix}.css</span>
+                      <span className="filename">{filename}</span>
+                      <button
+                        aria-label={`Copy ${filename}`}
+                        className="copy-button"
+                        onClick={() => setCopiedFile(filename)}
+                        title={copiedFile === filename ? "Copied" : `Copy ${filename}`}
+                        type="button"
+                      >
+                        {copiedFile === filename ? <IconCheck size={15} /> : <IconCopy size={15} />}
+                      </button>
                     </div>
                   );
                 })}
