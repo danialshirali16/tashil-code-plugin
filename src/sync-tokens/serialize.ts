@@ -30,6 +30,8 @@ export function formatTokenName(raw: string, style: NameStyle): string {
       return segments.map(toKebab).join('-');
     case 'slash':
       return segments.map(toKebab).join('/');
+    case 'dot':
+      return segments.map(toKebab).join('.');
     case 'snake':
       return segments.map(toSnake).join('_');
     case 'pascal':
@@ -114,10 +116,17 @@ function formatTokenValueOf(value: TokenValue, token: Token, options: ExportOpti
   switch (value.kind) {
     case 'color':
       return formatColor(value.value, options.colorFormat);
-    case 'alias':
-      return options.colorFormat === 'variable' || token.resolvedType === 'COLOR'
-        ? formatColor({ r: 0, g: 0, b: 0 }, options.colorFormat, value.value)
-        : '';
+    case 'alias': {
+      if (options.colorFormat === 'variable') {
+        return `var(--${formatTokenName(value.value.targetName, options.nameStyle)})`;
+      }
+      if (value.value.resolvedValue !== undefined) {
+        return formatTokenValueOf(value.value.resolvedValue, token, options);
+      }
+      // An unresolved reference is safer and more useful than a fabricated
+      // black value or silently dropping the declaration.
+      return `var(--${formatTokenName(value.value.targetName, options.nameStyle)})`;
+    }
     case 'number':
       return formatNumber(value.value, token, options);
     case 'string':

@@ -20,7 +20,7 @@ export type ColorFormat = 'rgb' | 'rgba' | 'hex' | 'variable';
  * - `snake`  → `--color_text_primary_default`
  * - `pascal` → `--ColorTextPrimaryDefault`
  */
-export type NameStyle = 'kebab' | 'slash' | 'snake' | 'pascal';
+export type NameStyle = 'kebab' | 'slash' | 'dot' | 'snake' | 'pascal';
 
 /** Figma variable resolved type, mirrored here to stay runtime-free. */
 export type VariableResolvedType = 'BOOLEAN' | 'COLOR' | 'FLOAT' | 'STRING';
@@ -59,15 +59,22 @@ export type ExportOptions = {
 /** A resolved color value (Figma RGB/RGBA use 0–1 floats). */
 export type ColorValue = { r: number; g: number; b: number; a?: number };
 
-/** Reference to another token; the adapter resolves it to a usable name. */
-export type AliasValue = { targetName: string };
-
-/** A single variable's value for the selected mode, normalized. */
-export type TokenValue =
+/** A concrete value reached after following any variable aliases. */
+export type ResolvedTokenValue =
   | { kind: 'color'; value: ColorValue }
   | { kind: 'number'; value: number }
   | { kind: 'string'; value: string }
-  | { kind: 'boolean'; value: boolean }
+  | { kind: 'boolean'; value: boolean };
+
+/** Reference to another token, with its concrete value when resolution succeeds. */
+export type AliasValue = {
+  targetName: string;
+  resolvedValue?: ResolvedTokenValue;
+};
+
+/** A single variable's value for the selected mode, normalized. */
+export type TokenValue =
+  | ResolvedTokenValue
   | { kind: 'alias'; value: AliasValue };
 
 /** A normalized variable. */

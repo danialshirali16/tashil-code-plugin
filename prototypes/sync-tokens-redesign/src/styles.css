@@ -364,7 +364,7 @@ body {
 }
 
 .settings-panel {
-  background: #fafafa;
+  background: var(--surface);
   display: grid;
   gap: 18px;
   grid-template-columns: minmax(170px, 0.8fr) minmax(280px, 1.4fr);
@@ -445,11 +445,6 @@ body {
   box-shadow: 0 0 0 1px var(--accent);
 }
 
-.input-shell.disabled {
-  background: #efefef;
-  color: #999;
-}
-
 .input-shell input {
   background: transparent;
   border: 0;
@@ -517,6 +512,45 @@ body {
 .segment:has(input:focus-visible) {
   box-shadow: 0 0 0 2px white, 0 0 0 4px var(--accent);
   z-index: 2;
+}
+
+.token-preview {
+  border-top: 1px solid var(--border);
+  display: grid;
+  gap: 9px;
+  grid-column: 1 / -1;
+  padding-top: 12px;
+}
+
+.preview-heading {
+  align-items: baseline;
+  display: flex;
+  gap: 8px;
+  justify-content: space-between;
+}
+
+.preview-heading strong {
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.preview-heading span {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.token-preview pre {
+  background: #f7f7f7;
+  border: 1px solid #e5e5e5;
+  border-radius: 6px;
+  color: #333;
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  font-size: 11px;
+  line-height: 1.55;
+  margin: 0;
+  overflow-x: auto;
+  padding: 10px 12px;
+  white-space: pre;
 }
 
 .export-bar {
@@ -624,10 +658,6 @@ input:focus-visible {
     padding-inline: 14px;
   }
 
-  .settings-panel {
-    grid-template-columns: 1fr;
-  }
-
   .filename {
     max-width: 46%;
     overflow: hidden;
@@ -660,6 +690,10 @@ input:focus-visible {
 
   .primary-button {
     min-width: 0;
+  }
+
+  .settings-panel {
+    grid-template-columns: 1fr;
   }
 }
 

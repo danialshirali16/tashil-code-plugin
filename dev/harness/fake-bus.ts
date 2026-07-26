@@ -27,6 +27,83 @@ type Handler = (payload: unknown) => void;
 
 const handlers = new Map<string, Set<Handler>>();
 
+// The official Create Figma Plugin controls import these sentinel values from
+// the utilities package. The harness aliases that package to this module, so it
+// needs to expose the same small public surface.
+export const MIXED_BOOLEAN = null;
+export const MIXED_NUMBER = null;
+export const MIXED_STRING = null;
+
+export function evaluateNumericExpression(value: string): number | null {
+  if (!/^-?\d*\.?\d+(?:\s*[+\-*/]\s*\d*\.?\d+)*$/.test(value.trim())) {
+    return null;
+  }
+
+  // The harness only needs the official numeric textbox's common number case.
+  return Number(value);
+}
+
+export function isValidNumericInput(
+  value: string,
+  options: { integersOnly?: boolean } = {},
+): boolean {
+  if (value === '' || value === '-') {
+    return true;
+  }
+  return options.integersOnly === true
+    ? /^-?\d*$/.test(value)
+    : /^-?\d*\.?\d*$/.test(value);
+}
+
+export function convertHexColorToRgbColor(
+  hexColor: string,
+): { r: number; g: number; b: number } | null {
+  const normalized = hexColor.replace(/^#/, '');
+  if (!/^(?:[0-9a-f]{3}|[0-9a-f]{6})$/i.test(normalized)) {
+    return null;
+  }
+  const expanded =
+    normalized.length === 3
+      ? normalized
+          .split('')
+          .map((character) => `${character}${character}`)
+          .join('')
+      : normalized;
+  return {
+    r: Number.parseInt(expanded.slice(0, 2), 16) / 255,
+    g: Number.parseInt(expanded.slice(2, 4), 16) / 255,
+    b: Number.parseInt(expanded.slice(4, 6), 16) / 255,
+  };
+}
+
+export function convertRgbColorToHexColor(color: {
+  r: number;
+  g: number;
+  b: number;
+}): string | null {
+  const values = [color.r, color.g, color.b];
+  if (values.some((value) => value < 0 || value > 1)) {
+    return null;
+  }
+  return values
+    .map((value) => Math.round(value * 255).toString(16).padStart(2, '0'))
+    .join('')
+    .toUpperCase();
+}
+
+export function convertNamedColorToHexColor(namedColor: string): string | null {
+  const namedColors: Record<string, string> = {
+    black: '000000',
+    transparent: '000000',
+    white: 'FFFFFF',
+  };
+  return namedColors[namedColor.toLowerCase()] ?? null;
+}
+
+export function isValidHexColor(hexColor: string): boolean {
+  return convertHexColorToRgbColor(hexColor) !== null;
+}
+
 export function on(name: string, handler: Handler): () => void {
   const set = handlers.get(name) ?? new Set<Handler>();
   set.add(handler);
@@ -150,6 +227,42 @@ const INVENTORY: ComponentInventoryState = {
   totalPages: 2,
 };
 
+const TOKEN_COLLECTIONS = [
+  {
+    id: 'references',
+    name: 'References Color',
+    modes: [{ modeId: 'default', name: 'Default' }],
+    defaultModeId: 'default',
+    tokenCount: 362,
+  },
+  {
+    id: 'product',
+    name: 'Product Tokens',
+    modes: [
+      { modeId: 'zhina', name: 'Zhina' },
+      { modeId: 'tashilpay', name: 'Tashilpay' },
+      { modeId: 'zamyad', name: 'Zamyad' },
+      { modeId: 'peykan', name: 'Peykan' },
+    ],
+    defaultModeId: 'zhina',
+    tokenCount: 294,
+  },
+  {
+    id: 'typography',
+    name: 'Typography',
+    modes: [{ modeId: 'default', name: 'Default' }],
+    defaultModeId: 'default',
+    tokenCount: 61,
+  },
+  {
+    id: 'measurement',
+    name: 'Measurement',
+    modes: [{ modeId: 'default', name: 'Default' }],
+    defaultModeId: 'default',
+    tokenCount: 29,
+  },
+] as const;
+
 function respond(name: string, payload: unknown): void {
   const request = (payload ?? {}) as Record<string, string>;
 
@@ -162,6 +275,12 @@ function respond(name: string, payload: unknown): void {
       break;
     case 'REFRESH_SELECTION':
       send('CANVAS_TARGET_STATE', { source: 'initial', state: targetState() });
+      break;
+    case 'LOAD_TOKEN_COLLECTIONS':
+      send('LOAD_TOKEN_COLLECTIONS_RESULT', {
+        ok: true,
+        collections: TOKEN_COLLECTIONS,
+      });
       break;
     case 'SAVE_CONNECTION':
       send('SAVE_RESULT', {

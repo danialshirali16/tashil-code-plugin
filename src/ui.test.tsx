@@ -305,6 +305,77 @@ describe('Plugin rendered interactions', () => {
     expect(document.activeElement).toBe(connectTab);
   });
 
+  it('builds token outputs with live settings previews and accurate export payloads', () => {
+    renderPlugin();
+    fireEvent.click(screen.getByRole('tab', { name: 'Sync Tokens' }));
+
+    expect(emittedPayloads('LOAD_TOKEN_COLLECTIONS')).toHaveLength(1);
+    receive('LOAD_TOKEN_COLLECTIONS_RESULT', {
+      ok: true,
+      collections: [
+        {
+          id: 'references',
+          name: 'References Color',
+          modes: [{ modeId: 'default', name: 'Default' }],
+          defaultModeId: 'default',
+          tokenCount: 362,
+        },
+        {
+          id: 'product',
+          name: 'Product Tokens',
+          modes: [
+            { modeId: 'zhina', name: 'Zhina' },
+            { modeId: 'tashilpay', name: 'Tashilpay' },
+            { modeId: 'zamyad', name: 'Zamyad' },
+          ],
+          defaultModeId: 'zhina',
+          tokenCount: 294,
+        },
+      ],
+    });
+
+    expect(screen.getByRole('heading', { name: 'Sync tokens' })).toBeTruthy();
+    expect(screen.getByLabelText('Root font size in pixels')).toBeTruthy();
+    expect(screen.getByLabelText('CSS token preview').textContent)
+      .toContain('--color-text-primary: #0d99ff;');
+
+    fireEvent.click(screen.getByRole('checkbox', { name: /Product Tokens/ }));
+    expect(screen.getByText('product-tokens.css')).toBeTruthy();
+    expect(screen.getByText('1 file · 294 variables')).toBeTruthy();
+
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Tashilpay' }));
+    expect(screen.getByText('product-tokens-zhina.css')).toBeTruthy();
+    expect(screen.getByText('product-tokens-tashilpay.css')).toBeTruthy();
+    expect(screen.getByText('2 files · 294 variables')).toBeTruthy();
+
+    fireEvent.click(screen.getByRole('radio', { name: 'slash' }));
+    expect(screen.getByLabelText('CSS token preview').textContent)
+      .toContain('--color/text/primary: #0d99ff;');
+
+    fireEvent.click(screen.getByRole('radio', { name: 'dot' }));
+    expect(screen.getByLabelText('CSS token preview').textContent)
+      .toContain('--color.text.primary: #0d99ff;');
+
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Convert px to rem' }));
+    expect(screen.queryByLabelText('Root font size in pixels')).toBeNull();
+    expect(screen.getByLabelText('CSS token preview').textContent)
+      .toContain('--spacing.4: 16;');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Export 2 CSS files' }));
+    const request = emittedPayloads<{
+      collectionIds: readonly string[];
+      options: {
+        modesByCollection: Record<string, readonly string[]>;
+        convertPxToRem: boolean;
+        nameStyle: string;
+      };
+    }>('EXPORT_TOKENS')[0];
+    expect(request.collectionIds).toEqual(['product']);
+    expect(request.options.modesByCollection.product).toEqual(['zhina', 'tashilpay']);
+    expect(request.options.convertPxToRem).toBe(false);
+    expect(request.options.nameStyle).toBe('dot');
+  });
+
   it('shows the correct connection status and action availability as setup changes', () => {
     renderPlugin();
     receive('SELECTION_STATE', readySelection());

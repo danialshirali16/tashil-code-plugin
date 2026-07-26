@@ -2,18 +2,18 @@ import {
   Button,
   Checkbox,
   Container,
-  Disclosure,
-  Divider,
   IconBackwardSmall24,
   IconCheck24,
   IconButton,
+  IconCodeSnippet24,
   IconCopySmall24,
   IconFolder24,
   IconHelp16,
   IconNewTab24,
   IconTimeSmall24,
-  RadioButtons,
   render,
+  SearchTextbox,
+  SegmentedControl,
   Stack,
   Text,
   Textbox,
@@ -61,8 +61,14 @@ import type {
   ColorFormat,
   ExportOptions,
   NameStyle,
+  Token,
   TokenCollectionSummary,
 } from './sync-tokens/types';
+import {
+  formatColor,
+  formatNumber,
+  formatTokenName,
+} from './sync-tokens/serialize';
 import { formatCssBlock } from './inspect/css-partition';
 import { formatUsageSnippet } from './inspect/usage-snippet';
 import type { FrameInspection } from './inspect/types';
@@ -1088,9 +1094,38 @@ function EmptyComponentSelectionState(props: { message: string }): h.JSX.Element
 
 /**
  * Sync Tokens tab: pick which Variable collections to export as CSS, with
- * advanced settings (mode, px→rem, color format, name style). Export delivers
+ * output settings (mode, px→rem, color format, name style). Export delivers
  * one CSS file per collection, zipped when there are several.
  */
+function tokenFileSlug(name: string): string {
+  return name
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+}
+
+function createTokenPreview(options: ExportOptions): string {
+  const lengthToken = (name: string): Token => ({
+    id: `preview-${name}`,
+    name,
+    resolvedType: 'FLOAT',
+    scopes: ['WIDTH_HEIGHT'],
+    value: { kind: 'number', value: 0 },
+  });
+  const previewColor = options.colorFormat === 'variable'
+    ? `var(--${formatTokenName('Reference/Color/Blue/500', options.nameStyle)})`
+    : formatColor({ r: 13 / 255, g: 153 / 255, b: 1 }, options.colorFormat);
+
+  return [
+    ':root {',
+    `  --${formatTokenName('Color/Text/Primary', options.nameStyle)}: ${previewColor};`,
+    `  --${formatTokenName('Spacing/4', options.nameStyle)}: ${formatNumber(16, lengthToken('Spacing/4'), options)};`,
+    `  --${formatTokenName('Radius/Small', options.nameStyle)}: ${formatNumber(8, lengthToken('Radius/Small'), options)};`,
+    '}',
+  ].join('\n');
+}
+
 function SyncTokensView(props: {
   collections: readonly TokenCollectionSummary[];
   collectionsStatus: 'idle' | 'loading' | 'error';
@@ -1118,7 +1153,6 @@ function SyncTokensView(props: {
   const [rootFontSize, setRootFontSize] = useState<number>(16);
   const [colorFormat, setColorFormat] = useState<ColorFormat>('hex');
   const [nameStyle, setNameStyle] = useState<NameStyle>('kebab');
-  const [advancedOpen, setAdvancedOpen] = useState(false);
 
   // Load once on mount.
   useEffect(() => {
@@ -1129,24 +1163,6 @@ function SyncTokensView(props: {
 
   const busy = collectionsStatus === 'loading' || exportStatus === 'exporting';
 
-  function toggleCollection(id: string): void {
-    setSelected((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) {
-        next.delete(id);
-      } else {
-        next.add(id);
-      }
-      return next;
-    });
-  }
-
-  function selectAll(): void {
-    setSelected((prev) =>
-      prev.size === filteredCollections.length ? new Set() : new Set(filteredCollections.map((c) => c.id)),
-    );
-  }
-
   function modesFor(collection: TokenCollectionSummary): Set<string> {
     const chosen = modesByCollection[collection.id];
     if (chosen && chosen.size > 0) {
@@ -1155,15 +1171,61 @@ function SyncTokensView(props: {
     return new Set([collection.defaultModeId]);
   }
 
-  function toggleMode(collectionId: string, modeId: string): void {
+  function toggleCollection(collection: TokenCollectionSummary): void {
+    const selecting = !selected.has(collection.id);
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(collection.id)) {
+        next.delete(collection.id);
+      } else {
+        next.add(collection.id);
+      }
+      return next;
+    });
+    if (selecting && modesByCollection[collection.id] === undefined) {
+      setModesByCollection((prev) => ({
+        ...prev,
+        [collection.id]: new Set([collection.defaultModeId]),
+      }));
+    }
+  }
+
+  function selectAll(): void {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      for (const collection of filteredCollections) {
+        if (allSelected) {
+          next.delete(collection.id);
+        } else {
+          next.add(collection.id);
+        }
+      }
+      return next;
+    });
+    if (!allSelected) {
+      setModesByCollection((prev) => {
+        const next = { ...prev };
+        for (const collection of filteredCollections) {
+          if (next[collection.id] === undefined) {
+            next[collection.id] = new Set([collection.defaultModeId]);
+          }
+        }
+        return next;
+      });
+    }
+  }
+
+  function toggleMode(collection: TokenCollectionSummary, modeId: string): void {
     setModesByCollection((prev) => {
-      const current = new Set(prev[collectionId] ?? []);
+      const current = new Set(modesFor(collection));
       if (current.has(modeId)) {
-        current.delete(modeId);
+        if (current.size > 1) {
+          current.delete(modeId);
+        }
       } else {
         current.add(modeId);
       }
-      return { ...prev, [collectionId]: current };
+      return { ...prev, [collection.id]: current };
     });
   }
 
@@ -1214,103 +1276,139 @@ function SyncTokensView(props: {
   const selectedTokenCount = collections
     .filter((c) => selected.has(c.id))
     .reduce((sum, c) => sum + c.tokenCount, 0);
+  const selectedCollections = collections.filter((collection) => selected.has(collection.id));
+  const outputFileCount = selectedCollections.reduce(
+    (sum, collection) => sum + modesFor(collection).size,
+    0,
+  );
+  const effectiveRootFontSize = rootFontSize > 0 ? rootFontSize : 16;
+  const previewOptions: ExportOptions = {
+    modesByCollection: {},
+    convertPxToRem,
+    rootFontSize: effectiveRootFontSize,
+    colorFormat,
+    nameStyle,
+  };
+  const tokenPreview = createTokenPreview(previewOptions);
 
   return (
-    <main aria-labelledby="tashil-sync-tokens-heading" class="inspect-content">
-      <h1 class="visually-hidden" id="tashil-sync-tokens-heading">Sync tokens</h1>
-      <Container space="medium">
-        <VerticalSpace space="medium" />
-        <Stack space="medium">
-          <section>
-            <div class="sync-tokens-section-header">
-              <Text>Collections</Text>
-              {selected.size > 0 ? (
-                <Text>
-                  {selected.size} selected · {selectedTokenCount} variables
-                </Text>
-              ) : null}
+    <main aria-labelledby="tashil-sync-tokens-heading" class="sync-tokens-view">
+      <div class="sync-tokens-scroll">
+        <section class="sync-tokens-intro">
+          <h1 id="tashil-sync-tokens-heading">Sync tokens</h1>
+          <p>Select collections and choose modes to generate CSS files.</p>
+        </section>
+
+        <div class="sync-tokens-toolbar">
+          <SearchTextbox
+            aria-label="Search collections"
+            onValueInput={setQuery}
+            placeholder="Search collections"
+            value={query}
+          />
+          <Button onClick={selectAll} secondary>
+            {allSelected ? 'Clear all' : 'Select all'}
+          </Button>
+        </div>
+
+        <section class="sync-tokens-step">
+          <h2>1. Choose collections</h2>
+          {filteredCollections.length === 0 ? (
+            <div class="sync-tokens-empty-result">No collections match “{query}”.</div>
+          ) : (
+            <div class="sync-tokens-collection-list">
+              {filteredCollections.map((collection) => {
+                const isSelected = selected.has(collection.id);
+                return (
+                  <div
+                    class={`sync-tokens-collection-row${isSelected ? ' sync-tokens-row-selected' : ''}`}
+                    key={collection.id}
+                  >
+                    <Checkbox
+                      onValueChange={() => toggleCollection(collection)}
+                      value={isSelected}
+                    >
+                      <span class="sync-tokens-collection-name">{collection.name}</span>
+                      <span class="sync-tokens-count">({collection.tokenCount})</span>
+                    </Checkbox>
+                  </div>
+                );
+              })}
             </div>
-            <VerticalSpace space="small" />
-            {collections.length > 4 ? (
-              <Textbox
-                onInput={(event: h.JSX.TargetedEvent<HTMLInputElement>) =>
-                  setQuery(event.currentTarget.value)
-                }
-                placeholder="Filter collections"
-                value={query}
-              />
-            ) : null}
-            <div class="sync-tokens-section-header">
-              <button
-                class="sync-tokens-link-button"
-                onClick={selectAll}
-                type="button"
-              >
-                {allSelected ? 'Clear all' : 'Select all'}
-              </button>
+          )}
+        </section>
+
+        <section class="sync-tokens-step">
+          <h2>2. Output files</h2>
+          {selectedCollections.length === 0 ? (
+            <div class="sync-tokens-output-empty">
+              Select a collection to configure its output.
             </div>
-            <VerticalSpace space="small" />
-            {filteredCollections.length === 0 ? (
-              <Text>No collections match “{query}”.</Text>
-            ) : (
-              <div class="sync-tokens-collection-list">
-                {filteredCollections.map((collection, index) => (
-                  <Fragment key={collection.id}>
-                    {index > 0 ? <Divider /> : null}
-                    <div class="sync-tokens-collection-row">
-                      <div class="sync-tokens-collection-main">
-                        <Checkbox
-                          onValueChange={() => toggleCollection(collection.id)}
-                          value={selected.has(collection.id)}
-                        >
-                          <span class="sync-tokens-collection-name">{collection.name}</span>
-                          <span class="sync-tokens-count">({collection.tokenCount})</span>
-                        </Checkbox>
+          ) : (
+            <div class="sync-tokens-output-panel">
+              {selectedCollections.map((collection) => {
+                const chosenModes = modesFor(collection);
+                const includeModeSuffix = chosenModes.size > 1;
+                const collectionSlug = tokenFileSlug(collection.name) || collection.id;
+                return (
+                  <section class="sync-tokens-output-group" key={collection.id}>
+                    <div class="sync-tokens-output-heading">
+                      <div>
+                        <h3>{collection.name}</h3>
+                        <p>Choose one or more modes to export.</p>
                       </div>
-                      {collection.modes.length > 1 ? (
-                        <div class="sync-tokens-modes">
-                          {collection.modes.map((mode) => {
-                            const active = modesFor(collection).has(mode.modeId);
-                            return (
-                              <button
-                                class={`sync-tokens-chip${active ? ' sync-tokens-chip-active' : ''}`}
-                                key={mode.modeId}
-                                onClick={() => toggleMode(collection.id, mode.modeId)}
-                                type="button"
+                      <span>{collection.tokenCount} variables</span>
+                    </div>
+                    <div class="sync-tokens-mode-list">
+                      {collection.modes.map((mode) => {
+                        const active = chosenModes.has(mode.modeId);
+                        const modeSuffix = includeModeSuffix || !active
+                          ? `-${tokenFileSlug(mode.name)}`
+                          : '';
+                        const fileName = `${collectionSlug}${modeSuffix}.css`;
+                        return (
+                          <div
+                            class={`sync-tokens-mode-row${active ? ' sync-tokens-row-selected' : ''}`}
+                            key={mode.modeId}
+                          >
+                            <div class="sync-tokens-mode-control">
+                              <Checkbox
+                                disabled={collection.modes.length === 1}
+                                onValueChange={() => toggleMode(collection, mode.modeId)}
+                                value={active}
                               >
                                 {mode.name}
-                              </button>
-                            );
-                          })}
-                        </div>
-                      ) : null}
+                              </Checkbox>
+                            </div>
+                            <span class="sync-tokens-file-name">{fileName}</span>
+                            <CopyButton text={fileName} title={fileName} />
+                          </div>
+                        );
+                      })}
                     </div>
-                  </Fragment>
-                ))}
-              </div>
-            )}
-          </section>
+                  </section>
+                );
+              })}
+            </div>
+          )}
+        </section>
 
-          <Disclosure
-            onClick={() => setAdvancedOpen((prev) => !prev)}
-            open={advancedOpen}
-            title="Advanced settings"
-          >
-            <Text align="center">Advanced settings</Text>
-          </Disclosure>
-          {advancedOpen ? (
-            <Container space="small">
-              <Stack space="medium">
-                <Toggle
-                  onValueChange={setConvertPxToRem}
-                  value={convertPxToRem}
-                >
-                  Convert px to rem (length-scoped variables only)
-                </Toggle>
+        <section class="sync-tokens-step">
+          <h2>3. Output settings</h2>
+          <div class="sync-tokens-settings-panel">
+            <div class="sync-tokens-unit-settings">
+              <Toggle
+                onValueChange={setConvertPxToRem}
+                value={convertPxToRem}
+              >
+                Convert px to rem
+              </Toggle>
 
-                {convertPxToRem ? (
-                  <Field id="tashil-root-font-size" label="Root font size (px)">
+              {convertPxToRem ? (
+                <Field id="tashil-root-font-size" label="Root font size">
+                  <div class="sync-tokens-number-input">
                     <TextboxNumeric
+                      aria-label="Root font size in pixels"
                       onNumericValueInput={(value) =>
                         setRootFontSize(value === null ? 16 : value)
                       }
@@ -1318,56 +1416,85 @@ function SyncTokensView(props: {
                       integer
                       value={String(rootFontSize)}
                     />
-                  </Field>
-                ) : null}
-
-                <Field id="tashil-color-format" label="Color format">
-                  <RadioButtons
-                    direction="horizontal"
-                    onValueChange={(value) => setColorFormat(value as ColorFormat)}
-                    options={[
-                      { value: 'hex', children: 'HEX' },
-                      { value: 'rgb', children: 'RGB' },
-                      { value: 'rgba', children: 'RGBA' },
-                      { value: 'variable', children: 'Variable' },
-                    ]}
-                    value={colorFormat}
-                  />
+                    <span>px</span>
+                  </div>
                 </Field>
+              ) : null}
+            </div>
 
-                <Field id="tashil-name-style" label="Token name style">
-                  <RadioButtons
-                    direction="horizontal"
-                    onValueChange={(value) => setNameStyle(value as NameStyle)}
-                    options={[
-                      { value: 'kebab', children: 'color-text' },
-                      { value: 'slash', children: 'color/text' },
-                      { value: 'snake', children: 'color_text' },
-                      { value: 'pascal', children: 'ColorText' },
-                    ]}
-                    value={nameStyle}
-                  />
-                </Field>
-              </Stack>
-            </Container>
-          ) : null}
+            <div class="sync-tokens-format-settings">
+              <Field id="tashil-color-format" label="Color format">
+                <SegmentedControl
+                  onValueChange={(value) => setColorFormat(value as ColorFormat)}
+                  options={[
+                    { value: 'hex', children: 'HEX' },
+                    { value: 'rgb', children: 'RGB' },
+                    { value: 'rgba', children: 'RGBA' },
+                    { value: 'variable', children: 'Variable' },
+                  ]}
+                  value={colorFormat}
+                />
+              </Field>
 
-          {exportStatus === 'error' && exportError ? (
-            <div class="field-error" role="alert">{exportError}</div>
-          ) : null}
-          {collectionsStatus === 'error' && collectionsError ? (
-            <div class="field-error" role="alert">{collectionsError}</div>
-          ) : null}
+              <Field id="tashil-name-style" label="Token name">
+                <SegmentedControl
+                  onValueChange={(value) => setNameStyle(value as NameStyle)}
+                  options={[
+                    { value: 'kebab', children: 'kebab' },
+                    { value: 'slash', children: 'slash' },
+                    { value: 'dot', children: 'dot' },
+                    { value: 'snake', children: 'snake' },
+                    { value: 'pascal', children: 'pascal' },
+                  ]}
+                  value={nameStyle}
+                />
+              </Field>
+            </div>
 
-          <Button
-            disabled={selected.size === 0 || busy}
-            onClick={handleExport}
-          >
-            {exportStatus === 'exporting' ? 'Exporting…' : `Export ${selected.size || ''}`.trim()}
-          </Button>
-        </Stack>
-        <VerticalSpace space="medium" />
-      </Container>
+            <div class="sync-tokens-preview">
+              <div class="sync-tokens-preview-heading">
+                <strong>CSS preview</strong>
+                <span>Updates with your output settings</span>
+              </div>
+              <pre aria-label="CSS token preview" tabIndex={0}>
+                <code>{tokenPreview}</code>
+              </pre>
+            </div>
+          </div>
+        </section>
+
+        {exportStatus === 'error' && exportError ? (
+          <div class="field-error" role="alert">{exportError}</div>
+        ) : null}
+        {collectionsStatus === 'error' && collectionsError ? (
+          <div class="field-error" role="alert">{collectionsError}</div>
+        ) : null}
+      </div>
+
+      <footer class="sync-tokens-footer">
+        <div class="sync-tokens-export-summary">
+          <IconCodeSnippet24 />
+          <div>
+            <strong>
+              {outputFileCount} {outputFileCount === 1 ? 'file' : 'files'}
+              {' · '}
+              {selectedTokenCount} variables
+            </strong>
+            <span>
+              {outputFileCount === 0 ? 'Select a collection to continue' : 'Ready to export'}
+            </span>
+          </div>
+        </div>
+        <Button
+          disabled={selected.size === 0 || busy}
+          loading={exportStatus === 'exporting'}
+          onClick={handleExport}
+        >
+          {exportStatus === 'exporting'
+            ? 'Exporting'
+            : `Export ${outputFileCount || ''} CSS ${outputFileCount === 1 ? 'file' : 'files'}`.replace('  ', ' ')}
+        </Button>
+      </footer>
     </main>
   );
 }
