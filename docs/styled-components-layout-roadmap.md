@@ -1,6 +1,6 @@
 # Styled-Components Layout Generation Roadmap
 
-Status: In progress — styled-components foundation implemented
+Status: In progress — styled-components, color tokens, and freeform geometry implemented
 
 Date: 2026-07-26
 
@@ -48,7 +48,7 @@ Both surfaces must consume the same generated result.
 - [x] Do not add a marker merely because an ordinary non-component layer is not
   connected; ordinary layers do not require a component connection.
 - [x] Keep generation read-only and deterministic.
-- [ ] Keep React generation and selected-layer inspection in independent failure
+- [x] Keep React generation and selected-layer inspection in independent failure
   domains.
 
 ## Target output contract
@@ -350,15 +350,16 @@ golden tests before implementation begins.
 - [x] Resolve semantic recipes from the live selected instance subtree.
 - [x] Resolve instance swaps and icons from live properties.
 - [x] Keep instance internals atomic.
-- [ ] Add a parity test asserting nested output equals standalone output for the
+- [x] Add a parity test asserting nested output equals standalone output for the
   same instance.
 
 Test matrix:
 
-- [ ] legacy property mappings;
+- [x] legacy property mappings;
 - [ ] semantic recipes;
 - [ ] text overrides;
-- [ ] boolean and variant overrides;
+- [x] variant overrides;
+- [x] boolean overrides;
 - [ ] instance swaps;
 - [ ] invalid and missing connection metadata.
 
@@ -422,8 +423,8 @@ imports, class names, or `styles[...]` expressions.
 - [x] Use the agreed unconnected marker format `{/* FRAME: Layer name */}`.
 - [x] Generate ordinary frames, groups, sections, and text without connection
   markers.
-- [ ] Generate freeform parents with `position: relative`.
-- [ ] Generate absolute ordinary descendants from Figma coordinates and size.
+- [x] Generate freeform parents with `position: relative`.
+- [x] Generate absolute ordinary descendants from Figma coordinates and size.
 - [ ] Add supported rectangle/vector/image asset handling.
 - [ ] Preserve a diagnostic when an asset cannot be exported safely.
 
@@ -435,8 +436,8 @@ Required golden cases:
   component;
 - [ ] connected `Discount badge` instance → Swiss Army Knife import and
   production JSX;
-- [ ] absolute ordinary badge → positioned styled component;
-- [ ] unsupported asset → comment plus diagnostic.
+- [x] absolute ordinary badge → positioned styled component;
+- [x] unsupported asset → comment plus diagnostic.
 
 Exit criteria: only component boundaries require connections; ordinary design
 layers are generated normally.
@@ -477,11 +478,12 @@ overflow.
 
 - [ ] Share one generation context across React extraction and selected-layer
   inspection.
-- [ ] Cache main components, connection metadata, variables, and node CSS.
+- [x] Cache main components and connection metadata per generation.
+- [ ] Cache variable lookups and node CSS per generation.
 - [ ] Use bounded sibling concurrency while preserving document order.
 - [x] Isolate React generation and selected-layer inspection errors in Dev Mode.
-- [ ] Preserve successful React output when inspection fails.
-- [ ] Preserve selected-layer inspection when React generation fails.
+- [x] Preserve successful React output when inspection fails.
+- [x] Preserve selected-layer inspection when React generation fails.
 - [x] Show one copyable `.tsx` block in Inspect Code.
 - [x] Remove the generated CSS Module block and filename.
 - [ ] Show runtime requirements and generation diagnostics separately.
@@ -510,29 +512,29 @@ verification are complete.
 
 ## Acceptance criteria
 
-- [ ] Generated selected-design output imports `styled` from
+- [x] Generated selected-design output imports `styled` from
   `styled-components`.
-- [ ] Generated output contains no `.module.css`, CSS Module import, generated
+- [x] Generated output contains no `.module.css`, CSS Module import, generated
   class name, or `styles[...]` expression.
-- [ ] Every connected Tashil component import comes from
+- [x] Every connected Tashil component import comes from
   `@tashilcar/swiss-army-knife`.
-- [ ] Repeated component exports are imported once and use one stable local
+- [x] Repeated component exports are imported once and use one stable local
   name.
 - [ ] Nested connected usage matches standalone connected usage for live props,
   semantic values, text, and instance swaps.
 - [ ] Gap, padding, sizing, typography, color, borders, radius, opacity, and
   supported effects preserve Figma token references.
 - [x] Whole-value color variables use `colors` from `styles/colors`.
-- [ ] Literal fallbacks remain present where Figma provides or the extractor can
+- [x] Literal fallbacks remain present where Figma provides or the extractor can
   calculate them.
-- [ ] Unconnected components produce a JSX marker and actionable diagnostic.
-- [ ] Ordinary non-component layers do not receive connection markers.
-- [ ] Freeform and absolute ordinary layers preserve their supported geometry.
-- [ ] Parent-aware fill sizing does not create avoidable flex overflow.
-- [ ] Unexpected inspection failure does not remove successful React output.
+- [x] Unconnected components produce a JSX marker and actionable diagnostic.
+- [x] Ordinary non-component layers do not receive connection markers.
+- [x] Freeform and absolute ordinary layers preserve their supported geometry.
+- [x] Parent-aware fill sizing does not create avoidable flex overflow.
+- [x] Unexpected inspection failure does not remove successful React output.
 - [ ] Generated TSX passes real parser and type validation.
 - [ ] Generated styled declarations pass CSS parsing.
-- [ ] Generation remains deterministic and read-only.
+- [x] Generation remains deterministic and read-only.
 
 ## Non-goals
 

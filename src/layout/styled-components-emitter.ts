@@ -247,10 +247,14 @@ function containerDeclarations(
   isRoot: boolean,
   parentAxis: LayoutAxis | undefined,
 ): CssDeclaration[] {
-  const base = mergeDeclarations(
+  const structural = mergeDeclarations(
     layoutDeclarations(node.layout, isRoot),
     node.declarations,
   );
+  const base = node.children.some((child) =>
+    'childStyle' in child && child.childStyle?.position === 'absolute')
+    ? mergeDeclarations(structural, [layout('position', 'relative')])
+    : structural;
   return mergeDeclarations(
     base,
     childDeclarations(node.childStyle, parentAxis),
@@ -262,16 +266,22 @@ function layoutDeclarations(
   style: LayoutStyle,
   isRoot: boolean,
 ): CssDeclaration[] {
-  const declarations: CssDeclaration[] = [
-    layout('display', 'flex'),
-    layout('flex-direction', style.axis === 'horizontal' ? 'row' : 'column'),
-  ];
+  const declarations: CssDeclaration[] = style.mode === 'freeform'
+    ? [layout('position', 'relative')]
+    : [
+        layout('display', 'flex'),
+        layout('flex-direction', style.axis === 'horizontal' ? 'row' : 'column'),
+      ];
 
-  if (style.wrap) {
+  if (style.mode === 'auto-layout' && style.wrap) {
     declarations.push(layout('flex-wrap', 'wrap'));
   }
 
-  if (style.counterGap !== undefined && style.wrap) {
+  if (
+    style.mode === 'auto-layout'
+    && style.counterGap !== undefined
+    && style.wrap
+  ) {
     declarations.push(
       layout(
         style.axis === 'horizontal' ? 'column-gap' : 'row-gap',
@@ -282,26 +292,41 @@ function layoutDeclarations(
         formatLength(style.counterGap),
       ),
     );
-  } else if (style.gap > 0) {
+  } else if (style.mode === 'auto-layout' && style.gap > 0) {
     declarations.push(layout('gap', formatLength(style.gap)));
   }
 
-  const padding = formatPadding(style);
+  const padding = style.mode === 'auto-layout' ? formatPadding(style) : null;
   if (padding) {
     declarations.push(layout('padding', padding));
   }
 
-  if (!isRoot && style.sizingHorizontal === 'fixed' && style.width !== undefined) {
+  if (
+    !isRoot
+    && style.width !== undefined
+    && (style.mode === 'freeform' || style.sizingHorizontal === 'fixed')
+  ) {
     declarations.push(layout('width', formatLength(style.width)));
   }
-  if (style.sizingVertical === 'fixed' && style.height !== undefined) {
+  if (
+    style.height !== undefined
+    && (style.mode === 'freeform' || style.sizingVertical === 'fixed')
+  ) {
     declarations.push(layout('height', formatLength(style.height)));
   }
 
-  if (style.justifyContent && style.justifyContent !== 'flex-start') {
+  if (
+    style.mode === 'auto-layout'
+    && style.justifyContent
+    && style.justifyContent !== 'flex-start'
+  ) {
     declarations.push(layout('justify-content', style.justifyContent));
   }
-  if (style.alignItems && style.alignItems !== 'stretch') {
+  if (
+    style.mode === 'auto-layout'
+    && style.alignItems
+    && style.alignItems !== 'stretch'
+  ) {
     declarations.push(layout('align-items', style.alignItems));
   }
 
@@ -317,6 +342,23 @@ function childDeclarations(
   }
 
   const declarations: CssDeclaration[] = [];
+  if (style.position === 'absolute') {
+    declarations.push(layout('position', 'absolute'));
+    if (style.left !== undefined) {
+      declarations.push(layout('left', formatLength(style.left)));
+    }
+    if (style.top !== undefined) {
+      declarations.push(layout('top', formatLength(style.top)));
+    }
+    if (style.width !== undefined) {
+      declarations.push(layout('width', formatLength(style.width)));
+    }
+    if (style.height !== undefined) {
+      declarations.push(layout('height', formatLength(style.height)));
+    }
+    return declarations;
+  }
+
   const horizontalMain = parentAxis === 'horizontal';
   const verticalMain = parentAxis === 'vertical';
   const horizontalFill = style.sizingHorizontal === 'fill';

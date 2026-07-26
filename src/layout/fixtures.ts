@@ -42,6 +42,8 @@ type FrameOptions = {
   layoutSizingVertical?: 'FIXED' | 'HUG' | 'FILL';
   width?: number;
   height?: number;
+  x?: number;
+  y?: number;
   visible?: boolean;
   css?: Record<string, string>;
 };
@@ -76,6 +78,8 @@ export function frame(
     layoutSizingVertical: options.layoutSizingVertical ?? 'HUG',
     width: options.width ?? 320,
     height: options.height ?? 200,
+    x: options.x ?? 0,
+    y: options.y ?? 0,
     name,
     parent: { type: 'PAGE' },
     type: 'FRAME',
@@ -109,6 +113,10 @@ type ChildLayoutOptions = {
   layoutPositioning?: 'AUTO' | 'ABSOLUTE';
   layoutSizingHorizontal?: 'FIXED' | 'HUG' | 'FILL';
   layoutSizingVertical?: 'FIXED' | 'HUG' | 'FILL';
+  width?: number;
+  height?: number;
+  x?: number;
+  y?: number;
   visible?: boolean;
   componentProperties?: Record<string, { type: string; value: string | boolean }>;
 };
@@ -126,6 +134,10 @@ export function text(
     layoutGrow: childOptions.layoutGrow ?? 0,
     layoutAlign: childOptions.layoutAlign ?? 'INHERIT',
     layoutPositioning: childOptions.layoutPositioning ?? 'AUTO',
+    width: childOptions.width,
+    height: childOptions.height,
+    x: childOptions.x,
+    y: childOptions.y,
     name,
     parent: { type: 'PAGE' },
     type: 'TEXT',
@@ -178,6 +190,10 @@ export function instance(
     layoutPositioning: childOptions.layoutPositioning ?? 'AUTO',
     layoutSizingHorizontal: childOptions.layoutSizingHorizontal ?? 'HUG',
     layoutSizingVertical: childOptions.layoutSizingVertical ?? 'HUG',
+    width: childOptions.width,
+    height: childOptions.height,
+    x: childOptions.x,
+    y: childOptions.y,
     name,
     parent: { type: 'PAGE' },
     type: 'INSTANCE',
@@ -386,7 +402,13 @@ export function rawText(): TextDouble {
 
 /** 11. Absolute-positioned child: a frame with one absolutely positioned child. */
 export function absolutePositionedChild(): FrameDouble {
-  const badge = text('t:badge', 'Badge', 'New', { layoutPositioning: 'ABSOLUTE' });
+  const badge = text('t:badge', 'Badge', 'New', {
+    layoutPositioning: 'ABSOLUTE',
+    x: 248,
+    y: 16,
+    width: 48,
+    height: 24,
+  });
   return frame('f:absolute', 'Card with badge', [badge], {
     layoutMode: 'VERTICAL',
     itemSpacing: 0,

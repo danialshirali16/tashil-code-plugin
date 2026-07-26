@@ -57,6 +57,8 @@ export type SizingMode = 'fill' | 'fixed' | 'hug';
  * own sizing (`sizingHorizontal`/`sizingVertical`, `width`/`height`).
  */
 export type LayoutStyle = {
+  /** Auto-layout uses flex; freeform parents establish a positioning context. */
+  mode: 'auto-layout' | 'freeform';
   axis: LayoutAxis;
   wrap: boolean;
   gap: number;
@@ -84,6 +86,10 @@ export type LayoutStyle = {
  * document flow.
  */
 export type ChildStyle = {
+  /** Absolute children use their Figma-local coordinates inside the parent. */
+  position?: 'absolute';
+  left?: number;
+  top?: number;
   /** `layoutGrow: 1` → `flex-grow: 1`. */
   grow?: number;
   /** `layoutAlign: STRETCH` → `align-self: stretch` (cross axis). */

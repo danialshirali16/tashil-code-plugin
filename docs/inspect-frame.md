@@ -75,8 +75,8 @@ being silently dropped:
 - an instance whose stored connection is broken or whose main component is
   missing;
 - unsupported assets, preserved as JSX comments;
-- non-auto-layout frames, whose children remain in document order but may need
-  manual positioning;
+- non-auto-layout frames, emitted as relative positioning contexts with
+  ordinary children placed from their Figma-local coordinates;
 - a very large tree truncated at the node/depth budget.
 
 ## Troubleshooting

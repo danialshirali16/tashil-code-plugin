@@ -68,6 +68,10 @@ effects retain their CSS custom-property references inside generated styled
 declarations. Unconnected components are reported as JSX markers and generation
 notes instead of being silently expanded.
 
+Freeform frames establish a relative positioning context. Their ordinary
+children, and absolute children inside auto layout, retain supported Figma-local
+coordinates and dimensions as positioned styled components.
+
 Dev Mode also keeps the selected layer's token-aware **Layout** and **Style**
 CSS inspection blocks from Figma's own CSS engine.
 

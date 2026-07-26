@@ -46,6 +46,8 @@ export type LayoutSourceNode = {
   layoutSizingVertical?: string | null;
   width?: number | null;
   height?: number | null;
+  x?: number | null;
+  y?: number | null;
   getCSSAsync?: () => Promise<Record<string, string>>;
 };
 
@@ -91,8 +93,11 @@ export async function extractLayout(
 
   if (
     composition.kind === 'container'
-    && composition.layout.sizingHorizontal === 'fixed'
     && composition.layout.width !== undefined
+    && (
+      composition.layout.mode === 'freeform'
+      || composition.layout.sizingHorizontal === 'fixed'
+    )
   ) {
     diagnostics.push({
       severity: 'info',
@@ -129,10 +134,18 @@ async function traverseRoot(
     );
   }
   if (root.type === 'TEXT') {
-    return resolveTextNode(root, path, classNames, diagnostics);
+    return resolveTextNode(root, path, classNames, diagnostics, false);
   }
   if (isContainer(root)) {
-    return resolveContainer(root, context, diagnostics, classNames, path, true);
+    return resolveContainer(
+      root,
+      context,
+      diagnostics,
+      classNames,
+      path,
+      true,
+      false,
+    );
   }
 
   diagnostics.push({
@@ -152,6 +165,7 @@ async function resolveContainer(
   classNames: ClassNameRegistry,
   layerPath: string[],
   isRoot = false,
+  parentIsFreeform = false,
 ): Promise<ContainerCompositionNode> {
   const className = classNames.assign(node.id, node.name);
   const layout = layoutStyle(node, diagnostics, layerPath);
@@ -174,6 +188,7 @@ async function resolveContainer(
       children,
       layerPath,
       isRoot,
+      parentIsFreeform,
     );
   }
 
@@ -195,6 +210,7 @@ async function resolveContainer(
       diagnostics,
       classNames,
       childPath,
+      !isAutoLayout(node),
     );
     if (resolved) {
       children.push(resolved);
@@ -210,6 +226,7 @@ async function resolveContainer(
     children,
     layerPath,
     isRoot,
+    parentIsFreeform,
   );
 }
 
@@ -219,27 +236,13 @@ async function traverseChild(
   diagnostics: LayoutDiagnostic[],
   classNames: ClassNameRegistry,
   layerPath: string[],
+  parentIsFreeform: boolean,
 ): Promise<CompositionNode | null> {
-  if (
-    child.layoutPositioning === 'ABSOLUTE'
-    && typeof child.getCSSAsync !== 'function'
-    && child.type !== 'INSTANCE'
-  ) {
+  if (child.layoutPositioning === 'ABSOLUTE' || parentIsFreeform) {
     diagnostics.push({
       severity: 'info',
       reason: 'absolute-positioning',
-      message: `"${child.name}" is absolutely positioned and needs manual placement.`,
-      nodeId: child.id,
-      layerPath,
-    });
-    return placeholder(child, layerPath, 'absolute-positioning');
-  }
-
-  if (child.layoutPositioning === 'ABSOLUTE') {
-    diagnostics.push({
-      severity: 'info',
-      reason: 'absolute-positioning',
-      message: `"${child.name}" is absolutely positioned; its Figma CSS was preserved.`,
+      message: `"${child.name}" is absolutely positioned; its Figma coordinates and CSS were preserved.`,
       nodeId: child.id,
       layerPath,
     });
@@ -252,13 +255,28 @@ async function traverseChild(
       diagnostics,
       classNames,
       layerPath,
+      parentIsFreeform,
     );
   }
   if (child.type === 'TEXT') {
-    return resolveTextNode(child, layerPath, classNames, diagnostics);
+    return resolveTextNode(
+      child,
+      layerPath,
+      classNames,
+      diagnostics,
+      parentIsFreeform,
+    );
   }
   if (isContainer(child)) {
-    return resolveContainer(child, context, diagnostics, classNames, layerPath);
+    return resolveContainer(
+      child,
+      context,
+      diagnostics,
+      classNames,
+      layerPath,
+      false,
+      parentIsFreeform,
+    );
   }
 
   diagnostics.push({
@@ -277,6 +295,7 @@ async function resolveInstanceNode(
   diagnostics: LayoutDiagnostic[],
   classNames: ClassNameRegistry,
   layerPath: string[],
+  parentIsFreeform = false,
 ): Promise<CompositionNode> {
   const resolved = await resolveInstance(instance, context);
   if (resolved.kind === 'placeholder') {
@@ -284,7 +303,10 @@ async function resolveInstanceNode(
     return { ...resolved.node, layerPath };
   }
 
-  const childStyle = getChildStyle(instance as unknown as LayoutSourceNode);
+  const childStyle = getChildStyle(
+    instance as unknown as LayoutSourceNode,
+    parentIsFreeform,
+  );
   return {
     ...resolved.node,
     layerPath,
@@ -302,8 +324,9 @@ async function resolveTextNode(
   layerPath: string[],
   classNames: ClassNameRegistry,
   diagnostics: LayoutDiagnostic[],
+  parentIsFreeform: boolean,
 ): Promise<CompositionNode> {
-  const childStyle = getChildStyle(node);
+  const childStyle = getChildStyle(node, parentIsFreeform);
   const declarations = await readCssDeclarations(node, diagnostics, layerPath);
   return {
     kind: 'text',
@@ -328,8 +351,11 @@ function containerNode(
   children: CompositionNode[],
   layerPath: string[],
   isRoot: boolean,
+  parentIsFreeform: boolean,
 ): ContainerCompositionNode {
-  const childStyle = isRoot ? undefined : getChildStyle(node);
+  const childStyle = isRoot
+    ? undefined
+    : getChildStyle(node, parentIsFreeform);
   return {
     kind: 'container',
     nodeId: node.id,
@@ -393,6 +419,7 @@ function layoutStyle(
 
   const autoLayout = isAutoLayout(node);
   return {
+    mode: autoLayout ? 'auto-layout' : 'freeform',
     axis: node.layoutMode === 'HORIZONTAL' ? 'horizontal' : 'vertical',
     wrap: autoLayout && node.layoutWrap === 'WRAP',
     gap: autoLayout ? finite(node.itemSpacing) : 0,
@@ -416,10 +443,31 @@ function layoutStyle(
   };
 }
 
-function getChildStyle(node: LayoutSourceNode): ChildStyle | undefined {
+function getChildStyle(
+  node: LayoutSourceNode,
+  parentIsFreeform = false,
+): ChildStyle | undefined {
   const style: ChildStyle = {};
+  const absolute = node.layoutPositioning === 'ABSOLUTE' || parentIsFreeform;
   const horizontal = mapSizing(node.layoutSizingHorizontal);
   const vertical = mapSizing(node.layoutSizingVertical);
+
+  if (absolute) {
+    style.position = 'absolute';
+    if (isFiniteNumber(node.x)) {
+      style.left = node.x;
+    }
+    if (isFiniteNumber(node.y)) {
+      style.top = node.y;
+    }
+    if (isFiniteNumber(node.width)) {
+      style.width = node.width;
+    }
+    if (isFiniteNumber(node.height)) {
+      style.height = node.height;
+    }
+    return style;
+  }
 
   if (isFiniteNumber(node.layoutGrow) && node.layoutGrow > 0) {
     style.grow = node.layoutGrow;

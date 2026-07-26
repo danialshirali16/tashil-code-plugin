@@ -57,6 +57,10 @@ All notable changes to Tashil Code are documented in this file.
 
 ### Changed
 
+- Freeform selected designs now generate relative containers with positioned
+  ordinary descendants using their Figma-local coordinates and dimensions;
+  absolute children no longer become placeholder comments merely because node
+  CSS is unavailable.
 - Generated styled-components now reference recognized Figma color variables
   through `colors` from `styles/colors` (for example
   `${colors.text.default}`) instead of emitting color CSS custom properties.
