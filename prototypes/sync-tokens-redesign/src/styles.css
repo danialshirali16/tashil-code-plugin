@@ -203,6 +203,12 @@ body {
   margin-top: 18px;
 }
 
+.output-section {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 12px;
+}
+
 .builder-section h2,
 .settings-section h2 {
   font-size: 13px;
@@ -300,6 +306,24 @@ body {
 .filename {
   font-size: 12px;
   margin-left: auto;
+}
+
+.copy-button {
+  align-items: center;
+  background: transparent;
+  border: 0;
+  border-radius: 5px;
+  cursor: pointer;
+  display: inline-flex;
+  height: 28px;
+  justify-content: center;
+  margin-left: 6px;
+  padding: 0;
+  width: 28px;
+}
+
+.copy-button:hover {
+  background: rgb(255 255 255 / 70%);
 }
 
 .empty-state,
