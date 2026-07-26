@@ -1,0 +1,12 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "plugin-ui",
+      "runtimeExecutable": "npx",
+      "runtimeArgs": ["vite", "--config", "vite.harness.config.ts"],
+      "port": 5178,
+      "url": "http://localhost:5178"
+    }
+  ]
+}

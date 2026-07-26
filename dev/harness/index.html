@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Plugin UI harness</title>
+<!-- Figma injects these tokens at runtime; loading them here is what makes
+     colours, borders and states look the same as they do in the plugin. -->
+<link rel="stylesheet" href="/node_modules/@create-figma-plugin/ui/lib/css/base.css">
+<link rel="stylesheet" href="/node_modules/@create-figma-plugin/ui/lib/css/theme.css">
+<style>
+  body { background: #2c2c2c; margin: 0; font-family: Inter, sans-serif; }
+  /* The plugin panel opens near this width; the frame makes overflow obvious. */
+  #frame { width: 400px; margin: 0; border-right: 1px solid #555; min-height: 100vh; }
+  #root { background: var(--figma-color-bg); min-height: 100vh; }
+</style>
+</head>
+<body class="figma-dark figma-dark-theme">
+  <div id="frame"><div id="root"></div></div>
+  <script type="module" src="/dev/harness/main.tsx"></script>
+</body>
+</html>
