@@ -18,8 +18,9 @@ complete React component that:
 3. emits connected production components as atomic usages;
 4. resolves live instance properties, semantic values, text overrides, and
    instance swaps;
-5. references Figma variables as CSS custom-property tokens across layout,
-   typography, color, border, radius, and effect declarations;
+5. references color variables through `colors` from `styles/colors`, while
+   preserving CSS custom-property tokens for layout, typography, radius, and
+   effect declarations;
 6. imports every connected Tashil component from
    `@tashilcar/swiss-army-knife`;
 7. preserves usable React output when selected-layer inspection fails.
@@ -101,21 +102,24 @@ should preserve or reconstruct token references for:
 Target:
 
 ```tsx
+import colors from 'styles/colors';
+
 const PaymentCardRoot = styled.div`
   display: flex;
   flex-direction: column;
   gap: var(--spacing-400, 1rem);
   padding: var(--spacing-600, 1.5rem);
 
-  background: var(--surface-primary, #fff);
-  border: var(--border-width-default, 1px) solid
-    var(--border-subtle, #e5e7eb);
+  background: ${colors.background.neutral.default};
+  border-color: ${colors.border.neutral.default};
+  border-style: solid;
+  border-width: var(--border-width-default, 1px);
   border-radius: var(--radius-large, 0.75rem);
   box-shadow: var(--shadow-card, 0 4px 12px rgb(0 0 0 / 8%));
 `;
 
 const Heading = styled.h2`
-  color: var(--text-primary, #111827);
+  color: ${colors.text.default};
   font-family: var(--font-family-body, Inter, sans-serif);
   font-size: var(--font-size-heading-small, 1.125rem);
   font-weight: var(--font-weight-semibold, 600);
@@ -125,15 +129,27 @@ const Heading = styled.h2`
 
 Token resolution precedence:
 
-1. Preserve a `var(--token, fallback)` value returned by `getCSSAsync()`
-   exactly.
-2. When structural CSS is derived from Figma layout properties, inspect the
+1. For a color-related declaration whose complete value is a recognized Figma
+   color variable, convert the variable path to the frontend token object:
+   `var(--color-text-default, #111827)` becomes
+   `${colors.text.default}`.
+2. Add `import colors from 'styles/colors';` once, and only when at least one
+   generated declaration uses that object.
+3. Preserve non-color `var(--token, fallback)` values returned by
+   `getCSSAsync()` exactly.
+4. When structural CSS is derived from Figma layout properties, inspect the
    property's bound variable and emit its CSS token name plus the calculated
    literal fallback.
-3. Reuse Sync Tokens' kebab-case naming contract so generated references match
+5. Reuse Sync Tokens' kebab-case naming contract so generated references match
    the custom properties exported by the plugin.
-4. Emit a literal value only when no Figma variable is bound.
-5. Never guess a token by comparing two equal literal values.
+6. Emit a literal value only when no Figma variable is bound.
+7. Never guess a token by comparing two equal literal values.
+
+The initial color-token conversion supports whole-value variables on color,
+background, border-color, outline, fill, stroke, caret, and related color
+properties. Mixed shorthand values such as
+`1px solid var(--color-border-default)` remain unchanged until the emitter can
+represent literal and token-expression segments without guessing.
 
 ### Correct unconnected-component behavior
 
@@ -171,6 +187,7 @@ need a connection and must be generated normally:
 
 ```tsx
 import styled from "styled-components";
+import colors from 'styles/colors';
 
 const OfferCardRoot = styled.article`
   position: relative;
@@ -184,8 +201,8 @@ const DiscountBadge = styled.div`
   top: var(--spacing-400, 1rem);
   right: var(--spacing-400, 1rem);
   padding: var(--spacing-100, 0.25rem) var(--spacing-300, 0.75rem);
-  background: var(--feedback-positive-surface, #dcfce7);
-  color: var(--feedback-positive-text, #166534);
+  background: ${colors.background.positive.default};
+  color: ${colors.text.positive.default};
   border-radius: var(--radius-pill, 999px);
 `;
 
@@ -352,7 +369,9 @@ whether selected directly or nested in a generated layout.
 
 - [x] Add `CssDeclaration` source metadata to the IR.
 - [x] Collect each ordinary node's `getCSSAsync()` output.
-- [x] Preserve Figma-emitted `var()` expressions exactly.
+- [x] Preserve non-color Figma-emitted `var()` expressions exactly.
+- [x] Convert recognized whole-value color variables to references on the
+  frontend `colors` object and import it only when used.
 - [ ] Resolve bound variables for structural values rebuilt by the layout
   extractor.
 - [ ] Reuse Sync Tokens' kebab-case CSS token naming.
@@ -367,7 +386,7 @@ Test matrix:
 - [ ] four-sided and shorthand padding;
 - [ ] width, height, and absolute offsets;
 - [ ] font family, size, weight, line height, and letter spacing;
-- [ ] foreground and background colors;
+- [x] foreground and background color-token expressions;
 - [ ] border width, color, and radius;
 - [ ] opacity;
 - [ ] box shadow, text shadow, and blur;
@@ -503,6 +522,7 @@ verification are complete.
   semantic values, text, and instance swaps.
 - [ ] Gap, padding, sizing, typography, color, borders, radius, opacity, and
   supported effects preserve Figma token references.
+- [x] Whole-value color variables use `colors` from `styles/colors`.
 - [ ] Literal fallbacks remain present where Figma provides or the extractor can
   calculate them.
 - [ ] Unconnected components produce a JSX marker and actionable diagnostic.

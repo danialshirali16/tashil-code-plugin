@@ -21,11 +21,14 @@ for connected instances:
 
 ```tsx
 import styled from "styled-components";
+import colors from 'styles/colors';
 import { Button } from "@tashilcar/swiss-army-knife";
 
 const PaymentFormRoot = styled.div`
   display: flex;
   flex-direction: column;
+  color: ${colors.text.default};
+  background: ${colors.background.neutral.default};
   gap: var(--spacing-400, 1rem);
   padding: var(--spacing-600, 1.5rem);
 `;
@@ -43,7 +46,8 @@ export function PaymentForm() {
 
 Auto-layout direction, wrapping, gaps, padding, alignment, sizing, typography,
 color, borders, radii, opacity, and supported effects are emitted inside named
-styled components. Bound Figma variables retain their
+styled components. Recognized color variables use the frontend
+`colors` object from `styles/colors`; other bound Figma variables retain their
 `var(--token, fallback)` form.
 
 ### Connected components

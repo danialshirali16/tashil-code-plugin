@@ -57,6 +57,11 @@ All notable changes to Tashil Code are documented in this file.
 
 ### Changed
 
+- Generated styled-components now reference recognized Figma color variables
+  through `colors` from `styles/colors` (for example
+  `${colors.text.default}`) instead of emitting color CSS custom properties.
+  The import is omitted when the selected design does not use a recognized
+  color token.
 - Standard mappings are now authored visually instead of through the legacy JSON textarea.
 - Connection revisions now increment only after a successful save.
 - Saved Figma snapshots refresh only after an update is confirmed.
