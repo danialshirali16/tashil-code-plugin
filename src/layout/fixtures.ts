@@ -46,6 +46,7 @@ type FrameOptions = {
   y?: number;
   visible?: boolean;
   css?: Record<string, string>;
+  boundVariables?: Record<string, { id: string }>;
 };
 
 export type FrameDouble = FrameNode;
@@ -84,6 +85,7 @@ export function frame(
     parent: { type: 'PAGE' },
     type: 'FRAME',
     visible: options.visible ?? true,
+    boundVariables: options.boundVariables,
     ...(options.css
       ? { getCSSAsync: () => Promise.resolve({ ...options.css }) }
       : {}),

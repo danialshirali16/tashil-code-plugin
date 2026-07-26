@@ -10,17 +10,24 @@ import {
   GenerationContext,
   type GenerationLimits,
 } from './generation-context';
+import { formatTokenName } from '../sync-tokens/serialize';
 import { resolveInstance, type InstanceLike } from './figma-component-resolver';
 import { resolveClassNames, toClassName } from './naming';
 import type {
   ChildStyle,
   CompositionNode,
   ContainerCompositionNode,
+  CssTokenReference,
   LayoutDiagnostic,
   LayoutDocument,
   LayoutStyle,
+  LayoutTokenField,
   SizingMode,
 } from './types';
+
+type VariableAliasLike = { id: string };
+type VariableLike = { id: string; name: string };
+type VariableLoader = (id: string) => Promise<VariableLike | null>;
 
 export type LayoutSourceNode = {
   id: string;
@@ -48,8 +55,35 @@ export type LayoutSourceNode = {
   height?: number | null;
   x?: number | null;
   y?: number | null;
+  boundVariables?: object;
   getCSSAsync?: () => Promise<Record<string, string>>;
 };
+
+class StructuralTokenResolver {
+  private readonly cache = new Map<string, Promise<CssTokenReference | undefined>>();
+
+  constructor(private readonly load: VariableLoader) {}
+
+  resolve(alias: VariableAliasLike | undefined): Promise<CssTokenReference | undefined> {
+    if (!alias) {
+      return Promise.resolve(undefined);
+    }
+    const cached = this.cache.get(alias.id);
+    if (cached) {
+      return cached;
+    }
+    const pending = this.load(alias.id)
+      .then((variable) => variable
+        ? {
+            cssName: `--${formatTokenName(variable.name, 'kebab')}`,
+            variableId: variable.id,
+          }
+        : undefined)
+      .catch(() => undefined);
+    this.cache.set(alias.id, pending);
+    return pending;
+  }
+}
 
 class ClassNameRegistry {
   private readonly assigned = new Map<string, string>();
@@ -72,16 +106,27 @@ class ClassNameRegistry {
   }
 }
 
-export type ExtractLayoutOptions = GenerationLimits;
+export type ExtractLayoutOptions = GenerationLimits & {
+  loadVariable?: VariableLoader;
+};
 
 export async function extractLayout(
   root: LayoutSourceNode,
   options: ExtractLayoutOptions = {},
 ): Promise<LayoutDocument> {
   const context = new GenerationContext(options);
+  const tokens = new StructuralTokenResolver(
+    options.loadVariable ?? loadFigmaVariable,
+  );
   const diagnostics: LayoutDiagnostic[] = [];
   const classNames = new ClassNameRegistry();
-  const composition = await traverseRoot(root, context, diagnostics, classNames);
+  const composition = await traverseRoot(
+    root,
+    context,
+    diagnostics,
+    classNames,
+    tokens,
+  );
 
   if (context.isLimitReached) {
     diagnostics.push({
@@ -120,6 +165,7 @@ async function traverseRoot(
   context: GenerationContext,
   diagnostics: LayoutDiagnostic[],
   classNames: ClassNameRegistry,
+  tokens: StructuralTokenResolver,
 ): Promise<CompositionNode> {
   context.visit();
   const path = [root.name];
@@ -131,10 +177,11 @@ async function traverseRoot(
       diagnostics,
       classNames,
       path,
+      tokens,
     );
   }
   if (root.type === 'TEXT') {
-    return resolveTextNode(root, path, classNames, diagnostics, false);
+    return resolveTextNode(root, path, classNames, diagnostics, false, tokens);
   }
   if (isContainer(root)) {
     return resolveContainer(
@@ -143,6 +190,7 @@ async function traverseRoot(
       diagnostics,
       classNames,
       path,
+      tokens,
       true,
       false,
     );
@@ -164,11 +212,15 @@ async function resolveContainer(
   diagnostics: LayoutDiagnostic[],
   classNames: ClassNameRegistry,
   layerPath: string[],
+  tokens: StructuralTokenResolver,
   isRoot = false,
   parentIsFreeform = false,
 ): Promise<ContainerCompositionNode> {
   const className = classNames.assign(node.id, node.name);
-  const layout = layoutStyle(node, diagnostics, layerPath);
+  const layout = await layoutStyle(node, diagnostics, layerPath, tokens);
+  const childStyle = isRoot
+    ? undefined
+    : await getChildStyle(node, tokens, parentIsFreeform);
   const declarations = await readCssDeclarations(node, diagnostics, layerPath);
   const children: CompositionNode[] = [];
 
@@ -188,7 +240,7 @@ async function resolveContainer(
       children,
       layerPath,
       isRoot,
-      parentIsFreeform,
+      childStyle,
     );
   }
 
@@ -211,6 +263,7 @@ async function resolveContainer(
       classNames,
       childPath,
       !isAutoLayout(node),
+      tokens,
     );
     if (resolved) {
       children.push(resolved);
@@ -226,7 +279,7 @@ async function resolveContainer(
     children,
     layerPath,
     isRoot,
-    parentIsFreeform,
+    childStyle,
   );
 }
 
@@ -237,6 +290,7 @@ async function traverseChild(
   classNames: ClassNameRegistry,
   layerPath: string[],
   parentIsFreeform: boolean,
+  tokens: StructuralTokenResolver,
 ): Promise<CompositionNode | null> {
   if (child.layoutPositioning === 'ABSOLUTE' || parentIsFreeform) {
     diagnostics.push({
@@ -255,6 +309,7 @@ async function traverseChild(
       diagnostics,
       classNames,
       layerPath,
+      tokens,
       parentIsFreeform,
     );
   }
@@ -265,6 +320,7 @@ async function traverseChild(
       classNames,
       diagnostics,
       parentIsFreeform,
+      tokens,
     );
   }
   if (isContainer(child)) {
@@ -274,6 +330,7 @@ async function traverseChild(
       diagnostics,
       classNames,
       layerPath,
+      tokens,
       false,
       parentIsFreeform,
     );
@@ -295,6 +352,7 @@ async function resolveInstanceNode(
   diagnostics: LayoutDiagnostic[],
   classNames: ClassNameRegistry,
   layerPath: string[],
+  tokens: StructuralTokenResolver,
   parentIsFreeform = false,
 ): Promise<CompositionNode> {
   const resolved = await resolveInstance(instance, context);
@@ -303,8 +361,9 @@ async function resolveInstanceNode(
     return { ...resolved.node, layerPath };
   }
 
-  const childStyle = getChildStyle(
+  const childStyle = await getChildStyle(
     instance as unknown as LayoutSourceNode,
+    tokens,
     parentIsFreeform,
   );
   return {
@@ -325,8 +384,9 @@ async function resolveTextNode(
   classNames: ClassNameRegistry,
   diagnostics: LayoutDiagnostic[],
   parentIsFreeform: boolean,
+  tokens: StructuralTokenResolver,
 ): Promise<CompositionNode> {
-  const childStyle = getChildStyle(node, parentIsFreeform);
+  const childStyle = await getChildStyle(node, tokens, parentIsFreeform);
   const declarations = await readCssDeclarations(node, diagnostics, layerPath);
   return {
     kind: 'text',
@@ -351,11 +411,8 @@ function containerNode(
   children: CompositionNode[],
   layerPath: string[],
   isRoot: boolean,
-  parentIsFreeform: boolean,
+  childStyle: ChildStyle | undefined,
 ): ContainerCompositionNode {
-  const childStyle = isRoot
-    ? undefined
-    : getChildStyle(node, parentIsFreeform);
   return {
     kind: 'container',
     nodeId: node.id,
@@ -399,11 +456,12 @@ async function readCssDeclarations(
   }
 }
 
-function layoutStyle(
+async function layoutStyle(
   node: LayoutSourceNode,
   diagnostics: LayoutDiagnostic[],
   layerPath: string[],
-): LayoutStyle {
+  tokens: StructuralTokenResolver,
+): Promise<LayoutStyle> {
   if (node.type === 'FRAME' && !isAutoLayout(node)) {
     const reason = node.layoutMode === 'GRID'
       ? 'grid-layout'
@@ -418,6 +476,7 @@ function layoutStyle(
   }
 
   const autoLayout = isAutoLayout(node);
+  const structuralTokens = await resolveStructuralTokens(node, tokens);
   return {
     mode: autoLayout ? 'auto-layout' : 'freeform',
     axis: node.layoutMode === 'HORIZONTAL' ? 'horizontal' : 'vertical',
@@ -440,17 +499,29 @@ function layoutStyle(
     sizingVertical: mapSizing(node.layoutSizingVertical),
     ...(isFiniteNumber(node.width) ? { width: node.width } : {}),
     ...(isFiniteNumber(node.height) ? { height: node.height } : {}),
+    ...(Object.keys(structuralTokens).length > 0
+      ? { tokens: structuralTokens }
+      : {}),
   };
 }
 
-function getChildStyle(
+async function getChildStyle(
   node: LayoutSourceNode,
+  tokens: StructuralTokenResolver,
   parentIsFreeform = false,
-): ChildStyle | undefined {
+): Promise<ChildStyle | undefined> {
   const style: ChildStyle = {};
   const absolute = node.layoutPositioning === 'ABSOLUTE' || parentIsFreeform;
   const horizontal = mapSizing(node.layoutSizingHorizontal);
   const vertical = mapSizing(node.layoutSizingVertical);
+  const widthToken = await resolveBoundToken(node, 'width', tokens);
+  const heightToken = await resolveBoundToken(node, 'height', tokens);
+  if (widthToken || heightToken) {
+    style.tokens = {
+      ...(widthToken ? { width: widthToken } : {}),
+      ...(heightToken ? { height: heightToken } : {}),
+    };
+  }
 
   if (absolute) {
     style.position = 'absolute';
@@ -539,6 +610,66 @@ function mapAlign(value: string | null | undefined): LayoutStyle['alignItems'] {
     case 'STRETCH': return 'stretch';
     default: return 'flex-start';
   }
+}
+
+const STRUCTURAL_TOKEN_FIELDS: ReadonlyArray<[
+  LayoutTokenField,
+  string,
+]> = [
+  ['gap', 'itemSpacing'],
+  ['counterGap', 'counterAxisSpacing'],
+  ['paddingTop', 'paddingTop'],
+  ['paddingRight', 'paddingRight'],
+  ['paddingBottom', 'paddingBottom'],
+  ['paddingLeft', 'paddingLeft'],
+  ['width', 'width'],
+  ['height', 'height'],
+];
+
+async function resolveStructuralTokens(
+  node: LayoutSourceNode,
+  tokens: StructuralTokenResolver,
+): Promise<NonNullable<LayoutStyle['tokens']>> {
+  const resolved = await Promise.all(
+    STRUCTURAL_TOKEN_FIELDS.map(async ([target, source]) =>
+      [target, await resolveBoundToken(node, source, tokens)] as const),
+  );
+  const result: NonNullable<LayoutStyle['tokens']> = {};
+  for (const [field, token] of resolved) {
+    if (token) {
+      result[field] = token;
+    }
+  }
+  return result;
+}
+
+function resolveBoundToken(
+  node: LayoutSourceNode,
+  field: string,
+  tokens: StructuralTokenResolver,
+): Promise<CssTokenReference | undefined> {
+  const binding = (
+    node.boundVariables as Readonly<Record<string, unknown>> | undefined
+  )?.[field];
+  const candidate = Array.isArray(binding) ? binding[0] : binding;
+  return tokens.resolve(
+    isVariableAlias(candidate) ? candidate : undefined,
+  );
+}
+
+function isVariableAlias(value: unknown): value is VariableAliasLike {
+  return typeof value === 'object'
+    && value !== null
+    && 'id' in value
+    && typeof value.id === 'string';
+}
+
+async function loadFigmaVariable(id: string): Promise<VariableLike | null> {
+  if (typeof figma === 'undefined' || !figma.variables) {
+    return null;
+  }
+  const variable = await figma.variables.getVariableByIdAsync(id);
+  return variable ? { id: variable.id, name: variable.name } : null;
 }
 
 function finite(value: number | null | undefined): number {

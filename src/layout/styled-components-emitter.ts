@@ -285,15 +285,20 @@ function layoutDeclarations(
     declarations.push(
       layout(
         style.axis === 'horizontal' ? 'column-gap' : 'row-gap',
-        formatLength(style.gap),
+        formatTokenLength(style.gap, style.tokens?.gap),
       ),
       layout(
         style.axis === 'horizontal' ? 'row-gap' : 'column-gap',
-        formatLength(style.counterGap),
+        formatTokenLength(style.counterGap, style.tokens?.counterGap),
       ),
     );
-  } else if (style.mode === 'auto-layout' && style.gap > 0) {
-    declarations.push(layout('gap', formatLength(style.gap)));
+  } else if (
+    style.mode === 'auto-layout'
+    && (style.gap > 0 || style.tokens?.gap)
+  ) {
+    declarations.push(
+      layout('gap', formatTokenLength(style.gap, style.tokens?.gap)),
+    );
   }
 
   const padding = style.mode === 'auto-layout' ? formatPadding(style) : null;
@@ -306,13 +311,17 @@ function layoutDeclarations(
     && style.width !== undefined
     && (style.mode === 'freeform' || style.sizingHorizontal === 'fixed')
   ) {
-    declarations.push(layout('width', formatLength(style.width)));
+    declarations.push(
+      layout('width', formatTokenLength(style.width, style.tokens?.width)),
+    );
   }
   if (
     style.height !== undefined
     && (style.mode === 'freeform' || style.sizingVertical === 'fixed')
   ) {
-    declarations.push(layout('height', formatLength(style.height)));
+    declarations.push(
+      layout('height', formatTokenLength(style.height, style.tokens?.height)),
+    );
   }
 
   if (
@@ -351,10 +360,14 @@ function childDeclarations(
       declarations.push(layout('top', formatLength(style.top)));
     }
     if (style.width !== undefined) {
-      declarations.push(layout('width', formatLength(style.width)));
+      declarations.push(
+        layout('width', formatTokenLength(style.width, style.tokens?.width)),
+      );
     }
     if (style.height !== undefined) {
-      declarations.push(layout('height', formatLength(style.height)));
+      declarations.push(
+        layout('height', formatTokenLength(style.height, style.tokens?.height)),
+      );
     }
     return declarations;
   }
@@ -389,7 +402,7 @@ function childDeclarations(
   }
 
   if (style.sizingHorizontal === 'fixed' && style.width !== undefined) {
-    const width = formatLength(style.width);
+    const width = formatTokenLength(style.width, style.tokens?.width);
     if (horizontalMain) {
       declarations.push(layout('flex', `0 0 ${width}`));
     }
@@ -397,7 +410,7 @@ function childDeclarations(
   }
 
   if (style.sizingVertical === 'fixed' && style.height !== undefined) {
-    const height = formatLength(style.height);
+    const height = formatTokenLength(style.height, style.tokens?.height);
     if (verticalMain) {
       declarations.push(layout('flex', `0 0 ${height}`));
     }
@@ -478,23 +491,33 @@ function formatPadding(style: LayoutStyle): string | null {
     paddingLeft: left,
   } = style;
 
-  if (top === 0 && right === 0 && bottom === 0 && left === 0) {
+  if (
+    top === 0
+    && right === 0
+    && bottom === 0
+    && left === 0
+    && !style.tokens?.paddingTop
+    && !style.tokens?.paddingRight
+    && !style.tokens?.paddingBottom
+    && !style.tokens?.paddingLeft
+  ) {
     return null;
   }
-  if (top === bottom && left === right) {
-    return top === left
-      ? formatLength(top)
-      : `${formatLength(top)} ${formatLength(right)}`;
+  const values = [
+    formatTokenLength(top, style.tokens?.paddingTop),
+    formatTokenLength(right, style.tokens?.paddingRight),
+    formatTokenLength(bottom, style.tokens?.paddingBottom),
+    formatTokenLength(left, style.tokens?.paddingLeft),
+  ];
+  if (values[0] === values[2] && values[1] === values[3]) {
+    return values[0] === values[1]
+      ? values[0]
+      : `${values[0]} ${values[1]}`;
   }
-  if (left === right) {
-    return `${formatLength(top)} ${formatLength(right)} ${formatLength(bottom)}`;
+  if (values[1] === values[3]) {
+    return `${values[0]} ${values[1]} ${values[2]}`;
   }
-  return [
-    formatLength(top),
-    formatLength(right),
-    formatLength(bottom),
-    formatLength(left),
-  ].join(' ');
+  return values.join(' ');
 }
 
 function formatLength(value: number): string {
@@ -503,6 +526,14 @@ function formatLength(value: number): string {
   }
   const rounded = Number.isInteger(value) ? value : Math.round(value * 100) / 100;
   return `${rounded}px`;
+}
+
+function formatTokenLength(
+  value: number,
+  token: { cssName: string } | undefined,
+): string {
+  const fallback = formatLength(value);
+  return token ? `var(${token.cssName}, ${fallback})` : fallback;
 }
 
 function escapeTemplateValue(value: string): string {

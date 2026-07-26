@@ -50,6 +50,10 @@ styled components. Recognized color variables use the frontend
 `colors` object from `styles/colors`; other bound Figma variables retain their
 `var(--token, fallback)` form.
 
+When Figma CSS is unavailable, bindings on structural fields such as gap,
+padding, width, and height are reconstructed with Sync Tokens' kebab-case name
+and the measured value as a fallback.
+
 ### Connected components
 
 Instances are **atomic**: the traversal never enters a component instance.
