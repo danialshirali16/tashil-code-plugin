@@ -57,6 +57,9 @@ All notable changes to Tashil Code are documented in this file.
 
 ### Changed
 
+- Bound gap, padding, width, and height variables are now reconstructed with
+  Sync Tokens' kebab-case CSS names and measured fallbacks when Figma CSS is
+  unavailable; repeated variable lookups are cached per generation.
 - Freeform selected designs now generate relative containers with positioned
   ordinary descendants using their Figma-local coordinates and dimensions;
   absolute children no longer become placeholder comments merely because node

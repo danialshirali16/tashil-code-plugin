@@ -68,6 +68,10 @@ effects retain their CSS custom-property references inside generated styled
 declarations. Unconnected components are reported as JSX markers and generation
 notes instead of being silently expanded.
 
+Bound structural variables for gap, padding, width, and height are also
+reconstructed when Figma CSS is unavailable, using the same kebab-case naming
+contract as Sync Tokens and retaining measured pixel fallbacks.
+
 Freeform frames establish a relative positioning context. Their ordinary
 children, and absolute children inside auto layout, retain supported Figma-local
 coordinates and dimensions as positioned styled components.

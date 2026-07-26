@@ -51,6 +51,21 @@ export type AlignItems = 'flex-start' | 'center' | 'flex-end' | 'baseline' | 'st
 /** Figma sizing mode → CSS. `HUG` is the default (document flow); omitted. */
 export type SizingMode = 'fill' | 'fixed' | 'hug';
 
+export type CssTokenReference = {
+  cssName: string;
+  variableId: string;
+};
+
+export type LayoutTokenField =
+  | 'gap'
+  | 'counterGap'
+  | 'paddingTop'
+  | 'paddingRight'
+  | 'paddingBottom'
+  | 'paddingLeft'
+  | 'width'
+  | 'height';
+
 /**
  * The flexbox contract a container emits. Captures the structural flex
  * properties (direction, wrap, gap, alignment, padding) plus the container's
@@ -78,6 +93,7 @@ export type LayoutStyle = {
   width?: number;
   /** Fixed height in px, applied when `sizingVertical === 'fixed'`. */
   height?: number;
+  tokens?: Partial<Record<LayoutTokenField, CssTokenReference>>;
 };
 
 /**
@@ -102,6 +118,7 @@ export type ChildStyle = {
   width?: number;
   /** Fixed height in px, applied when `sizingVertical === 'fixed'`. */
   height?: number;
+  tokens?: Partial<Record<'width' | 'height', CssTokenReference>>;
 };
 
 /**

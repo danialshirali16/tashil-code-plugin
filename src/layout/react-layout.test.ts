@@ -1,7 +1,10 @@
 import { describe, expect, it, vi } from 'vitest';
 import * as ts from 'typescript';
 import { createUsageSnippet } from '../codegen';
-import { extractLayout } from './figma-layout-extractor';
+import {
+  extractLayout,
+  type ExtractLayoutOptions,
+} from './figma-layout-extractor';
 import {
   absolutePositionedChild,
   component,
@@ -18,8 +21,11 @@ import {
 } from './fixtures';
 import { generateLayout } from './generate-layout';
 
-function generate(node: Parameters<typeof extractLayout>[0]) {
-  return extractLayout(node).then((document) =>
+function generate(
+  node: Parameters<typeof extractLayout>[0],
+  options: ExtractLayoutOptions = {},
+) {
+  return extractLayout(node, options).then((document) =>
     generateLayout(document));
 }
 
@@ -288,8 +294,16 @@ describe('full React layout generation', () => {
         gap: 'var(--spacing-400, 1rem)',
         padding: 'var(--spacing-600, 1.5rem)',
         'border-radius': 'var(--radius-large, 0.75rem)',
+        'border-width': 'var(--border-width-default, 1px)',
+        filter: 'blur(var(--blur-soft, 4px))',
         'box-shadow': 'var(--shadow-card, 0 4px 12px rgb(0 0 0 / 8%))',
+        'font-family': 'var(--font-family-body, Inter, sans-serif)',
         'font-size': 'var(--font-size-body, 1rem)',
+        'font-weight': 'var(--font-weight-semibold, 600)',
+        'letter-spacing': 'var(--letter-spacing-tight)',
+        'line-height': 'var(--line-height-body, 1.5rem)',
+        opacity: 'var(--opacity-disabled, 0.5)',
+        'text-shadow': 'var(--shadow-text, 0 1px 2px rgb(0 0 0 / 10%))',
       },
     });
 
@@ -309,6 +323,107 @@ describe('full React layout generation', () => {
       'box-shadow: var(--shadow-card, 0 4px 12px rgb(0 0 0 / 8%));',
     );
     expect(generated.tsx).toContain('font-size: var(--font-size-body, 1rem);');
+    expect(generated.tsx).toContain(
+      'font-family: var(--font-family-body, Inter, sans-serif);',
+    );
+    expect(generated.tsx).toContain(
+      'font-weight: var(--font-weight-semibold, 600);',
+    );
+    expect(generated.tsx).toContain(
+      'line-height: var(--line-height-body, 1.5rem);',
+    );
+    expect(generated.tsx).toContain(
+      'letter-spacing: var(--letter-spacing-tight);',
+    );
+    expect(generated.tsx).toContain(
+      'border-width: var(--border-width-default, 1px);',
+    );
+    expect(generated.tsx).toContain(
+      'border-radius: var(--radius-large, 0.75rem);',
+    );
+    expect(generated.tsx).toContain(
+      'opacity: var(--opacity-disabled, 0.5);',
+    );
+    expect(generated.tsx).toContain(
+      'text-shadow: var(--shadow-text, 0 1px 2px rgb(0 0 0 / 10%));',
+    );
+    expect(generated.tsx).toContain(
+      'filter: blur(var(--blur-soft, 4px));',
+    );
+  });
+
+  it('reconstructs bound structural tokens with kebab-case names and fallbacks', async () => {
+    const child = frame('f:token-child', 'Token child', [], {
+      boundVariables: {
+        height: { id: 'size-height' },
+        width: { id: 'size-width' },
+      },
+      height: 80,
+      layoutSizingHorizontal: 'FIXED',
+      layoutSizingVertical: 'FIXED',
+      width: 240,
+    });
+    const root = frame('f:structural-tokens', 'Structural tokens', [child], {
+      boundVariables: {
+        counterAxisSpacing: { id: 'spacing-counter-gap' },
+        height: { id: 'size-root-height' },
+        itemSpacing: { id: 'spacing-gap' },
+        paddingBottom: { id: 'spacing-padding' },
+        paddingLeft: { id: 'spacing-padding' },
+        paddingRight: { id: 'spacing-padding' },
+        paddingTop: { id: 'spacing-padding' },
+      },
+      height: 400,
+      counterAxisSpacing: 12,
+      itemSpacing: 16,
+      layoutWrap: 'WRAP',
+      layoutSizingVertical: 'FIXED',
+      paddingBottom: 24,
+      paddingLeft: 24,
+      paddingRight: 24,
+      paddingTop: 24,
+    });
+    const variables: Record<string, { id: string; name: string }> = {
+      'size-height': { id: 'size-height', name: 'Size/Card/Height' },
+      'size-root-height': {
+        id: 'size-root-height',
+        name: 'Size/Content/Height',
+      },
+      'size-width': { id: 'size-width', name: 'Size/Card/Width' },
+      'spacing-gap': { id: 'spacing-gap', name: 'Spacing/Layout Medium' },
+      'spacing-counter-gap': {
+        id: 'spacing-counter-gap',
+        name: 'Spacing/Layout Small',
+      },
+      'spacing-padding': {
+        id: 'spacing-padding',
+        name: 'Spacing/Container/Large',
+      },
+    };
+    const loadVariable = vi.fn((id: string) =>
+      Promise.resolve(variables[id] ?? null));
+
+    const generated = await generate(root, { loadVariable });
+
+    expect(generated.tsx).toContain(
+      'row-gap: var(--spacing-layout-medium, 16px);',
+    );
+    expect(generated.tsx).toContain(
+      'column-gap: var(--spacing-layout-small, 12px);',
+    );
+    expect(generated.tsx).toContain(
+      'padding: var(--spacing-container-large, 24px);',
+    );
+    expect(generated.tsx).toContain(
+      'height: var(--size-content-height, 400px);',
+    );
+    expect(generated.tsx).toContain(
+      'width: var(--size-card-width, 240px);',
+    );
+    expect(generated.tsx).toContain(
+      'height: var(--size-card-height, 80px);',
+    );
+    expect(loadVariable).toHaveBeenCalledTimes(6);
   });
 
   it('does not add the colors import for literal colors or non-color tokens', async () => {

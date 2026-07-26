@@ -373,27 +373,28 @@ whether selected directly or nested in a generated layout.
 - [x] Preserve non-color Figma-emitted `var()` expressions exactly.
 - [x] Convert recognized whole-value color variables to references on the
   frontend `colors` object and import it only when used.
-- [ ] Resolve bound variables for structural values rebuilt by the layout
+- [x] Resolve bound variables for structural values rebuilt by the layout
   extractor.
-- [ ] Reuse Sync Tokens' kebab-case CSS token naming.
-- [ ] Add bounded concurrency and per-generation caches for CSS and variable
-  lookups.
+- [x] Reuse Sync Tokens' kebab-case CSS token naming.
+- [x] Cache variable lookups per generation.
+- [ ] Add bounded concurrency and a per-generation cache for node CSS.
 - [x] Produce a diagnostic when CSS cannot be read, while
   preserving the remaining declarations.
 
 Test matrix:
 
-- [ ] gap and row/column gap;
-- [ ] four-sided and shorthand padding;
-- [ ] width, height, and absolute offsets;
-- [ ] font family, size, weight, line height, and letter spacing;
+- [x] gap and row/column gap;
+- [x] four-sided and shorthand padding;
+- [x] bound width and height;
+- [ ] token-aware absolute offsets;
+- [x] font family, size, weight, line height, and letter spacing;
 - [x] foreground and background color-token expressions;
-- [ ] border width, color, and radius;
-- [ ] opacity;
-- [ ] box shadow, text shadow, and blur;
-- [ ] token with fallback;
-- [ ] token without a resolvable fallback;
-- [ ] unbound literal value.
+- [x] border width, color, and radius;
+- [x] opacity;
+- [x] box shadow, text shadow, and blur;
+- [x] token with fallback;
+- [x] token without a resolvable fallback;
+- [x] unbound literal value.
 
 Exit criteria: every supported property preserves a bound token and emits a
 literal only when no token exists.
@@ -468,7 +469,7 @@ fixtures and contain no unused duplicate aliases.
 - [x] Handle nested horizontal and vertical layouts.
 - [x] Add overflow guards such as `min-width: 0` or `min-height: 0` when a
   growing flex child requires them.
-- [ ] Preserve token references for sizing, gap, and padding declarations.
+- [x] Preserve token references for sizing, gap, and padding declarations.
 
 Exit criteria: horizontal, vertical, nested, wrapping, fixed, fill, and hug
 fixtures match the expected styled-components output without avoidable
@@ -522,7 +523,7 @@ verification are complete.
   name.
 - [ ] Nested connected usage matches standalone connected usage for live props,
   semantic values, text, and instance swaps.
-- [ ] Gap, padding, sizing, typography, color, borders, radius, opacity, and
+- [x] Gap, padding, sizing, typography, color, borders, radius, opacity, and
   supported effects preserve Figma token references.
 - [x] Whole-value color variables use `colors` from `styles/colors`.
 - [x] Literal fallbacks remain present where Figma provides or the extractor can
