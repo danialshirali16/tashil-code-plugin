@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   formatColor,
+  formatCssTokenName,
   formatNumber,
   formatTokenName,
   formatTokenValue,
@@ -41,6 +42,13 @@ describe('formatTokenName', () => {
 
   it('dot: separates normalized groups with periods', () => {
     expect(formatTokenName('Color/Primary/Hover', 'dot')).toBe('color.primary.hover');
+  });
+
+  it('escapes slash and dot separators at the CSS identifier boundary', () => {
+    expect(formatCssTokenName('Color/Text/Primary', 'slash'))
+      .toBe('color\\/text\\/primary');
+    expect(formatCssTokenName('Color/Primary/Hover', 'dot'))
+      .toBe('color\\.primary\\.hover');
   });
 
   it('snake: underscores between segments', () => {
@@ -162,7 +170,7 @@ describe('formatTokenValue', () => {
       ...baseOptions,
       colorFormat: 'variable',
       nameStyle: 'dot',
-    })).toBe('var(--reference.blue.500)');
+    })).toBe('var(--reference\\.blue\\.500)');
   });
 
   it('applies px-to-rem conversion to resolved numeric aliases', () => {
@@ -216,5 +224,31 @@ describe('serializeCollection', () => {
     };
     expect(serializeCollection(collection, baseOptions))
       .toContain('--radius-sm: var(--other-radius);');
+  });
+
+  it('escapes dot token names and matching var references in generated CSS', () => {
+    const collection: TokenCollection = {
+      id: 'c1',
+      name: 'Product',
+      modes: [{ modeId: 'm1', name: 'Mode 1' }],
+      defaultModeId: 'm1',
+      tokens: [
+        token({
+          name: 'Color/Primary/Hover',
+          resolvedType: 'COLOR',
+          value: {
+            kind: 'alias',
+            value: { targetName: 'Reference/Blue/500' },
+          },
+        }),
+      ],
+    };
+    expect(serializeCollection(collection, {
+      ...baseOptions,
+      colorFormat: 'variable',
+      nameStyle: 'dot',
+    })).toContain(
+      '--color\\.primary\\.hover: var(--reference\\.blue\\.500);',
+    );
   });
 });

@@ -832,7 +832,7 @@ async function exportTokens(
           defaultModeId: collection.defaultModeId,
           tokens,
         };
-        const suffix = modeIds.length > 1 && mode ? `-${slug(mode.name)}` : '';
+        const suffix = collection.modes.length > 1 && mode ? `-${slug(mode.name)}` : '';
         files.push({
           name: `${collectionSlug}${suffix}.css`,
           css: serializeCollection(domain, options),

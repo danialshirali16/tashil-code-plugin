@@ -403,12 +403,31 @@ describe('Sync Tokens export', () => {
     >('EXPORT_TOKENS_RESULT')[0];
     expect(result.ok).toBe(true);
     expect(result.files?.[0]?.name).toBe('product-tokens-zhina.css');
-    expect(result.files?.[0]?.css).toContain('--color.primary.hover: #0d99ff;');
-    expect(result.files?.[0]?.css).toContain('--spacing.4: 1rem;');
+    expect(result.files?.[0]?.css).toContain('--color\\.primary\\.hover: #0d99ff;');
+    expect(result.files?.[0]?.css).toContain('--spacing\\.4: 1rem;');
     expect(result.files?.[1]?.name).toBe('product-tokens-dark.css');
-    expect(result.files?.[1]?.css).toContain('--color.primary.hover: #033366;');
-    expect(result.files?.[1]?.css).toContain('--spacing.4: 1.25rem;');
+    expect(result.files?.[1]?.css).toContain('--color\\.primary\\.hover: #033366;');
+    expect(result.files?.[1]?.css).toContain('--spacing\\.4: 1.25rem;');
     expect(result.files?.map((file) => file.css).join('\n')).not.toContain('#000000');
+
+    utilityMocks.handlers.get('EXPORT_TOKENS')?.({
+      collectionIds: ['product'],
+      operationId: 'export-single-mode',
+      options: {
+        ...options,
+        modesByCollection: { product: ['product-zhina'] },
+      },
+    });
+
+    await vi.waitFor(() => {
+      expect(emittedPayloads<
+        Parameters<ExportTokensResultHandler['handler']>[0]
+      >('EXPORT_TOKENS_RESULT')).toHaveLength(2);
+    });
+    const singleModeResult = emittedPayloads<
+      Parameters<ExportTokensResultHandler['handler']>[0]
+    >('EXPORT_TOKENS_RESULT')[1];
+    expect(singleModeResult.files?.[0]?.name).toBe('product-tokens-zhina.css');
   });
 });
 

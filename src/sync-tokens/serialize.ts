@@ -39,6 +39,17 @@ export function formatTokenName(raw: string, style: NameStyle): string {
   }
 }
 
+/**
+ * Format a token name for use as a CSS custom-property identifier.
+ *
+ * Dot and slash are meaningful token-group separators, but they are not valid
+ * unescaped characters inside a CSS identifier. Keep `formatTokenName` useful
+ * for logical/display names and escape only at the CSS boundary.
+ */
+export function formatCssTokenName(raw: string, style: NameStyle): string {
+  return formatTokenName(raw, style).replace(/[./]/g, '\\$&');
+}
+
 function toKebab(segment: string): string {
   return segment
     .replace(/([a-z0-9])([A-Z])/g, '$1-$2')
@@ -118,14 +129,14 @@ function formatTokenValueOf(value: TokenValue, token: Token, options: ExportOpti
       return formatColor(value.value, options.colorFormat);
     case 'alias': {
       if (options.colorFormat === 'variable') {
-        return `var(--${formatTokenName(value.value.targetName, options.nameStyle)})`;
+        return `var(--${formatCssTokenName(value.value.targetName, options.nameStyle)})`;
       }
       if (value.value.resolvedValue !== undefined) {
         return formatTokenValueOf(value.value.resolvedValue, token, options);
       }
       // An unresolved reference is safer and more useful than a fabricated
       // black value or silently dropping the declaration.
-      return `var(--${formatTokenName(value.value.targetName, options.nameStyle)})`;
+      return `var(--${formatCssTokenName(value.value.targetName, options.nameStyle)})`;
     }
     case 'number':
       return formatNumber(value.value, token, options);
@@ -155,7 +166,7 @@ function quoteIfNeeded(value: string): string {
 export function serializeCollection(collection: TokenCollection, options: ExportOptions): string {
   const lines: string[] = [`/* ${collection.name} — exported from Figma variables */`, ':root {'];
   for (const token of collection.tokens) {
-    const name = formatTokenName(token.name, options.nameStyle);
+    const name = formatCssTokenName(token.name, options.nameStyle);
     const value = formatTokenValue(token, options);
     if (value.length === 0) {
       continue;
