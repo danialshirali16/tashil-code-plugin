@@ -37,6 +37,8 @@ export type ComponentUsage = {
   imports: ComponentImport[];
   jsx: string;
   diagnostics: MappingDiagnostic[];
+  /** Application-owned values required by a semantic component recipe. */
+  runtimeRequirements?: string[];
 };
 
 /** Layout direction for a container, derived from Figma `layoutMode`. */
@@ -133,6 +135,7 @@ export type CssDeclaration = {
 };
 
 export type CompositionNode =
+  | AssetCompositionNode
   | ComponentCompositionNode
   | ContainerCompositionNode
   | TextCompositionNode
@@ -160,12 +163,23 @@ export type ContainerCompositionNode = {
   nodeId: string;
   layerPath: string[];
   className: string;
-  element: 'div';
+  element: 'div' | 'section';
   layout: LayoutStyle;
   /** Token-aware visual/typography/layout CSS returned by `getCSSAsync()`. */
   declarations: CssDeclaration[];
   children: CompositionNode[];
   /** How this container behaves as a flex item in its parent. */
+  childStyle?: ChildStyle;
+};
+
+/** A safely exported visual leaf rendered as an accessible image element. */
+export type AssetCompositionNode = {
+  kind: 'asset';
+  nodeId: string;
+  layerPath: string[];
+  alt: string;
+  src: string;
+  declarations: CssDeclaration[];
   childStyle?: ChildStyle;
 };
 
@@ -233,6 +247,12 @@ export type GeneratedLayout = {
   wrapperCount: number;
   tsx: string;
   diagnostics: LayoutDiagnostic[];
+  runtimeRequirements?: string[];
+  fidelity?: {
+    unresolvedComponents: number;
+    unsupportedAssets: number;
+    omittedDeclarations: number;
+  };
 };
 
 /** Full-tree styled-components output plus selection metadata shown to users. */

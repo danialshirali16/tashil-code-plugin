@@ -11,6 +11,7 @@ import {
 } from './codegen';
 import { normalizeHttpUrl, normalizeOptionalHttpUrl } from './external-url';
 import { renderImportLines } from './layout/imports';
+import { GenerationContext } from './layout/generation-context';
 import type { LayoutSourceNode } from './layout/figma-layout-extractor';
 import {
   generateReactLayout,
@@ -166,7 +167,7 @@ figma.codegen.on('generate', async (event) => generateCodegenBlocks(event.node))
  * Produce Dev Mode codegen blocks for a selected node. A connected component
  * (instance/component/component-set) follows the existing single-component
  * branch, byte-identical to before. A supported design root additionally
- * produces a complete React component and CSS Module for its visible subtree;
+ * produces a complete styled-components React module for its visible subtree;
  * the selected-layer inspection blocks remain additive.
  */
 async function generateCodegenBlocks(node: SceneNode): Promise<CodegenBlock[]> {
@@ -178,9 +179,13 @@ async function generateCodegenBlocks(node: SceneNode): Promise<CodegenBlock[]> {
     }
 
     if (supportsReactLayout(node)) {
+      const context = new GenerationContext();
       const [layoutResult, inspectionResult] = await Promise.allSettled([
-        generateReactLayout(node as unknown as LayoutSourceNode),
-        inspectSceneNode(node),
+        generateReactLayout(
+          node as unknown as LayoutSourceNode,
+          { context },
+        ),
+        inspectSceneNode(node, context),
       ]);
       const blocks: CodegenBlock[] = [];
       if (layoutResult.status === 'fulfilled') {
@@ -371,8 +376,11 @@ function formatRuntimeRequirements(
 }
 
 /** Inspect any single scene node through the shared inspection service. */
-async function inspectSceneNode(node: SceneNode): Promise<FrameInspection> {
-  return inspectFrame(node as unknown as InspectableNode);
+async function inspectSceneNode(
+  node: SceneNode,
+  context?: GenerationContext,
+): Promise<FrameInspection> {
+  return inspectFrame(node as unknown as InspectableNode, { context });
 }
 
 /**

@@ -206,7 +206,7 @@ async function resolveMainComponent(
   instance: InstanceLike,
   context: GenerationContext,
 ): Promise<ComponentNode | null> {
-  const cached = context.getCachedMainComponent(instance.id);
+  const cached = context.getCachedMainComponent<ComponentNode>(instance.id);
   if (cached !== undefined) {
     return cached;
   }

@@ -154,6 +154,14 @@ export function resolveSemanticUsage(
         ...collectInstanceImports(recipe),
       ],
       jsx: createSelfClosingTag(componentName, props),
+      ...(runtimeRequirements.length > 0
+        ? {
+            runtimeRequirements: runtimeRequirements.map((requirement) => {
+              const note = requirement.note ? ` — ${requirement.note}` : '';
+              return `${requirement.targetPath}: ${requirement.typeName}${note}`;
+            }),
+          }
+        : {}),
     },
   };
 }

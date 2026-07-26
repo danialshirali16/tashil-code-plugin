@@ -121,6 +121,8 @@ type ChildLayoutOptions = {
   y?: number;
   visible?: boolean;
   componentProperties?: Record<string, { type: string; value: string | boolean }>;
+  svg?: string;
+  exportError?: Error;
 };
 
 /** A standalone TEXT node (outside any component instance). */
@@ -218,6 +220,13 @@ export function vector(
     parent: { type: 'PAGE' },
     type: 'VECTOR',
     visible: childOptions.visible ?? true,
+    ...(childOptions.svg || childOptions.exportError
+      ? {
+          exportAsync: () => childOptions.exportError
+            ? Promise.reject(childOptions.exportError)
+            : Promise.resolve(childOptions.svg ?? ''),
+        }
+      : {}),
   } as unknown as VectorDouble;
 }
 

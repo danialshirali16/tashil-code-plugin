@@ -1,12 +1,19 @@
 import { describe, expect, it, vi } from 'vitest';
+import postcss from 'postcss';
 import * as ts from 'typescript';
 import { createUsageSnippet } from '../codegen';
+import { createSemanticNodeTree } from '../semantic/figma-adapter';
+import { extractFigmaSemanticSnapshot } from '../semantic/figma-extractor';
+import { createDialogNode, createDialogRecipe } from '../semantic/fixtures';
+import { resolveSemanticUsage } from '../semantic/resolver';
+import { inspectFrame } from '../inspect/inspect-frame';
 import {
   extractLayout,
   type ExtractLayoutOptions,
 } from './figma-layout-extractor';
 import {
   absolutePositionedChild,
+  brokenInstance,
   component,
   connection,
   duplicateNamesAcrossPackages,
@@ -17,8 +24,11 @@ import {
   text,
   unconnectedInstance,
   unsupportedVector,
+  vector,
   verticalForm,
+  fixtures,
 } from './fixtures';
+import { GenerationContext } from './generation-context';
 import { generateLayout } from './generate-layout';
 
 function generate(
@@ -30,23 +40,103 @@ function generate(
 }
 
 function expectValidTsx(source: string): void {
-  const output = ts.transpileModule(source, {
-    compilerOptions: {
-      jsx: ts.JsxEmit.Preserve,
-      module: ts.ModuleKind.ESNext,
-      target: ts.ScriptTarget.ES2020,
-    },
-    fileName: 'generated-layout.tsx',
-    reportDiagnostics: true,
-  });
-  const errors = (output.diagnostics ?? [])
+  const generatedPath = '/generated-layout.tsx';
+  const declarationsPath = '/generated-modules.d.ts';
+  const compilerOptions: ts.CompilerOptions = {
+    jsx: ts.JsxEmit.Preserve,
+    module: ts.ModuleKind.ESNext,
+    moduleResolution: ts.ModuleResolutionKind.Bundler,
+    noEmit: true,
+    strict: true,
+    target: ts.ScriptTarget.ES2020,
+  };
+  const host = ts.createCompilerHost(compilerOptions);
+  const declarations = createGeneratedModuleDeclarations(source);
+  const virtualFiles = new Map([
+    [generatedPath, source],
+    [declarationsPath, declarations],
+  ]);
+  const readFile = host.readFile.bind(host);
+  const fileExists = host.fileExists.bind(host);
+  const getSourceFile = host.getSourceFile.bind(host);
+  host.readFile = (fileName) => virtualFiles.get(fileName) ?? readFile(fileName);
+  host.fileExists = (fileName) =>
+    virtualFiles.has(fileName) || fileExists(fileName);
+  host.getSourceFile = (fileName, languageVersion) => {
+    const contents = virtualFiles.get(fileName);
+    return contents === undefined
+      ? getSourceFile(fileName, languageVersion)
+      : ts.createSourceFile(fileName, contents, languageVersion, true);
+  };
+  const program = ts.createProgram(
+    [generatedPath, declarationsPath],
+    compilerOptions,
+    host,
+  );
+  const errors = ts.getPreEmitDiagnostics(program)
     .filter((diagnostic) => diagnostic.category === ts.DiagnosticCategory.Error)
     .map((diagnostic) => ts.flattenDiagnosticMessageText(diagnostic.messageText, '\n'));
 
   expect(errors).toEqual([]);
+  expectValidStyledCss(source);
+}
+
+function createGeneratedModuleDeclarations(source: string): string {
+  const names = new Set<string>();
+  const imports = source.matchAll(
+    /import\s*\{([^}]+)\}\s*from\s*["']@tashilcar\/swiss-army-knife["']/g,
+  );
+  for (const match of imports) {
+    for (const specifier of match[1].split(',')) {
+      const imported = specifier.trim().split(/\s+as\s+/)[0];
+      if (imported) {
+        names.add(imported);
+      }
+    }
+  }
+  return [
+    'declare namespace JSX {',
+    '  interface IntrinsicElements { [name: string]: any; }',
+    '}',
+    'declare module "styled-components" {',
+    '  const styled: any;',
+    '  export default styled;',
+    '}',
+    'declare module "styles/colors" {',
+    '  const colors: any;',
+    '  export default colors;',
+    '}',
+    'declare module "@tashilcar/swiss-army-knife" {',
+    ...Array.from(names, (name) => `  export const ${name}: any;`),
+    '}',
+  ].join('\n');
+}
+
+function expectValidStyledCss(source: string): void {
+  const templates = source.matchAll(/styled\.[A-Za-z][A-Za-z0-9]*`([\s\S]*?)`/g);
+  for (const match of templates) {
+    const css = match[1].replace(/\$\{[^}]+\}/g, 'token');
+    expect(() => postcss.parse(`.generated {${css}}`)).not.toThrow();
+  }
 }
 
 describe('full React layout generation', () => {
+  it.each(Object.entries(fixtures))(
+    'matches the deterministic %s roadmap fixture snapshot',
+    async (_name, createFixture) => {
+      const generated = await generate(createFixture());
+      expect({
+        componentCount: generated.componentCount,
+        componentName: generated.componentName,
+        diagnostics: generated.diagnostics,
+        fidelity: generated.fidelity,
+        runtimeRequirements: generated.runtimeRequirements,
+        tsx: generated.tsx,
+        wrapperCount: generated.wrapperCount,
+      }).toMatchSnapshot();
+    },
+  );
+
   it('generates a complete frame component with connected children and styled-components', async () => {
     const generated = await generate(verticalForm());
 
@@ -123,18 +213,20 @@ describe('full React layout generation', () => {
     });
 
     try {
+      const metadata = connection({
+        childrenMode: 'none',
+        componentName: 'Button',
+        importPath: '@tashilcar/swiss-army-knife',
+        propMappings: {
+          leadingIcon: {
+            '*': { prop: 'renderRightIcon', value: '$instanceSwap' },
+          },
+        },
+      });
       const button = component(
         'c:button-with-icon',
         'Button',
-        JSON.stringify(connection({
-          childrenMode: 'none',
-          componentName: 'Button',
-          propMappings: {
-            leadingIcon: {
-              '*': { prop: 'renderRightIcon', value: '$instanceSwap' },
-            },
-          },
-        })),
+        JSON.stringify(metadata),
       );
       const generated = await generate(frame('f:icon', 'Icon action', [
         instance('i:icon', 'Icon button', button, {
@@ -153,9 +245,142 @@ describe('full React layout generation', () => {
       expect(generated.tsx).toContain(
         '<Button renderRightIcon={<Icon name="credit-card" />} />',
       );
+      const standalone = createUsageSnippet(metadata, {
+        componentProperties: { leadingIcon: 'credit-card-id' },
+        displayText: 'Icon button',
+        instanceSwaps: {
+          leadingIcon: {
+            componentId: 'credit-card-id',
+            componentName: 'CreditCard',
+          },
+        },
+      });
+      expect(standalone.code).toContain(
+        '<Button renderRightIcon={<Icon name="credit-card" />} />',
+      );
     } finally {
       vi.unstubAllGlobals();
     }
+  });
+
+  it('matches standalone text overrides for a live nested instance', async () => {
+    const metadata = connection({
+      childrenMode: 'text',
+      componentName: 'Button',
+      importPath: '@tashilcar/swiss-army-knife',
+    });
+    const button = component('c:text-parity', 'Button', JSON.stringify(metadata));
+    const generated = await generate(frame('f:text-parity', 'Text parity', [
+      instance('i:text-parity', 'Button', button, {
+        componentProperties: {
+          'label#text': { type: 'TEXT', value: 'Pay now' },
+        },
+      }),
+    ]));
+    const standalone = createUsageSnippet(metadata, {
+      componentProperties: { label: 'Pay now' },
+      displayText: 'Button',
+      instanceSwaps: {},
+    });
+
+    expect(standalone.code).toContain('  Pay now');
+    expect(generated.tsx).toContain('  Pay now');
+    expect(generated.tsx).toContain('<Button>');
+  });
+
+  it('matches standalone semantic usage for the same live nested instance', async () => {
+    const recipe = createDialogRecipe();
+    recipe.figmaSnapshot = extractFigmaSemanticSnapshot(
+      createDialogNode(),
+      'c:semantic-dialog',
+    ).snapshot;
+    const metadata = connection({
+      componentName: 'ConfirmationDialog',
+      importPath: '@tashilcar/swiss-army-knife',
+      semanticRecipe: recipe,
+    });
+    const main = component(
+      'c:semantic-dialog',
+      'Dialog',
+      JSON.stringify(metadata),
+    );
+    const buttonMain = {
+      ...component('c:semantic-button', 'Button'),
+      key: 'button-main-key',
+    } as unknown as ReturnType<typeof component>;
+    const base = instance('i:semantic-dialog', 'Dialog', main, {
+      componentProperties: {
+        intent: { type: 'VARIANT', value: 'Danger' },
+      },
+    });
+    const dialog = {
+      ...(base as unknown as Record<string, unknown>),
+      children: [
+        frame('f:semantic-header', 'Header', [
+          text('t:semantic-title', 'Title', 'Delete workspace?'),
+          text(
+            't:semantic-description',
+            'Description',
+            'This action cannot be undone.',
+          ),
+        ]),
+        frame('f:semantic-footer', 'Footer', [
+          instance('i:semantic-secondary', 'Secondary action', buttonMain, {
+            componentProperties: {
+              label: { type: 'TEXT', value: 'Cancel' },
+            },
+          }),
+          instance('i:semantic-primary', 'Primary action', buttonMain, {
+            componentProperties: {
+              label: { type: 'TEXT', value: 'Delete' },
+            },
+          }),
+        ]),
+      ],
+    } as unknown as SceneNode;
+
+    const generated = await generate(frame('f:semantic', 'Semantic frame', [
+      dialog,
+    ]));
+    const semanticRoot = await createSemanticNodeTree(dialog);
+    const standalone = resolveSemanticUsage(
+      metadata.componentName,
+      metadata.importPath,
+      recipe,
+      {
+        componentProperties: { intent: 'Danger' },
+        root: semanticRoot,
+      },
+    );
+    const compact = (value: string) => value.replace(/\s+/g, ' ').trim();
+
+    expect(compact(generated.tsx)).toContain(compact(standalone.usage.jsx));
+    expect(generated.tsx).toContain(
+      'import { ConfirmationDialog } from "@tashilcar/swiss-army-knife";',
+    );
+    expect(generated.tsx).toContain('title={"Delete workspace?"}');
+    expect(generated.runtimeRequirements).toEqual([
+      'Semantic frame / Dialog — onConfirm: () => void',
+    ]);
+  });
+
+  it('diagnoses invalid and missing nested component metadata', async () => {
+    const invalid = component('c:invalid', 'Invalid', '{not-json');
+    const generated = await generate(frame('f:broken', 'Broken connections', [
+      instance('i:invalid', 'Invalid', invalid),
+      ...brokenInstance().children,
+    ]));
+
+    expect(generated.diagnostics).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        nodeId: 'i:invalid',
+        reason: 'invalid-connection',
+      }),
+      expect.objectContaining({
+        nodeId: 'i:broken',
+        reason: 'missing-main-component',
+      }),
+    ]));
   });
 
   it('matches standalone usage for the same live connected instance', async () => {
@@ -255,6 +480,133 @@ describe('full React layout generation', () => {
     ]);
   });
 
+  it('preserves token-aware absolute offsets from Figma CSS', async () => {
+    const badge = text('t:offset-token', 'Badge', 'Sale', {
+      layoutPositioning: 'ABSOLUTE',
+      x: 24,
+      y: 16,
+    }) as unknown as TextNode & {
+      getCSSAsync: () => Promise<Record<string, string>>;
+    };
+    badge.getCSSAsync = async () => ({
+      left: 'var(--spacing-inline-badge, 24px)',
+      top: 'var(--spacing-block-badge, 16px)',
+    });
+    const generated = await generate(frame(
+      'f:offset-token',
+      'Token offsets',
+      [badge],
+    ));
+
+    expect(generated.tsx).toContain('left: var(--spacing-inline-badge, 24px);');
+    expect(generated.tsx).toContain('top: var(--spacing-block-badge, 16px);');
+  });
+
+  it('bounds sibling work, preserves document order, and shares CSS cache with inspection', async () => {
+    let active = 0;
+    let peak = 0;
+    const children = Array.from({ length: 24 }, (_, index) => {
+      const child = frame(`f:child:${index}`, `Child ${index}`, [], {
+        css: { display: 'flex' },
+      }) as unknown as {
+        getCSSAsync: () => Promise<Record<string, string>>;
+      } & FrameNode;
+      child.getCSSAsync = vi.fn(async () => {
+        active += 1;
+        peak = Math.max(peak, active);
+        await Promise.resolve();
+        active -= 1;
+        return { display: 'flex' };
+      });
+      return child;
+    });
+    const root = frame('f:concurrent', 'Concurrent layout', children, {
+      css: { display: 'flex' },
+    }) as unknown as {
+      getCSSAsync: () => Promise<Record<string, string>>;
+    } & FrameNode;
+    const rootCss = vi.fn(async () => ({ display: 'flex' }));
+    root.getCSSAsync = rootCss;
+    const context = new GenerationContext({ maxConcurrency: 3 });
+
+    const [generated] = await Promise.all([
+      generate(root, { context }),
+      inspectFrame(root, { context }),
+    ]);
+
+    expect(peak).toBeLessThanOrEqual(3);
+    expect(rootCss).toHaveBeenCalledTimes(1);
+    const positions = children.map((_, index) =>
+      generated.tsx.indexOf(`<Child${index} />`));
+    expect(positions.every((position) => position >= 0)).toBe(true);
+    expect([...positions].sort((a, b) => a - b)).toEqual(positions);
+  });
+
+  it('caches repeated structural token lookups within one generation', async () => {
+    const tokenAlias = { id: 'variable:space-md' };
+    const loadVariable = vi.fn(async () => ({
+      id: tokenAlias.id,
+      name: 'spacing/medium',
+    }));
+    const root = frame('f:tokens', 'Token cache', [], {
+      boundVariables: {
+        itemSpacing: tokenAlias,
+        paddingTop: tokenAlias,
+        paddingRight: tokenAlias,
+        paddingBottom: tokenAlias,
+        paddingLeft: tokenAlias,
+      },
+      itemSpacing: 16,
+      paddingTop: 16,
+      paddingRight: 16,
+      paddingBottom: 16,
+      paddingLeft: 16,
+    });
+
+    const generated = await generate(root, { loadVariable });
+
+    expect(loadVariable).toHaveBeenCalledTimes(1);
+    expect(generated.tsx).toContain('var(--spacing-medium, 16px)');
+  });
+
+  it('keeps generated TSX and CSS valid for adversarial names, text, tokens, and CSS values', async () => {
+    const strangeText = 'He said “hello” </script> ${notCode}\\n';
+    const strangeTextNode = text(
+      't:fuzz',
+      'class default / "title"',
+      strangeText,
+    ) as unknown as TextNode & {
+      getCSSAsync: () => Promise<Record<string, string>>;
+    };
+    strangeTextNode.getCSSAsync = async () => ({
+      color: 'var(--color-text-default, rgb(1 2 3 / 90%))',
+      'font-family': '"Inter Variable", system-ui, sans-serif',
+      'text-shadow': '0 1px 2px rgb(0 0 0 / 20%)',
+    });
+    const root = frame('f:fuzz', '123 / checkout 💳', [
+      strangeTextNode,
+    ], {
+      boundVariables: {
+        itemSpacing: { id: 'variable:fuzz' },
+      },
+      itemSpacing: 7,
+      css: {
+        background: 'linear-gradient(90deg, #fff 0%, rgb(0 0 0 / 10%) 100%)',
+      },
+    });
+    const generated = await generate(root, {
+      loadVariable: async () => ({
+        id: 'variable:fuzz',
+        name: 'Spacing / Weird token_💳',
+      }),
+    });
+
+    expectValidTsx(generated.tsx);
+    expect(generated.componentName).toBe('Layer123Checkout');
+    expect(generated.tsx).toContain(JSON.stringify(strangeText));
+    expect(generated.tsx).toContain('var(--spacing-weird-token, 7px)');
+  });
+
   it('preserves an unsupported asset as a comment and diagnostic', async () => {
     const generated = await generate(frame('f:asset', 'Asset card', [
       unsupportedVector(),
@@ -264,9 +616,77 @@ describe('full React layout generation', () => {
     expect(generated.diagnostics).toEqual([
       expect.objectContaining({
         nodeId: 'v:divider',
-        reason: 'unsupported-node',
+        reason: 'unsupported-paint',
       }),
     ]);
+  });
+
+  it('exports a supported visual leaf as an SVG image asset', async () => {
+    const generated = await generate(frame('f:asset', 'Asset card', [
+      vector('v:logo', 'Company logo', {
+        svg: '<svg xmlns="http://www.w3.org/2000/svg"><path d="M0 0h8v8z"/></svg>',
+      }),
+    ]));
+
+    expectValidTsx(generated.tsx);
+    expect(generated.tsx).toContain(
+      '<img alt="Company logo" src="data:image/svg+xml,',
+    );
+    expect(generated.tsx).not.toContain('{/* VECTOR: Company logo */}');
+    expect(generated.diagnostics).toEqual([]);
+  });
+
+  it('uses a semantic section element for Figma sections', async () => {
+    const sectionNode = {
+      ...(frame('s:content', 'Content section', [
+        text('t:section-title', 'Title', 'Overview'),
+      ]) as unknown as Record<string, unknown>),
+      type: 'SECTION',
+    } as unknown as Parameters<typeof extractLayout>[0];
+
+    const generated = await generate(sectionNode);
+
+    expectValidTsx(generated.tsx);
+    expect(generated.tsx).toContain(
+      'const ContentSectionRoot = styled.section`',
+    );
+    expect(generated.tsx).toContain('<ContentSectionRoot>');
+  });
+
+  it('covers connected, unconnected, and ordinary Discount badge layers', async () => {
+    const unconnectedMain = component('c:discount-unconnected', 'Discount badge');
+    const connectedMain = component(
+      'c:discount-connected',
+      'Discount badge',
+      JSON.stringify(connection({
+        childrenMode: 'none',
+        componentName: 'DiscountBadge',
+      })),
+    );
+    const unconnected = await generate(frame('f:discount-unconnected', 'Offer card', [
+      instance(
+        'i:discount-unconnected',
+        'Discount badge',
+        unconnectedMain,
+      ),
+    ]));
+    const ordinary = await generate(frame('f:discount-ordinary-root', 'Offer card', [
+      frame('f:discount-ordinary', 'Discount badge', [
+        text('t:discount', 'Label', '20% off'),
+      ]),
+    ]));
+    const connected = await generate(frame('f:discount-connected-root', 'Offer card', [
+      instance('i:discount-connected', 'Discount badge', connectedMain),
+    ]));
+
+    expect(unconnected.tsx).toContain('{/* FRAME: Discount badge */}');
+    expect(ordinary.tsx).toContain('const DiscountBadge = styled.div`');
+    expect(ordinary.tsx).toContain('<DiscountBadge>');
+    expect(ordinary.tsx).toContain('20% off');
+    expect(connected.tsx).toContain(
+      'import { DiscountBadge } from "@tashilcar/swiss-army-knife";',
+    );
+    expect(connected.tsx).toContain('<DiscountBadge />');
   });
 
   it('preserves an unconnected instance as a visible JSX comment and note', async () => {

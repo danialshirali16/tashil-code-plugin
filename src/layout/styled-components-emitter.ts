@@ -229,6 +229,22 @@ function collectDefinitions(
     return;
   }
 
+  if (node.kind === 'asset' && (node.declarations.length > 0 || node.childStyle)) {
+    const name = names.claim(toComponentName(last(node.layerPath) ?? 'Asset'));
+    namesByNodeId.set(node.nodeId, name);
+    definitions.push({
+      declarations: mergeDeclarations(
+        node.declarations,
+        childDeclarations(node.childStyle, parentAxis),
+        suppressedProperties(node.childStyle, parentAxis),
+      ),
+      name,
+      nodeId: node.nodeId,
+      tag: 'img',
+    });
+    return;
+  }
+
   if (node.kind === 'component' && node.childStyle) {
     const base = toComponentName(last(node.layerPath) ?? 'Component');
     const name = names.claim(`${base}Wrapper`);
@@ -470,6 +486,14 @@ function mergeDeclarations(
     }
     if (!byProperty.has(property)) {
       order.push(property);
+    }
+    const existing = byProperty.get(property);
+    if (
+      existing?.source === 'figma-css'
+      && declaration.source === 'layout'
+      && /var\(\s*--/.test(existing.value)
+    ) {
+      continue;
     }
     byProperty.set(property, { ...declaration, property });
   }

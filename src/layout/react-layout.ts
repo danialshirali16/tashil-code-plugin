@@ -1,5 +1,6 @@
 import {
   extractLayout,
+  type ExtractLayoutOptions,
   type LayoutSourceNode,
 } from './figma-layout-extractor';
 import { generateLayout } from './generate-layout';
@@ -15,8 +16,9 @@ export function supportsReactLayout(node: { type: string }): boolean {
 /** Generate one complete styled-components TSX module. */
 export async function generateReactLayout(
   node: LayoutSourceNode,
+  options: ExtractLayoutOptions = {},
 ): Promise<ReactLayoutResult> {
-  const document = await extractLayout(node);
+  const document = await extractLayout(node, options);
   const generated = generateLayout(document);
 
   return {

@@ -114,7 +114,7 @@ Figma SceneNode
     ↓  (extraction layer — the only place that touches Figma types)
 Layout document IR  (serializable)
     ↓
-TSX emitter + CSS Modules emitter + diagnostics
+styled-components TSX emitter + diagnostics
     ↓
 Dev Mode adapter / Inspect Code adapter  (strings only)
 ```
@@ -224,6 +224,20 @@ declarations, and assets share a deterministic symbol namespace.
 Unconnected component instances remain atomic and render as a visible
 `{/* FRAME: Layer name */}` marker plus a diagnostic. Ordinary non-component
 frames do not require a connection and are generated normally.
+
+## G. Shared generation context and validation (2026-07-26)
+
+**Decision:** one request-scoped `GenerationContext` is shared by full React
+extraction and selected-layer inspection. Component metadata, Figma variables,
+and node CSS are cached as in-flight promises. Each consumer receives its own
+node traversal budget, so concurrent generation cannot truncate the other
+consumer. Sibling work uses bounded concurrency and merges results in document
+order.
+
+Generated modules are validated with a real TypeScript program, and every
+styled template is parsed with PostCSS. The fixture suite has deterministic
+snapshots, adversarial name/text/token/CSS coverage, and an adapter test that
+requires Dev Mode and Inspect Code to return byte-identical TSX.
 
 ## Phase 0 artifacts
 

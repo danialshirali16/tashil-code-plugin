@@ -68,6 +68,10 @@ effects retain their CSS custom-property references inside generated styled
 declarations. Unconnected components are reported as JSX markers and generation
 notes instead of being silently expanded.
 
+Inspect Code also separates application-owned runtime requirements from
+generation diagnostics and shows counts for unresolved components, unsupported
+assets, and omitted declarations.
+
 Bound structural variables for gap, padding, width, and height are also
 reconstructed when Figma CSS is unavailable, using the same kebab-case naming
 contract as Sync Tokens and retaining measured pixel fallbacks.

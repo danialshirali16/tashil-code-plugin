@@ -8,7 +8,9 @@
 
 import {
   GenerationContext,
+  mapWithConcurrency,
   type GenerationLimits,
+  type GenerationTraversal,
 } from './generation-context';
 import { formatTokenName } from '../sync-tokens/serialize';
 import { resolveInstance, type InstanceLike } from './figma-component-resolver';
@@ -57,22 +59,20 @@ export type LayoutSourceNode = {
   y?: number | null;
   boundVariables?: object;
   getCSSAsync?: () => Promise<Record<string, string>>;
+  exportAsync?: (settings: { format: 'SVG_STRING' }) => Promise<string | Uint8Array>;
 };
 
 class StructuralTokenResolver {
-  private readonly cache = new Map<string, Promise<CssTokenReference | undefined>>();
-
-  constructor(private readonly load: VariableLoader) {}
+  constructor(
+    private readonly load: VariableLoader,
+    private readonly context: GenerationContext,
+  ) {}
 
   resolve(alias: VariableAliasLike | undefined): Promise<CssTokenReference | undefined> {
     if (!alias) {
       return Promise.resolve(undefined);
     }
-    const cached = this.cache.get(alias.id);
-    if (cached) {
-      return cached;
-    }
-    const pending = this.load(alias.id)
+    return this.context.getVariable(alias.id, () => this.load(alias.id))
       .then((variable) => variable
         ? {
             cssName: `--${formatTokenName(variable.name, 'kebab')}`,
@@ -80,8 +80,13 @@ class StructuralTokenResolver {
           }
         : undefined)
       .catch(() => undefined);
-    this.cache.set(alias.id, pending);
-    return pending;
+  }
+
+  getNodeCss(
+    nodeId: string,
+    load: () => Promise<Record<string, string>>,
+  ): Promise<Record<string, string>> {
+    return this.context.getNodeCss(nodeId, load);
   }
 }
 
@@ -107,6 +112,7 @@ class ClassNameRegistry {
 }
 
 export type ExtractLayoutOptions = GenerationLimits & {
+  context?: GenerationContext;
   loadVariable?: VariableLoader;
 };
 
@@ -114,21 +120,24 @@ export async function extractLayout(
   root: LayoutSourceNode,
   options: ExtractLayoutOptions = {},
 ): Promise<LayoutDocument> {
-  const context = new GenerationContext(options);
+  const context = options.context ?? new GenerationContext(options);
+  const traversal = context.createTraversal();
   const tokens = new StructuralTokenResolver(
     options.loadVariable ?? loadFigmaVariable,
+    context,
   );
   const diagnostics: LayoutDiagnostic[] = [];
   const classNames = new ClassNameRegistry();
   const composition = await traverseRoot(
     root,
     context,
+    traversal,
     diagnostics,
     classNames,
     tokens,
   );
 
-  if (context.isLimitReached) {
+  if (traversal.isLimitReached) {
     diagnostics.push({
       severity: 'warning',
       reason: 'node-limit',
@@ -163,11 +172,12 @@ export async function extractLayout(
 async function traverseRoot(
   root: LayoutSourceNode,
   context: GenerationContext,
+  traversal: GenerationTraversal,
   diagnostics: LayoutDiagnostic[],
   classNames: ClassNameRegistry,
   tokens: StructuralTokenResolver,
 ): Promise<CompositionNode> {
-  context.visit();
+  traversal.visit();
   const path = [root.name];
 
   if (root.type === 'INSTANCE') {
@@ -187,11 +197,22 @@ async function traverseRoot(
     return resolveContainer(
       root,
       context,
+      traversal,
       diagnostics,
       classNames,
       path,
       tokens,
+      0,
       true,
+      false,
+    );
+  }
+  if (isExportableAsset(root)) {
+    return resolveAssetNode(
+      root,
+      path,
+      diagnostics,
+      tokens,
       false,
     );
   }
@@ -209,10 +230,12 @@ async function traverseRoot(
 async function resolveContainer(
   node: LayoutSourceNode,
   context: GenerationContext,
+  traversal: GenerationTraversal,
   diagnostics: LayoutDiagnostic[],
   classNames: ClassNameRegistry,
   layerPath: string[],
   tokens: StructuralTokenResolver,
+  depth: number,
   isRoot = false,
   parentIsFreeform = false,
 ): Promise<ContainerCompositionNode> {
@@ -221,10 +244,15 @@ async function resolveContainer(
   const childStyle = isRoot
     ? undefined
     : await getChildStyle(node, tokens, parentIsFreeform);
-  const declarations = await readCssDeclarations(node, diagnostics, layerPath);
+  const declarations = await readCssDeclarations(
+    node,
+    tokens,
+    diagnostics,
+    layerPath,
+  );
   const children: CompositionNode[] = [];
 
-  if (!context.enter()) {
+  if (depth >= context.maxDepth) {
     diagnostics.push({
       severity: 'warning',
       reason: 'depth-limit',
@@ -244,33 +272,46 @@ async function resolveContainer(
     );
   }
 
+  const candidates: Array<{ child: LayoutSourceNode; path: string[] }> = [];
   for (const child of node.children ?? []) {
-    if (context.isLimitReached) {
+    if (traversal.isLimitReached) {
       break;
     }
     if (child.visible === false) {
       continue;
     }
-    if (!context.visit()) {
+    if (!traversal.visit()) {
       break;
     }
 
-    const childPath = [...layerPath, child.name];
-    const resolved = await traverseChild(
-      child,
-      context,
-      diagnostics,
-      classNames,
-      childPath,
-      !isAutoLayout(node),
-      tokens,
-    );
-    if (resolved) {
-      children.push(resolved);
+    candidates.push({ child, path: [...layerPath, child.name] });
+  }
+  const resolvedChildren = await mapWithConcurrency(
+    candidates,
+    context.maxConcurrency,
+    async ({ child, path }) => {
+      const childDiagnostics: LayoutDiagnostic[] = [];
+      const resolved = await traverseChild(
+        child,
+        context,
+        traversal,
+        childDiagnostics,
+        classNames,
+        path,
+        !isAutoLayout(node),
+        tokens,
+        depth + 1,
+      );
+      return { diagnostics: childDiagnostics, node: resolved };
+    },
+  );
+  for (const resolved of resolvedChildren) {
+    diagnostics.push(...resolved.diagnostics);
+    if (resolved.node) {
+      children.push(resolved.node);
     }
   }
 
-  context.exit();
   return containerNode(
     node,
     className,
@@ -286,11 +327,13 @@ async function resolveContainer(
 async function traverseChild(
   child: LayoutSourceNode,
   context: GenerationContext,
+  traversal: GenerationTraversal,
   diagnostics: LayoutDiagnostic[],
   classNames: ClassNameRegistry,
   layerPath: string[],
   parentIsFreeform: boolean,
   tokens: StructuralTokenResolver,
+  depth: number,
 ): Promise<CompositionNode | null> {
   if (child.layoutPositioning === 'ABSOLUTE' || parentIsFreeform) {
     diagnostics.push({
@@ -327,11 +370,22 @@ async function traverseChild(
     return resolveContainer(
       child,
       context,
+      traversal,
       diagnostics,
       classNames,
       layerPath,
       tokens,
+      depth,
       false,
+      parentIsFreeform,
+    );
+  }
+  if (isExportableAsset(child)) {
+    return resolveAssetNode(
+      child,
+      layerPath,
+      diagnostics,
+      tokens,
       parentIsFreeform,
     );
   }
@@ -387,7 +441,12 @@ async function resolveTextNode(
   tokens: StructuralTokenResolver,
 ): Promise<CompositionNode> {
   const childStyle = await getChildStyle(node, tokens, parentIsFreeform);
-  const declarations = await readCssDeclarations(node, diagnostics, layerPath);
+  const declarations = await readCssDeclarations(
+    node,
+    tokens,
+    diagnostics,
+    layerPath,
+  );
   return {
     kind: 'text',
     nodeId: node.id,
@@ -418,7 +477,7 @@ function containerNode(
     nodeId: node.id,
     layerPath,
     className,
-    element: 'div',
+    element: node.type === 'SECTION' ? 'section' : 'div',
     layout,
     declarations,
     children,
@@ -426,8 +485,59 @@ function containerNode(
   };
 }
 
+async function resolveAssetNode(
+  node: LayoutSourceNode,
+  layerPath: string[],
+  diagnostics: LayoutDiagnostic[],
+  tokens: StructuralTokenResolver,
+  parentIsFreeform: boolean,
+): Promise<CompositionNode> {
+  if (typeof node.exportAsync !== 'function') {
+    diagnostics.push({
+      severity: 'warning',
+      reason: 'unsupported-paint',
+      message: `"${node.name}" could not be exported as an SVG asset.`,
+      nodeId: node.id,
+      layerPath,
+    });
+    return placeholder(node, layerPath, 'unsupported-node');
+  }
+  try {
+    const svg = await node.exportAsync({ format: 'SVG_STRING' });
+    if (typeof svg !== 'string' || svg.trim() === '') {
+      throw new TypeError('SVG export returned no text.');
+    }
+    const declarations = await readCssDeclarations(
+      node,
+      tokens,
+      diagnostics,
+      layerPath,
+    );
+    const childStyle = await getChildStyle(node, tokens, parentIsFreeform);
+    return {
+      kind: 'asset',
+      nodeId: node.id,
+      layerPath,
+      alt: node.name,
+      src: `data:image/svg+xml,${encodeURIComponent(svg)}`,
+      declarations,
+      ...(childStyle ? { childStyle } : {}),
+    };
+  } catch (_error) {
+    diagnostics.push({
+      severity: 'warning',
+      reason: 'unsupported-paint',
+      message: `"${node.name}" could not be exported safely; a JSX marker was emitted.`,
+      nodeId: node.id,
+      layerPath,
+    });
+    return placeholder(node, layerPath, 'unsupported-node');
+  }
+}
+
 async function readCssDeclarations(
   node: LayoutSourceNode,
+  tokens: StructuralTokenResolver,
   diagnostics: LayoutDiagnostic[],
   layerPath: string[],
 ): Promise<ContainerCompositionNode['declarations']> {
@@ -436,7 +546,7 @@ async function readCssDeclarations(
   }
 
   try {
-    const css = await node.getCSSAsync();
+    const css = await tokens.getNodeCss(node.id, node.getCSSAsync);
     return Object.entries(css)
       .filter(([property, value]) => property.trim() !== '' && value.trim() !== '')
       .map(([property, value]) => ({
@@ -578,6 +688,18 @@ function placeholder(
 
 function isContainer(node: LayoutSourceNode): boolean {
   return node.type === 'FRAME' || node.type === 'GROUP' || node.type === 'SECTION';
+}
+
+function isExportableAsset(node: LayoutSourceNode): boolean {
+  return [
+    'BOOLEAN_OPERATION',
+    'ELLIPSE',
+    'LINE',
+    'POLYGON',
+    'RECTANGLE',
+    'STAR',
+    'VECTOR',
+  ].includes(node.type);
 }
 
 function isAutoLayout(node: LayoutSourceNode): boolean {

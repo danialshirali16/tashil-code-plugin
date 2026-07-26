@@ -12,6 +12,7 @@
  */
 
 import { partitionCss } from './css-partition';
+import type { GenerationContext } from '../layout/generation-context';
 import type { CssDeclaration, InspectionDiagnostic, NodeCss } from './types';
 
 /** Minimal structural view of a node that may expose `getCSSAsync()`. */
@@ -32,7 +33,10 @@ const EMPTY_CSS: NodeCss = { layout: [], style: [] };
  * Retrieve and partition a node's CSS. Declaration order within each bucket
  * preserves the `getCSSAsync()` emission order (object insertion order).
  */
-export async function getNodeCss(node: CssSourceNode): Promise<NodeCssResult> {
+export async function getNodeCss(
+  node: CssSourceNode,
+  context?: GenerationContext,
+): Promise<NodeCssResult> {
   if (typeof node.getCSSAsync !== 'function') {
     return {
       css: EMPTY_CSS,
@@ -42,7 +46,9 @@ export async function getNodeCss(node: CssSourceNode): Promise<NodeCssResult> {
 
   let raw: { [key: string]: string };
   try {
-    raw = await node.getCSSAsync();
+    raw = context
+      ? await context.getNodeCss(node.id, node.getCSSAsync)
+      : await node.getCSSAsync();
   } catch {
     return {
       css: EMPTY_CSS,
