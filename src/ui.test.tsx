@@ -339,27 +339,45 @@ describe('Plugin rendered interactions', () => {
     expect(screen.getByLabelText('CSS token preview').textContent)
       .toContain('--color-text-primary: #0d99ff;');
 
+    const collectionSearch = screen.getByRole('textbox', { name: 'Search collections' });
+    fireEvent.input(collectionSearch, { target: { value: 'Product' } });
+    expect(screen.getByRole('button', { name: 'Select 1 result' })).toBeTruthy();
+    fireEvent.input(collectionSearch, { target: { value: 'Missing' } });
+    expect((screen.getByRole('button', {
+      name: 'Select 0 results',
+    }) as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.input(collectionSearch, { target: { value: '' } });
+
     fireEvent.click(screen.getByRole('checkbox', { name: /Product Tokens/ }));
-    expect(screen.getByText('product-tokens.css')).toBeTruthy();
+    expect(screen.getByText('product-tokens-zhina.css')).toBeTruthy();
+    expect(screen.getByRole('button', {
+      name: 'Copy product-tokens-zhina.css',
+    })).toBeTruthy();
+    expect(screen.queryByRole('button', {
+      name: 'Copy product-tokens-zamyad.css',
+    })).toBeNull();
     expect(screen.getByText('1 file · 294 variables')).toBeTruthy();
 
     fireEvent.click(screen.getByRole('checkbox', { name: 'Tashilpay' }));
     expect(screen.getByText('product-tokens-zhina.css')).toBeTruthy();
     expect(screen.getByText('product-tokens-tashilpay.css')).toBeTruthy();
+    expect(screen.getByRole('button', {
+      name: 'Copy product-tokens-tashilpay.css',
+    })).toBeTruthy();
     expect(screen.getByText('2 files · 294 variables')).toBeTruthy();
 
     fireEvent.click(screen.getByRole('radio', { name: 'slash' }));
     expect(screen.getByLabelText('CSS token preview').textContent)
-      .toContain('--color/text/primary: #0d99ff;');
+      .toContain('--color\\/text\\/primary: #0d99ff;');
 
     fireEvent.click(screen.getByRole('radio', { name: 'dot' }));
     expect(screen.getByLabelText('CSS token preview').textContent)
-      .toContain('--color.text.primary: #0d99ff;');
+      .toContain('--color\\.text\\.primary: #0d99ff;');
 
     fireEvent.click(screen.getByRole('checkbox', { name: 'Convert px to rem' }));
     expect(screen.queryByLabelText('Root font size in pixels')).toBeNull();
     expect(screen.getByLabelText('CSS token preview').textContent)
-      .toContain('--spacing.4: 16;');
+      .toContain('--spacing\\.4: 16;');
 
     fireEvent.click(screen.getByRole('button', { name: 'Export 2 CSS files' }));
     const request = emittedPayloads<{

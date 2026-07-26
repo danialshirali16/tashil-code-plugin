@@ -66,8 +66,8 @@ import type {
 } from './sync-tokens/types';
 import {
   formatColor,
+  formatCssTokenName,
   formatNumber,
-  formatTokenName,
 } from './sync-tokens/serialize';
 import { formatCssBlock } from './inspect/css-partition';
 import { formatUsageSnippet } from './inspect/usage-snippet';
@@ -1114,14 +1114,14 @@ function createTokenPreview(options: ExportOptions): string {
     value: { kind: 'number', value: 0 },
   });
   const previewColor = options.colorFormat === 'variable'
-    ? `var(--${formatTokenName('Reference/Color/Blue/500', options.nameStyle)})`
+    ? `var(--${formatCssTokenName('Reference/Color/Blue/500', options.nameStyle)})`
     : formatColor({ r: 13 / 255, g: 153 / 255, b: 1 }, options.colorFormat);
 
   return [
     ':root {',
-    `  --${formatTokenName('Color/Text/Primary', options.nameStyle)}: ${previewColor};`,
-    `  --${formatTokenName('Spacing/4', options.nameStyle)}: ${formatNumber(16, lengthToken('Spacing/4'), options)};`,
-    `  --${formatTokenName('Radius/Small', options.nameStyle)}: ${formatNumber(8, lengthToken('Radius/Small'), options)};`,
+    `  --${formatCssTokenName('Color/Text/Primary', options.nameStyle)}: ${previewColor};`,
+    `  --${formatCssTokenName('Spacing/4', options.nameStyle)}: ${formatNumber(16, lengthToken('Spacing/4'), options)};`,
+    `  --${formatCssTokenName('Radius/Small', options.nameStyle)}: ${formatNumber(8, lengthToken('Radius/Small'), options)};`,
     '}',
   ].join('\n');
 }
@@ -1273,6 +1273,11 @@ function SyncTokensView(props: {
     : collections.filter((c) => c.name.toLowerCase().includes(needle));
   const allSelected = filteredCollections.length > 0
     && filteredCollections.every((c) => selected.has(c.id));
+  const bulkSelectionLabel = needle.length === 0
+    ? allSelected ? 'Clear all' : 'Select all'
+    : `${allSelected ? 'Clear' : 'Select'} ${filteredCollections.length} ${
+      filteredCollections.length === 1 ? 'result' : 'results'
+    }`;
   const selectedTokenCount = collections
     .filter((c) => selected.has(c.id))
     .reduce((sum, c) => sum + c.tokenCount, 0);
@@ -1306,8 +1311,12 @@ function SyncTokensView(props: {
             placeholder="Search collections"
             value={query}
           />
-          <Button onClick={selectAll} secondary>
-            {allSelected ? 'Clear all' : 'Select all'}
+          <Button
+            disabled={filteredCollections.length === 0}
+            onClick={selectAll}
+            secondary
+          >
+            {bulkSelectionLabel}
           </Button>
         </div>
 
@@ -1348,7 +1357,7 @@ function SyncTokensView(props: {
             <div class="sync-tokens-output-panel">
               {selectedCollections.map((collection) => {
                 const chosenModes = modesFor(collection);
-                const includeModeSuffix = chosenModes.size > 1;
+                const includeModeSuffix = collection.modes.length > 1;
                 const collectionSlug = tokenFileSlug(collection.name) || collection.id;
                 return (
                   <section class="sync-tokens-output-group" key={collection.id}>
@@ -1362,7 +1371,7 @@ function SyncTokensView(props: {
                     <div class="sync-tokens-mode-list">
                       {collection.modes.map((mode) => {
                         const active = chosenModes.has(mode.modeId);
-                        const modeSuffix = includeModeSuffix || !active
+                        const modeSuffix = includeModeSuffix
                           ? `-${tokenFileSlug(mode.name)}`
                           : '';
                         const fileName = `${collectionSlug}${modeSuffix}.css`;
@@ -1381,7 +1390,11 @@ function SyncTokensView(props: {
                               </Checkbox>
                             </div>
                             <span class="sync-tokens-file-name">{fileName}</span>
-                            <CopyButton text={fileName} title={fileName} />
+                            {active ? (
+                              <CopyButton text={fileName} title={fileName} />
+                            ) : (
+                              <span aria-hidden="true" />
+                            )}
                           </div>
                         );
                       })}
