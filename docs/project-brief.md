@@ -104,8 +104,8 @@ src/codegen.ts <---- mapping data ---- src/mapping-editor.ts / mapping-document.
 | `src/mapping-editor.ts` / `src/mapping-document.ts` | Visual-mapping suggestions and compilation into the stable `propMappings` lookup table. |
 | `src/connection-health.ts` | Comparison of saved and current source/Figma snapshots. |
 | `src/codegen.ts` | Metadata validation/migration, mapped-prop resolution, imports, JSX, and diagnostics. |
-| `src/inspect/` | Dev-Mode-parity inspection: partitions `getCSSAsync()` output into Layout and Style sections and enumerates a frame's connected component usages. |
-| `src/layout/` | Shared component-resolution plumbing kept from the layout composer: instance resolution, per-generation caches/limits, and import rendering. |
+| `src/inspect/` | Dev-Mode-parity selected-layer CSS partitioning and connected-component enumeration. |
+| `src/layout/` | Full selected-tree styled-components React generation with token-aware CSS, atomic component usages, deterministic naming, and traversal limits. |
 | `src/types.ts` | Shared persisted schema, Figma-message contracts, and domain types. |
 
 The plugin and UI communicate through typed messages rather than the UI calling
@@ -132,23 +132,21 @@ Read [Visual prop mappings](prop-mapping.md) for the complete mapping contract
 and examples, and [Maintain a connection](maintain-connections.md) for the
 drift and reconciliation workflow.
 
-## Frame inspection
+## React layout generation and inspection
 
-Selecting any non-component layer behaves like Figma's own Dev Mode inspect
-panel, in both Dev Mode and the plugin's Inspect Code view: a **Layout** CSS
-section, a **Style** CSS section, and a **Connected components** list showing
-the Tashil usage code for every connected instance inside the selection. CSS
-comes from Figma's own `getCSSAsync()` and is passed through unmodified, so
-variable-backed values keep their `var(--token, fallback)` form. Connected
-instances stay atomic — their internals are never traversed — and unconnected
-or broken instances surface as notes instead of being silently dropped.
+Selecting a frame, group, section, or text layer generates a complete
+styled-components React module in both Dev Mode and Inspect Code. Visible
+inner layout layers remain in document order; connected instances become their
+production component usages and remain atomic. Auto-layout structure maps to
+styled declarations, while unsupported or broken descendants surface as notes.
 
-An earlier iteration generated full React/TSX plus CSS Modules for frame
-trees; it was deliberately retired in favor of this inspection model. See
-[Inspect a frame](inspect-frame.md) for the user guide,
-[Frame Inspection Roadmap](layout-composer-roadmap.md) for the plan, and
-[Layout Composer Architecture Decisions](layout-composer-decisions.md) (ADR D)
-for the rationale.
+Dev Mode additionally shows the selected node's token-aware **Layout** and
+**Style** CSS from Figma's `getCSSAsync()` output. See
+[Generate and inspect a frame](inspect-frame.md) for the user guide,
+[Styled-Components Layout Roadmap](styled-components-layout-roadmap.md) for the
+active plan, and
+[Layout Composer Architecture Decisions](layout-composer-decisions.md)
+(ADRs D–F) for the decision history.
 
 ## Develop and verify
 

@@ -1567,6 +1567,14 @@ describe('Dev Mode inspection codegen', () => {
     const layout = blocks?.find((b) => b.title === 'Layout');
     const style = blocks?.find((b) => b.title === 'Style');
     const components = blocks?.find((b) => b.title === 'Connected components');
+    const react = blocks?.find((b) => b.title === 'PaymentForm.tsx');
+    expect(react).toMatchObject({ language: 'TYPESCRIPT' });
+    expect(react?.code).toContain('export function PaymentForm()');
+    expect(react?.code).toContain('import styled from "styled-components";');
+    expect(react?.code).toContain('<Button');
+    expect(react?.code).toContain('const PaymentFormRoot = styled.div`');
+    expect(react?.code).toContain('gap: var(--spacer-3, 1rem);');
+    expect(blocks?.some((b) => b.title.endsWith('.module.css'))).toBe(false);
     expect(layout).toMatchObject({ language: 'CSS' });
     expect(layout?.code).toBe(
       'display: flex;\nflex-direction: column;\ngap: var(--spacer-3, 1rem);',
@@ -1695,7 +1703,7 @@ describe('Dev Mode inspection codegen', () => {
     expect(blocks?.find((b) => b.title === 'Style')?.code).toBe('fill: var(--color-border);');
   });
 
-  it('inspects a non-auto-layout frame instead of rejecting it', async () => {
+  it('generates a non-auto-layout frame with an explicit positioning note', async () => {
     const { codegenEvents } = await startPlugin();
     const noneFrame = createFrame('f-none', 'Absolute frame', [], {
       layoutMode: 'NONE',
@@ -1705,7 +1713,10 @@ describe('Dev Mode inspection codegen', () => {
     const blocks = await codegenEvents.get('generate')?.({ node: noneFrame });
 
     expect(blocks?.find((b) => b.title === 'Layout')?.code).toBe('width: 320px;\nheight: 200px;');
-    expect(blocks?.some((b) => b.language === 'PLAINTEXT')).toBe(false);
+    expect(blocks?.find((b) => b.title === 'AbsoluteFrame.tsx')?.code)
+      .toContain('export function AbsoluteFrame()');
+    expect(blocks?.find((b) => b.title === 'React generation notes')?.code)
+      .toContain('may need manual positioning');
   });
 
   it('adds a Notes block when the runtime cannot produce CSS', async () => {
@@ -1723,7 +1734,7 @@ describe('Dev Mode inspection codegen', () => {
 });
 
 describe('Inspect Code inspection state', () => {
-  it('emits { status: inspection } with CSS sections and connected components for a frame', async () => {
+  it('emits a complete React layout with connected components for a frame', async () => {
     const metadata: ConnectionMetadata = {
       schemaVersion: CURRENT_SCHEMA_VERSION,
       childrenMode: 'none',
@@ -1748,24 +1759,20 @@ describe('Inspect Code inspection state', () => {
     await vi.waitFor(() => {
       const states = emittedPayloads<InspectCodeState>('INSPECT_CODE_STATE');
       expect(states).toContainEqual(
-        expect.objectContaining({ status: 'inspection' }),
+        expect.objectContaining({ status: 'layout' }),
       );
     });
 
     const state = emittedPayloads<InspectCodeState>('INSPECT_CODE_STATE')
-      .find((s) => s.status === 'inspection') as Extract<InspectCodeState, { status: 'inspection' }>;
-    expect(state.inspection.nodeName).toBe('Payment form');
-    expect(state.inspection.nodeType).toBe('FRAME');
-    expect(state.inspection.css.layout).toEqual([{ property: 'display', value: 'flex' }]);
-    expect(state.inspection.css.style).toEqual([
-      { property: 'border-bottom', value: '1px solid var(--color-border)' },
-    ]);
-    expect(state.inspection.connectedComponents).toHaveLength(1);
-    expect(state.inspection.connectedComponents[0]).toMatchObject({
-      componentName: 'Button',
-      layerPath: ['Payment form', 'i-button'],
-    });
-    expect(state.inspection.connectedComponents[0].usage.jsx).toContain('<Button');
+      .find((s) => s.status === 'layout') as Extract<InspectCodeState, { status: 'layout' }>;
+    expect(state.layout.nodeName).toBe('Payment form');
+    expect(state.layout.nodeType).toBe('FRAME');
+    expect(state.layout.componentName).toBe('PaymentForm');
+    expect(state.layout.componentCount).toBe(1);
+    expect(state.layout.tsx).toContain('export function PaymentForm()');
+    expect(state.layout.tsx).toContain('<Button');
+    expect(state.layout.tsx).toContain('const PaymentFormRoot = styled.div`');
+    expect(state.layout.tsx).toContain('gap: 16px;');
   });
 
   it('keeps a connected component emitting { status: connected, output }', async () => {
@@ -1794,40 +1801,40 @@ describe('Inspect Code inspection state', () => {
     });
   });
 
-  it('discards a stale inspection when the selection changes mid-generation', async () => {
+  it('discards a stale React layout when the selection changes mid-generation', async () => {
     const { selection } = await startPlugin();
-    const slowCss = createDeferred<{ [key: string]: string }>();
-    const slowFrame = createFrame('f-slow', 'Slow frame', []);
-    (slowFrame as unknown as { getCSSAsync: () => Promise<{ [key: string]: string }> })
-      .getCSSAsync = () => slowCss.promise;
+    const slowMainComponent = createDeferred<ComponentNode | null>();
+    const slowFrame = createFrame('f-slow', 'Slow frame', [
+      createInstance('i-slow', slowMainComponent.promise),
+    ]);
     const fastFrame = createFrame('f-fast', 'Fast frame', [], {
       css: { display: 'flex' },
     });
 
-    // Start inspecting the slow frame, then switch selection before its CSS
-    // resolves. The stale result must never be published.
+    // Start resolving a connected descendant, then switch selection before its
+    // main component resolves. The stale tree must never be published.
     selection.push(slowFrame);
     utilityMocks.handlers.get('REFRESH_SELECTION')?.(undefined);
     selection.length = 0;
     selection.push(fastFrame);
     utilityMocks.handlers.get('REFRESH_SELECTION')?.(undefined);
-    slowCss.resolve({ display: 'grid' });
+    slowMainComponent.resolve(null);
 
     await vi.waitFor(() => {
       const states = emittedPayloads<InspectCodeState>('INSPECT_CODE_STATE');
       expect(states).toContainEqual(
         expect.objectContaining({
-          status: 'inspection',
-          inspection: expect.objectContaining({ nodeName: 'Fast frame' }),
+          status: 'layout',
+          layout: expect.objectContaining({ nodeName: 'Fast frame' }),
         }),
       );
     });
 
-    const inspections = emittedPayloads<InspectCodeState>('INSPECT_CODE_STATE')
-      .filter((state) => state.status === 'inspection') as Array<
-        Extract<InspectCodeState, { status: 'inspection' }>
+    const layouts = emittedPayloads<InspectCodeState>('INSPECT_CODE_STATE')
+      .filter((state) => state.status === 'layout') as Array<
+        Extract<InspectCodeState, { status: 'layout' }>
       >;
-    expect(inspections.every((state) => state.inspection.nodeName === 'Fast frame')).toBe(true);
+    expect(layouts.every((state) => state.layout.nodeName === 'Fast frame')).toBe(true);
   });
 
   it('emits an inspection state for any node type, including a vector', async () => {

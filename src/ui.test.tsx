@@ -912,6 +912,42 @@ describe('Plugin rendered interactions', () => {
     ).toEqual(['{', '}']);
   });
 
+  it('renders a full generated styled-components React layout', () => {
+    renderPlugin();
+    receive('INSPECT_CODE_STATE', {
+      status: 'layout',
+      layout: {
+        componentCount: 1,
+        componentName: 'PaymentForm',
+        diagnostics: [],
+        nodeName: 'Payment form',
+        nodeType: 'FRAME',
+        wrapperCount: 2,
+        tsx: [
+          'import styled from "styled-components";',
+          'import { Button } from "@tashilcar/swiss-army-knife";',
+          '',
+          'const PaymentFormRoot = styled.div`',
+          '  display: flex;',
+          '`;',
+          '',
+          'export function PaymentForm() {',
+          '  return <PaymentFormRoot><Button /></PaymentFormRoot>;',
+          '}',
+        ].join('\n'),
+      },
+    } as InspectCodeState);
+    fireEvent.click(screen.getByRole('tab', { name: 'Inspect Code' }));
+
+    expect(screen.getByText('React layout')).toBeTruthy();
+    expect(screen.getByRole('heading', { name: 'Payment form', level: 2 })).toBeTruthy();
+    expect(screen.getByText('PaymentForm.tsx')).toBeTruthy();
+    expect(screen.getByRole('button', { name: /Copy generated React/ })).toBeTruthy();
+    expect(document.body.textContent).toContain('export function PaymentForm');
+    expect(document.body.textContent).toContain('display: flex;');
+    expect(document.body.textContent).not.toContain('.module.css');
+  });
+
   it('renders the inspection view with Layout, Style, and connected components', () => {
     renderPlugin();
     const inspectionState: InspectCodeState = {

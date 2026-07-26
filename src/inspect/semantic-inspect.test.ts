@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { CURRENT_SCHEMA_VERSION, type ConnectionMetadata } from '../types';
-import { component, frame, instance } from '../layout/fixtures';
+import { component, frame, instance, text } from '../layout/fixtures';
 import { extractFigmaSemanticSnapshot } from '../semantic/figma-extractor';
 import { createDialogNode, createDialogRecipe } from '../semantic/fixtures';
 import { inspectFrame, type InspectableNode } from './inspect-frame';
@@ -11,9 +11,8 @@ import { inspectFrame, type InspectableNode } from './inspect-frame';
  * A semantically connected Dialog that appears *inside* an inspected frame must
  * resolve through the semantic pipeline — not the legacy `propMappings` path —
  * producing the same production-shaped usage as selecting it directly. Nested
- * design values come from the recipe's captured snapshot (Layout Composer never
- * traverses the connected component's internal layers); the instance's live
- * top-level variant properties still drive enum values.
+ * design values come from the live instance subtree used by semantic
+ * resolution; the layout traversal itself still treats the instance as atomic.
  */
 
 function semanticDialogMetadata(): ConnectionMetadata {
@@ -29,12 +28,38 @@ function semanticDialogMetadata(): ConnectionMetadata {
   } as ConnectionMetadata;
 }
 
-function dialogInstance(): SceneNode {
+function dialogInstance(
+  intent: 'Danger' | 'Default' = 'Danger',
+  title = 'Delete account?',
+): SceneNode {
   const main = component('c:dialog', 'Dialog', JSON.stringify(semanticDialogMetadata()));
-  const node = instance('i:dialog', 'Dialog', main);
+  const buttonMain = {
+    ...component('c:button', 'Button'),
+    key: 'button-main-key',
+  } as unknown as ReturnType<typeof component>;
+  const node = instance('i:dialog', 'Dialog', main, {
+    componentProperties: { intent: { type: 'VARIANT', value: intent } },
+  });
   return {
     ...(node as unknown as Record<string, unknown>),
-    componentProperties: { intent: { type: 'VARIANT', value: 'Danger' } },
+    children: [
+      frame('f:header', 'Header', [
+        text('t:title', 'Title', title),
+        text('t:description', 'Description', 'This action cannot be undone.'),
+      ]),
+      frame('f:footer', 'Footer', [
+        instance('i:secondary', 'Secondary action', buttonMain, {
+          componentProperties: {
+            label: { type: 'TEXT', value: 'Cancel' },
+          },
+        }),
+        instance('i:primary', 'Primary action', buttonMain, {
+          componentProperties: {
+            label: { type: 'TEXT', value: 'Delete' },
+          },
+        }),
+      ]),
+    ],
   } as unknown as SceneNode;
 }
 
@@ -76,19 +101,16 @@ describe('inspectFrame — semantic connections', () => {
     ].join('\n'));
   });
 
-  it('reflects the instance live top-level variant while nested values come from the snapshot', async () => {
-    const main = component('c:dialog', 'Dialog', JSON.stringify(semanticDialogMetadata()));
-    const node = instance('i:dialog', 'Dialog', main);
-    const defaultVariant = {
-      ...(node as unknown as Record<string, unknown>),
-      componentProperties: { intent: { type: 'VARIANT', value: 'Default' } },
-    } as unknown as SceneNode;
+  it('reflects live top-level and nested instance values', async () => {
+    const defaultVariant = dialogInstance('Default', 'Live default title');
     const root = frame('f:root', 'Surface', [defaultVariant]) as unknown as InspectableNode;
 
     const inspection = await inspectFrame(root);
 
     expect(inspection.connectedComponents[0].usage.jsx).toContain('intent={"default"}');
-    expect(inspection.connectedComponents[0].usage.jsx).toContain('title={"Delete account?"}');
+    expect(inspection.connectedComponents[0].usage.jsx).toContain(
+      'title={"Live default title"}',
+    );
   });
 
   it('never emits fictional compound components for a nested Dialog', async () => {

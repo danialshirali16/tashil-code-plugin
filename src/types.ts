@@ -12,6 +12,7 @@ export const CONNECTION_NAMESPACE = 'tashil_storybook';
 export const CONNECTION_KEY = 'connection';
 
 import type { FrameInspection } from './inspect/types';
+import type { ReactLayoutResult } from './layout/types';
 import type { FigmaSemanticSnapshot, SemanticConnectionRecipe } from './semantic/types';
 
 export type PropMapping = {
@@ -218,6 +219,7 @@ export type InspectCodeState =
   | { status: 'not-connected' }
   | { status: 'connection-issue'; message: string; connectionIssue: ConnectionIssue }
   | { status: 'connected'; output: InspectCodeComponentOutput }
+  | { status: 'layout'; layout: ReactLayoutResult }
   | { status: 'inspection'; inspection: FrameInspection };
 
 export type OpenExternalHandler = {

@@ -222,8 +222,9 @@ The plugin's **Inspect Code** tab presents valid Storybook and source URLs as
 browser actions and provides a separate copy action for the source path.
 
 You can also select a frame, group, or section containing component instances
-to inspect the frame's layout and style CSS alongside connected-component
-code. See [Inspect a frame](inspect-frame.md) for details.
+to generate a complete styled-components React module with those connected
+usages embedded. See [Generate and inspect a frame](inspect-frame.md) for
+details.
 
 ## How Prop Mapping Works
 

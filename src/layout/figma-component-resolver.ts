@@ -24,6 +24,7 @@ import {
   type ConnectionMetadata,
 } from '../types';
 import { resolveSemanticUsage } from '../semantic/resolver';
+import { createSemanticNodeTree } from '../semantic/figma-adapter';
 import type { ComponentUsage } from './types';
 import {
   type ConnectionReadResult,
@@ -88,20 +89,32 @@ export async function resolveInstance(
   // unconnected/invalid reason is always determinable from the raw read below.
   const cachedConnection = context.getCachedConnection(connectionTarget.id);
   if (cachedConnection?.ok) {
-    return buildComponentNode(instance, connectionTarget, cachedConnection, layerPath);
+    return buildComponentNode(
+      instance,
+      mainComponent,
+      connectionTarget,
+      cachedConnection,
+      layerPath,
+    );
   }
 
   const rawConnection = readSharedPluginData(connectionTarget);
 
   // No persisted data → unconnected (info), distinct from a broken connection.
   if (!rawConnection) {
-    return placeholder(instance.id, layerPath, 'unconnected-instance', {
-      severity: 'info',
-      reason: 'unconnected-instance',
-      message: `"${instance.name}" is not connected to a production component.`,
-      nodeId: instance.id,
+    return placeholder(
+      instance.id,
       layerPath,
-    });
+      'unconnected-instance',
+      {
+        severity: 'info',
+        reason: 'unconnected-instance',
+        message: `"${instance.name}" is not connected to a production component.`,
+        nodeId: instance.id,
+        layerPath,
+      },
+      `FRAME: ${instance.name}`,
+    );
   }
 
   const connection = readConnection(connectionTarget, context, rawConnection);
@@ -115,19 +128,34 @@ export async function resolveInstance(
     });
   }
 
-  return buildComponentNode(instance, connectionTarget, connection, layerPath);
+  return buildComponentNode(
+    instance,
+    mainComponent,
+    connectionTarget,
+    connection,
+    layerPath,
+  );
 }
 
 /** Build the success-case component node, isolating the createComponentUsage call. */
-function buildComponentNode(
+async function buildComponentNode(
   instance: InstanceLike,
   mainComponent: ComponentNode,
+  connectionTarget: ComponentNode,
   connection: Extract<ConnectionReadResult, { ok: true }>,
   layerPath: string[],
-): ResolvedInstance {
-  const selection = buildSelectionLike(instance, mainComponent);
+): Promise<ResolvedInstance> {
   try {
-    const usage = createConnectedUsage(connection.metadata, selection);
+    const selection = await buildSelectionLike(
+      instance,
+      mainComponent,
+      connectionTarget,
+    );
+    const usage = await createConnectedUsage(
+      connection.metadata,
+      selection,
+      instance,
+    );
     return {
       kind: 'component',
       node: { kind: 'component', nodeId: instance.id, layerPath, usage },
@@ -152,18 +180,20 @@ function buildComponentNode(
  * "Do not expose internal semantic Figma locators to layout traversal").
  * Legacy connections keep `createComponentUsage` byte-for-byte.
  */
-function createConnectedUsage(
+async function createConnectedUsage(
   metadata: ConnectionMetadata,
   selection: SelectionLike,
-): ComponentUsage {
+  instance: InstanceLike,
+): Promise<ComponentUsage> {
   if (metadata.semanticRecipe) {
+    const root = await createSemanticNodeTree(instance as unknown as SceneNode);
     const result = resolveSemanticUsage(
       metadata.componentName,
       metadata.importPath,
       metadata.semanticRecipe,
       {
         componentProperties: selection.componentProperties,
-        samples: metadata.semanticRecipe.figmaSnapshot,
+        root,
       },
     );
     return result.usage;
@@ -236,40 +266,82 @@ function parseConnectionMetadata(raw: string): ConnectionReadResult {
  * which keeps the layout path simple — the instance's own properties drive the
  * usage).
  */
-function buildSelectionLike(
+async function buildSelectionLike(
   instance: InstanceLike,
-  _mainComponent: ComponentNode,
-): ResolvedSelectionLike {
-  // ponytail: the standalone-selection path in main.ts merges variant properties
-  // from the main component and connection target. The layout path uses only the
-  // instance's own resolved properties, since an instance inside a layout already
-  // carries its effective values. Upgrade if a connected instance inside a layout
-  // needs the same parent-property fallback.
+  mainComponent: ComponentNode,
+  connectionTarget: ComponentNode,
+): Promise<ResolvedSelectionLike> {
   return {
-    componentProperties: collectProperties(instance),
+    componentProperties: collectProperties([
+      connectionTarget,
+      mainComponent,
+      instance,
+    ]),
     displayText: getDisplayText(instance),
-    instanceSwaps: collectInstanceSwaps(instance),
+    instanceSwaps: await collectInstanceSwaps([
+      connectionTarget,
+      mainComponent,
+      instance,
+    ]),
   };
 }
 
 function collectProperties(
-  instance: InstanceLike,
+  nodes: ReadonlyArray<ComponentNode | InstanceLike>,
 ): Record<string, string | boolean> {
   const properties: Record<string, string | boolean> = {};
-  for (const [rawName, property] of Object.entries(instance.componentProperties)) {
-    properties[normalizePropertyName(rawName)] = property.value;
+  for (const node of nodes) {
+    if ('componentProperties' in node) {
+      for (const [rawName, property] of Object.entries(node.componentProperties)) {
+        properties[normalizePropertyName(rawName)] = property.value;
+      }
+    }
+    if ('variantProperties' in node && node.variantProperties) {
+      for (const [rawName, value] of Object.entries(node.variantProperties)) {
+        if (typeof value === 'string') {
+          properties[normalizePropertyName(rawName)] = value;
+        }
+      }
+    }
   }
   return properties;
 }
 
-function collectInstanceSwaps(
-  _instance: InstanceLike,
-): Record<string, { componentId: string; componentName: string }> {
-  // ponytail: instance-swap resolution requires figma.getNodeByIdAsync, which is
-  // wired in Phase 2's main-integration. The resolver accepts pre-resolved swaps
-  // via the context in a later step; for now connected instances without icon
-  // swaps are the common case in version-1 layouts.
-  return {};
+async function collectInstanceSwaps(
+  nodes: ReadonlyArray<ComponentNode | InstanceLike>,
+): Promise<Record<string, { componentId: string; componentName: string }>> {
+  const swaps: Record<string, { componentId: string; componentName: string }> = {};
+
+  for (const node of nodes) {
+    if (!('componentProperties' in node)) {
+      continue;
+    }
+    for (const [rawName, property] of Object.entries(node.componentProperties)) {
+      if (property.type !== 'INSTANCE_SWAP' || typeof property.value !== 'string') {
+        continue;
+      }
+      const resolved = await resolveSwapComponent(property.value);
+      if (resolved) {
+        swaps[normalizePropertyName(rawName)] = resolved;
+      }
+    }
+  }
+
+  return swaps;
+}
+
+async function resolveSwapComponent(
+  componentId: string,
+): Promise<{ componentId: string; componentName: string } | undefined> {
+  try {
+    const component = await figma.getNodeByIdAsync(componentId);
+    if (!component || component.type !== 'COMPONENT') {
+      return undefined;
+    }
+    return { componentId: component.id, componentName: component.name };
+  } catch (_error) {
+    return undefined;
+  }
 }
 
 function normalizePropertyName(propertyName: string): string {
@@ -288,10 +360,17 @@ function placeholder(
   layerPath: string[],
   reason: PlaceholderCompositionNode['reason'],
   diagnostic: LayoutDiagnostic,
+  label?: string,
 ): ResolvedInstance {
   return {
     kind: 'placeholder',
-    node: { kind: 'placeholder', nodeId, layerPath, reason },
+    node: {
+      kind: 'placeholder',
+      nodeId,
+      layerPath,
+      reason,
+      ...(label ? { label } : {}),
+    },
     diagnostic,
   };
 }

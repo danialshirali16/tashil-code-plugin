@@ -57,6 +57,17 @@ describe('renderImportLines', () => {
       'import { Card as Card2 } from "@tashilcar/forms";',
     ].join('\n'));
   });
+
+  it('reuses one alias for repeated imports from the same secondary path', () => {
+    expect(renderImportLines([
+      imports('Card', '@tashilcar/ui'),
+      imports('Card', '@tashilcar/forms'),
+      imports('Card', '@tashilcar/forms'),
+    ])).toBe([
+      'import { Card } from "@tashilcar/ui";',
+      'import { Card as Card2 } from "@tashilcar/forms";',
+    ].join('\n'));
+  });
 });
 
 describe('collectByPath', () => {

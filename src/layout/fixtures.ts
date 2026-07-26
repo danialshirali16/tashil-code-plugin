@@ -43,6 +43,7 @@ type FrameOptions = {
   width?: number;
   height?: number;
   visible?: boolean;
+  css?: Record<string, string>;
 };
 
 export type FrameDouble = FrameNode;
@@ -79,6 +80,9 @@ export function frame(
     parent: { type: 'PAGE' },
     type: 'FRAME',
     visible: options.visible ?? true,
+    ...(options.css
+      ? { getCSSAsync: () => Promise.resolve({ ...options.css }) }
+      : {}),
   } as unknown as FrameDouble;
 }
 
@@ -106,6 +110,7 @@ type ChildLayoutOptions = {
   layoutSizingHorizontal?: 'FIXED' | 'HUG' | 'FILL';
   layoutSizingVertical?: 'FIXED' | 'HUG' | 'FILL';
   visible?: boolean;
+  componentProperties?: Record<string, { type: string; value: string | boolean }>;
 };
 
 /** A standalone TEXT node (outside any component instance). */
@@ -165,7 +170,7 @@ export function instance(
   childOptions: ChildLayoutOptions = {},
 ): InstanceDouble {
   return {
-    componentProperties: {},
+    componentProperties: childOptions.componentProperties ?? {},
     getMainComponentAsync: () => Promise.resolve(mainComponent),
     id,
     layoutGrow: childOptions.layoutGrow ?? 0,
