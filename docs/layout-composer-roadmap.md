@@ -1,5 +1,9 @@
 # Frame Inspection Roadmap
 
+> **Superseded direction (2026-07-26):** ADR E restores full selected-tree
+> React/TSX and CSS Module generation alongside Dev Mode CSS inspection. This
+> file retains the earlier inspection-pivot checklist as decision history.
+
 Status: Development complete (Phase A–H) — manual user verification (Design mode, library components, keyboard layout) and release decision remain.  
 Last updated: 2026-07-24 (commit f604703)  
 Decisions record: [`layout-composer-decisions.md`](layout-composer-decisions.md)
@@ -46,23 +50,23 @@ The differentiated value over Figma's native inspect panel:
 
 ## Product decisions
 
-- [x] Inspect the **selected node only**. No subtree code generation.
-- [x] Output plain CSS declarations, not CSS Modules, class names, or TSX
+- [ ] Inspect the **selected node only**. No subtree code generation.
+- [ ] Output plain CSS declarations, not CSS Modules, class names, or TSX
   scaffolding for frames.
-- [x] Use `node.getCSSAsync()` as the source of truth for CSS, partitioned
+- [ ] Use `node.getCSSAsync()` as the source of truth for CSS, partitioned
   into Layout and Style buckets. Do not rebuild Figma's CSS serializer.
-- [x] Preserve Figma variable output (`var(--spacer-3, 1rem)`) exactly as
+- [ ] Preserve Figma variable output (`var(--spacer-3, 1rem)`) exactly as
   `getCSSAsync()` emits it.
-- [x] Connected component snippet output remains byte-for-byte backwards
+- [ ] Connected component snippet output remains byte-for-byte backwards
   compatible; CSS sections are additive.
-- [x] Any single selected `SceneNode` is inspectable — frames, groups,
+- [ ] Any single selected `SceneNode` is inspectable — frames, groups,
   sections, text, vectors, rectangles. "Unsupported root" ceases to exist as
   a concept; every node has CSS.
-- [x] For frames, enumerate connected component instances in the subtree,
+- [ ] For frames, enumerate connected component instances in the subtree,
   stopping at every instance boundary (instances stay atomic).
-- [x] Generation stays read-only: no canvas mutations, no persisted data, no
+- [ ] Generation stays read-only: no canvas mutations, no persisted data, no
   network access.
-- [x] Retire the tree codegen path (TSX emitter, CSS Modules emitter, import
+- [ ] Retire the tree codegen path (TSX emitter, CSS Modules emitter, import
   aliasing, class naming) from the product; keep the pure modules in git
   history only.
 
@@ -184,17 +188,17 @@ plugin's sections read identically to the native Dev Mode panel.
 - [ ] Verify `getCSSAsync()` availability and output in **both** runtimes:
   Dev Mode codegen and the Design-mode plugin (Inspect Code). Record exact
   behavior per node type (frame, group, section, text, instance, vector).
-- [x] Verify variable-backed values emit as `var(--name, fallback)` and
+- [ ] Verify variable-backed values emit as `var(--name, fallback)` and
   under which file/library conditions. _(Verified in Dev Mode 2026-07-24:
   `var(--spacer-2, 0.5rem)` etc.; a variable without a resolvable fallback
   emits its raw name, passed through as-is.)_
 - [ ] Capture fixture outputs from a real file for: auto-layout frame,
   non-auto-layout frame, group, text, connected instance, vector.
-- [x] Decide the fallback policy if `getCSSAsync()` is unavailable in the
+- [ ] Decide the fallback policy if `getCSSAsync()` is unavailable in the
   Design-mode runtime: either (a) reuse the retired `LayoutStyle` mapping as
   a Layout-only fallback with a `css-unavailable` diagnostic for Style, or
   (b) show Inspect Code CSS only when available. Record the decision.
-- [x] Add ADR **D — Dev-Mode-parity pivot** to
+- [ ] Add ADR **D — Dev-Mode-parity pivot** to
   `layout-composer-decisions.md`: why tree codegen was retired, what
   survives, and the `getCSSAsync()` source-of-truth decision.
 
@@ -212,37 +216,37 @@ src/inspect/node-css.ts
 src/inspect/*.test.ts
 ```
 
-- [x] Implement `partitionCss(declarations)` with the documented table;
+- [ ] Implement `partitionCss(declarations)` with the documented table;
   unit-test every listed property plus the unknown-property default.
-- [x] Implement `getNodeCss(node)` wrapping `getCSSAsync()`: deterministic
+- [ ] Implement `getNodeCss(node)` wrapping `getCSSAsync()`: deterministic
   declaration assembly, bucket split, `css-unavailable` diagnostic on
   failure, never throws.
-- [x] Render buckets as copy-ready CSS text (`property: value;` per line,
+- [ ] Render buckets as copy-ready CSS text (`property: value;` per line,
   matching the native panel).
-- [x] Implement the Phase A fallback decision.
-- [x] Golden tests from the Phase A fixtures.
+- [ ] Implement the Phase A fallback decision.
+- [ ] Golden tests from the Phase A fixtures.
 
 Exit criteria: given a mocked `getCSSAsync()` result, the service returns
 deterministic Layout and Style sections identical to the goldens.
 
 ## Phase C — Connected components summary
 
-- [x] Trim `figma-layout-extractor.ts` into a connected-instance enumerator:
+- [ ] Trim `figma-layout-extractor.ts` into a connected-instance enumerator:
   same visible-document-order traversal, same hard stop at every instance
   boundary, but collecting `ConnectedComponentEntry` items instead of
   building composition IR.
-- [x] Reuse `resolveInstance` and `GenerationContext` caches; guarantee no
+- [ ] Reuse `resolveInstance` and `GenerationContext` caches; guarantee no
   duplicate main-component or metadata lookup per generation.
-- [x] Unconnected or broken instances become diagnostics
+- [ ] Unconnected or broken instances become diagnostics
   (`unconnected-instance`, `invalid-connection`, `missing-main-component`)
   with layer paths — never silent omission.
-- [x] Keep the node-count limit; truncation adds one `node-limit`
+- [ ] Keep the node-count limit; truncation adds one `node-limit`
   diagnostic.
-- [x] Delete the retired modules (`tsx-emitter`, `css-module-emitter`,
+- [ ] Delete the retired modules (`tsx-emitter`, `css-module-emitter`,
   `imports`, `naming`) and their tests, unless Phase A chose the
   `LayoutStyle` fallback (then `css-module-emitter`'s declaration logic is
   the one salvage).
-- [x] Assemble `inspectFrame(node)` returning the full `FrameInspection`.
+- [ ] Assemble `inspectFrame(node)` returning the full `FrameInspection`.
 
 Exit criteria: fixtures with nested frames and mixed connected/unconnected
 instances produce the expected entry list and diagnostics; instance internals
@@ -250,7 +254,7 @@ are never visited; existing component-codegen tests still pass unchanged.
 
 ## Phase D — Dev Mode adapter
 
-- [x] Replace `tryGenerateLayoutBlocks` in `src/main.ts` with the inspection
+- [ ] Replace `tryGenerateLayoutBlocks` in `src/main.ts` with the inspection
   path. For a non-component selection return:
   1. `CSS` block titled **Layout**.
   2. `CSS` block titled **Style** (omit when empty).
@@ -262,9 +266,9 @@ are never visited; existing component-codegen tests still pass unchanged.
      imports from different modules fall back to per-entry snippets rather
      than aliasing imports away from the JSX.)_
   4. `PLAINTEXT` diagnostics block when needed.
-- [x] Keep the connected-component branch byte-identical; optionally append
+- [ ] Keep the connected-component branch byte-identical; optionally append
   the instance's own Layout/Style CSS blocks *after* the existing blocks.
-- [x] Remove the "not a layout Dev Mode supports yet" fallback — every node
+- [ ] Remove the "not a layout Dev Mode supports yet" fallback — every node
   now yields CSS. Keep a plaintext error path only for unexpected failures.
 
 Exit criteria: connected instances produce today's output (plus additive CSS
@@ -273,21 +277,21 @@ blocks; repeated generation is deterministic.
 
 ## Phase E — Inspect Code integration
 
-- [x] Replace the `layout` status in `InspectCodeState` with
+- [ ] Replace the `layout` status in `InspectCodeState` with
   `{ status: 'inspection'; inspection: FrameInspection }`.
-- [x] Update `sendSelectionState`: connected component → existing component
+- [ ] Update `sendSelectionState`: connected component → existing component
   state; any other single node → inspection state. Connect Component
   selection rules remain component-only.
-- [x] Rebuild the view from the salvaged `LayoutInspectView` scaffolding:
+- [ ] Rebuild the view from the salvaged `LayoutInspectView` scaffolding:
   - Header card: node name, node type.
   - **Layout** section: copyable CSS block.
   - **Style** section: copyable CSS block (hidden when empty).
   - **Connected components** section: per-entry name, layer path, copyable
     usage snippet (full snippets belong here, not in Dev Mode).
   - Diagnostics list with severity, reusing the existing pattern.
-- [x] Reuse CopyButton live-region feedback; keep keyboard order and the
+- [ ] Reuse CopyButton live-region feedback; keep keyboard order and the
   480 px no-horizontal-overflow constraint.
-- [x] Remove the TSX/CSS tab machinery and composition-summary UI.
+- [ ] Remove the TSX/CSS tab machinery and composition-summary UI.
 
 Exit criteria: Inspect Code and Dev Mode render the same `FrameInspection`
 for the same node; component connection authoring is unchanged.
@@ -298,16 +302,16 @@ Deliberately small — single-node inspection removes the tree-hardening
 surface (no naming collisions, no import aliasing, no placeholder contract,
 no depth fuzzing).
 
-- [x] Stale-result guard: rapid selection changes never publish an outdated
+- [ ] Stale-result guard: rapid selection changes never publish an outdated
   inspection (token/sequence check on the async `getCSSAsync()` round trip).
-- [x] `getCSSAsync()` failure on the selected node degrades to the
+- [ ] `getCSSAsync()` failure on the selected node degrades to the
   connected-components section plus a `css-unavailable` diagnostic.
-- [x] One failed descendant resolution never discards CSS sections or other
+- [ ] One failed descendant resolution never discards CSS sections or other
   entries.
-- [x] Confirm no document mutations and no network access. _(Manifest
+- [ ] Confirm no document mutations and no network access. _(Manifest
   pins `networkAccess: ["none"]`; a main-process test asserts generation
   never writes shared plugin data.)_
-- [x] Benchmark only the frame summary traversal (~500-node frame) — the
+- [ ] Benchmark only the frame summary traversal (~500-node frame) — the
   single remaining O(tree) operation. _(Test: 500 shared-component instances
   finish under budget with exactly one metadata read.)_
 
@@ -318,68 +322,68 @@ output is deterministic across repeated calls.
 
 Pure unit tests:
 
-- [x] Partition table: every Layout property, Style defaults, unknowns.
-- [x] Declaration ordering and CSS text assembly.
-- [x] `FrameInspection` golden tests from Phase A fixtures.
+- [ ] Partition table: every Layout property, Style defaults, unknowns.
+- [ ] Declaration ordering and CSS text assembly.
+- [ ] `FrameInspection` golden tests from Phase A fixtures.
 
 Adapter tests:
 
-- [x] `getCSSAsync()` success, failure, and empty-result paths.
-- [x] Enumerator: boundary stopping, traversal order, caching, node limit,
+- [ ] `getCSSAsync()` success, failure, and empty-result paths.
+- [ ] Enumerator: boundary stopping, traversal order, caching, node limit,
   mixed connected/unconnected fixtures.
 
 Main-process tests:
 
-- [x] Existing single-component Dev Mode output unchanged (frozen baseline).
-- [x] Frame selection returns Layout `CSS`, Style `CSS`, and optional
+- [ ] Existing single-component Dev Mode output unchanged (frozen baseline).
+- [ ] Frame selection returns Layout `CSS`, Style `CSS`, and optional
   `PLAINTEXT` blocks.
-- [x] Inspect Code receives the same `FrameInspection`.
-- [x] Stale-selection guard.
+- [ ] Inspect Code receives the same `FrameInspection`.
+- [ ] Stale-selection guard.
 
 UI tests:
 
-- [x] Inspection state rendering: sections, empty Style, no connected
+- [ ] Inspection state rendering: sections, empty Style, no connected
   components, diagnostics.
-- [x] Copy Layout / Copy Style / copy snippet.
+- [ ] Copy Layout / Copy Style / copy snippet.
 - [ ] Keyboard order and narrow-window overflow.
 
 Manual Figma acceptance matrix:
 
 - [ ] Design mode plugin → Inspect Code (the Design-mode `getCSSAsync()`
   behavior from Phase A, re-verified in the real product).
-- [x] Dev Mode → Tashil UI codegen for frame, group, section, text, vector,
+- [ ] Dev Mode → Tashil UI codegen for frame, group, section, text, vector,
   connected instance, unconnected instance. _(Verified 2026-07-24 on real
   frames: Layout/Style blocks, connected snippet, unconnected notes.)_
-- [x] Variable-backed values render as `var(--token, fallback)`.
+- [ ] Variable-backed values render as `var(--token, fallback)`.
 - [ ] Library/remote components; rapidly changing selections; light and
   dark themes.
 
 ## Phase H — Documentation and rollout
 
-- [x] Rewrite the layout-composer section of `project-brief.md` for the
+- [ ] Rewrite the layout-composer section of `project-brief.md` for the
   inspection model.
-- [x] Add `docs/inspect-frame.md`: what Layout/Style show, how the connected
+- [ ] Add `docs/inspect-frame.md`: what Layout/Style show, how the connected
   summary works, why instances are atomic, Design-mode value proposition.
-- [x] Move `layout-composer-preview.html` to `docs/archive/`.
-- [x] Changelog entry describing the pivot and the new behavior.
+- [ ] Move `layout-composer-preview.html` to `docs/archive/`.
+- [ ] Changelog entry describing the pivot and the new behavior.
 - [ ] Release as a beta; collect real usage before considering any return
   to code generation (a future "copy as TSX" affordance can be rebuilt from
   git history if users ask for it).
 
 ## Definition of done
 
-- [x] Selecting any single node shows Layout and Style CSS in both Dev Mode
+- [ ] Selecting any single node shows Layout and Style CSS in both Dev Mode
   and Inspect Code, matching `getCSSAsync()` output.
-- [x] Variable-backed values pass through as `var(--token, fallback)`.
-- [x] Connected instance selection produces today's snippet output,
+- [ ] Variable-backed values pass through as `var(--token, fallback)`.
+- [ ] Connected instance selection produces today's snippet output,
   byte-for-byte.
-- [x] Frame selection lists its connected components; instance internals are
+- [ ] Frame selection lists its connected components; instance internals are
   never traversed or emitted.
-- [x] Dev Mode and Inspect Code consume the same `FrameInspection`.
-- [x] Retired modules and superseded WIP wiring are removed.
-- [x] `npm run typecheck`, `npm test`, `npm run lint`, `npm run build` pass;
+- [ ] Dev Mode and Inspect Code consume the same `FrameInspection`.
+- [ ] Retired modules and superseded WIP wiring are removed.
+- [ ] `npm run typecheck`, `npm test`, `npm run lint`, `npm run build` pass;
   regenerated manifest committed when it changes.
-- [x] Documentation and changelog are complete.
+- [ ] Documentation and changelog are complete.
 
 ## Suggested implementation order
 

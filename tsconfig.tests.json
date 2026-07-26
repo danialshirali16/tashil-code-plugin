@@ -21,6 +21,9 @@
     "src/semantic-editor-view.test.tsx",
     "src/ui*.test.ts",
     "src/ui*.test.tsx",
+    "dev/harness/*.ts",
+    "dev/harness/*.tsx",
+    "vite.harness.config.ts",
     "vitest.config.ts"
   ]
 }
