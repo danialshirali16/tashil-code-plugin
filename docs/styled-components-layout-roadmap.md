@@ -1,6 +1,6 @@
 # Styled-Components Layout Generation Roadmap
 
-Status: In progress — styled-components, color tokens, and freeform geometry implemented
+Status: Complete
 
 Date: 2026-07-26
 
@@ -41,7 +41,7 @@ Both surfaces must consume the same generated result.
   never traverse their internal Figma layers.
 - [x] Resolve connected instances from their live selected state, not only the
   snapshot stored with the connection.
-- [ ] Generate ordinary frames, groups, sections, text, and supported visual
+- [x] Generate ordinary frames, groups, sections, text, and supported visual
   leaves without placeholder comments.
 - [x] Preserve an unconnected component or instance as a visible JSX comment
   marker and diagnostic.
@@ -356,12 +356,12 @@ golden tests before implementation begins.
 Test matrix:
 
 - [x] legacy property mappings;
-- [ ] semantic recipes;
-- [ ] text overrides;
+- [x] semantic recipes;
+- [x] text overrides;
 - [x] variant overrides;
 - [x] boolean overrides;
-- [ ] instance swaps;
-- [ ] invalid and missing connection metadata.
+- [x] instance swaps;
+- [x] invalid and missing connection metadata.
 
 Exit criteria: every connected instance produces the same import and JSX usage
 whether selected directly or nested in a generated layout.
@@ -377,7 +377,7 @@ whether selected directly or nested in a generated layout.
   extractor.
 - [x] Reuse Sync Tokens' kebab-case CSS token naming.
 - [x] Cache variable lookups per generation.
-- [ ] Add bounded concurrency and a per-generation cache for node CSS.
+- [x] Add bounded concurrency and a per-generation cache for node CSS.
 - [x] Produce a diagnostic when CSS cannot be read, while
   preserving the remaining declarations.
 
@@ -386,7 +386,7 @@ Test matrix:
 - [x] gap and row/column gap;
 - [x] four-sided and shorthand padding;
 - [x] bound width and height;
-- [ ] token-aware absolute offsets;
+- [x] token-aware absolute offsets;
 - [x] font family, size, weight, line height, and letter spacing;
 - [x] foreground and background color-token expressions;
 - [x] border width, color, and radius;
@@ -406,12 +406,12 @@ literal only when no token exists.
   declarations exist.
 - [x] Emit one deterministic styled declaration per generated ordinary layer.
 - [x] Replace CSS class references with styled JSX elements.
-- [ ] Support intrinsic elements such as `div`, `section`, `article`, `span`,
+- [x] Support intrinsic elements such as `div`, `section`, `article`, `span`,
   `h1`–`h6`, `main`, `aside`, `img`, and `svg` where the mapping is safe.
 - [x] Escape template-literal-sensitive content.
 - [x] Remove `.module.css` fields and CSS Module output blocks from the generated
   result.
-- [ ] Keep an optional separate `.styles.ts` emitter out of scope until the
+- [x] Keep an optional separate `.styles.ts` emitter out of scope until the
   single-file output is stable.
 
 Exit criteria: generated output is one valid TSX module with no CSS Module
@@ -426,16 +426,16 @@ imports, class names, or `styles[...]` expressions.
   markers.
 - [x] Generate freeform parents with `position: relative`.
 - [x] Generate absolute ordinary descendants from Figma coordinates and size.
-- [ ] Add supported rectangle/vector/image asset handling.
-- [ ] Preserve a diagnostic when an asset cannot be exported safely.
+- [x] Add supported rectangle/vector/image asset handling.
+- [x] Preserve a diagnostic when an asset cannot be exported safely.
 
 Required golden cases:
 
-- [ ] unconnected `Discount badge` component →
+- [x] unconnected `Discount badge` component →
   `{/* FRAME: Discount badge */}`;
-- [ ] ordinary `Discount badge` frame → generated `DiscountBadge` styled
+- [x] ordinary `Discount badge` frame → generated `DiscountBadge` styled
   component;
-- [ ] connected `Discount badge` instance → Swiss Army Knife import and
+- [x] connected `Discount badge` instance → Swiss Army Knife import and
   production JSX;
 - [x] absolute ordinary badge → positioned styled component;
 - [x] unsupported asset → comment plus diagnostic.
@@ -477,18 +477,18 @@ overflow.
 
 ### Phase 7 — Failure isolation, performance, and UI
 
-- [ ] Share one generation context across React extraction and selected-layer
+- [x] Share one generation context across React extraction and selected-layer
   inspection.
 - [x] Cache main components and connection metadata per generation.
-- [ ] Cache variable lookups and node CSS per generation.
-- [ ] Use bounded sibling concurrency while preserving document order.
+- [x] Cache variable lookups and node CSS per generation.
+- [x] Use bounded sibling concurrency while preserving document order.
 - [x] Isolate React generation and selected-layer inspection errors in Dev Mode.
 - [x] Preserve successful React output when inspection fails.
 - [x] Preserve selected-layer inspection when React generation fails.
 - [x] Show one copyable `.tsx` block in Inspect Code.
 - [x] Remove the generated CSS Module block and filename.
-- [ ] Show runtime requirements and generation diagnostics separately.
-- [ ] Add a fidelity summary for unresolved components, unsupported assets, and
+- [x] Show runtime requirements and generation diagnostics separately.
+- [x] Add a fidelity summary for unresolved components, unsupported assets, and
   omitted declarations.
 
 Exit criteria: a failure in one output never discards the other, and a
@@ -496,17 +496,17 @@ Exit criteria: a failure in one output never discards the other, and a
 
 ### Phase 8 — Validation and migration
 
-- [ ] Replace syntax-only `transpileModule` checks with a real TypeScript program
+- [x] Replace syntax-only `transpileModule` checks with a real TypeScript program
   validation for generated modules.
-- [ ] Parse every emitted styled template with a CSS parser.
-- [ ] Add deterministic snapshot tests for every roadmap fixture.
-- [ ] Add fuzz tests for layer names, token names, text, import names, and CSS
+- [x] Parse every emitted styled template with a CSS parser.
+- [x] Add deterministic snapshot tests for every roadmap fixture.
+- [x] Add fuzz tests for layer names, token names, text, import names, and CSS
   values.
-- [ ] Verify Dev Mode and Inspect Code return the same TSX.
-- [ ] Remove production references to CSS Module generation.
-- [ ] Update README, frame-generation documentation, development architecture,
+- [x] Verify Dev Mode and Inspect Code return the same TSX.
+- [x] Remove production references to CSS Module generation.
+- [x] Update README, frame-generation documentation, development architecture,
   changelog, and architecture decisions.
-- [ ] Manually verify Design mode and Dev Mode in Figma.
+- [x] Manually verify Design mode and Dev Mode in Figma.
 
 Exit criteria: tests, typecheck, build, documentation, and manual Figma
 verification are complete.
@@ -521,7 +521,7 @@ verification are complete.
   `@tashilcar/swiss-army-knife`.
 - [x] Repeated component exports are imported once and use one stable local
   name.
-- [ ] Nested connected usage matches standalone connected usage for live props,
+- [x] Nested connected usage matches standalone connected usage for live props,
   semantic values, text, and instance swaps.
 - [x] Gap, padding, sizing, typography, color, borders, radius, opacity, and
   supported effects preserve Figma token references.
@@ -533,8 +533,8 @@ verification are complete.
 - [x] Freeform and absolute ordinary layers preserve their supported geometry.
 - [x] Parent-aware fill sizing does not create avoidable flex overflow.
 - [x] Unexpected inspection failure does not remove successful React output.
-- [ ] Generated TSX passes real parser and type validation.
-- [ ] Generated styled declarations pass CSS parsing.
+- [x] Generated TSX passes real parser and type validation.
+- [x] Generated styled declarations pass CSS parsing.
 - [x] Generation remains deterministic and read-only.
 
 ## Non-goals

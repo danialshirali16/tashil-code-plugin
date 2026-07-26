@@ -67,7 +67,7 @@ jsdom; plugin-side tests cover Figma API behavior with local test doubles.
 | `src/connection-health.ts` | Source and Figma drift analysis. |
 | `src/codegen.ts` | TSX generation, legacy metadata migration, and diagnostics. |
 | `src/inspect/` | Dev-Mode-parity selected-layer CSS partitioning and connected-component enumeration. |
-| `src/layout/` | Full selected-tree styled-components React generation, token-aware Figma CSS extraction, atomic component resolution, naming, and traversal limits. |
+| `src/layout/` | Full selected-tree styled-components React generation, token-aware Figma CSS extraction, atomic component resolution, naming, per-request caches, and bounded traversal/concurrency. |
 | `src/types.ts` | Shared messages, persisted schema, and domain types. |
 | `docs/` | Product and contributor documentation. |
 
@@ -85,6 +85,12 @@ Dev Mode TSX codegen
 
 `mappingDocument` preserves authoring snapshots and reconciliation state.
 `propMappings` is the stable runtime table consumed by code generation.
+
+Selected-tree generation and selected-layer inspection share one
+`GenerationContext` per Dev Mode request. The context deduplicates component,
+connection, variable, and node-CSS reads; each traversal retains an independent
+node budget, and sibling async work is bounded while results remain in Figma
+document order.
 
 ## Persisted data and compatibility
 

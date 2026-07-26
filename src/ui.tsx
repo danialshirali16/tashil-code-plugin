@@ -1481,6 +1481,18 @@ function ReactLayoutView(props: { layout: ReactLayoutResult }): h.JSX.Element {
           <span>Generated wrappers</span>
           <span class="layout-summary-value">{layout.wrapperCount}</span>
         </div>
+        <div class="layout-summary-row">
+          <span>Unresolved components</span>
+          <span class="layout-summary-value">{layout.fidelity?.unresolvedComponents ?? 0}</span>
+        </div>
+        <div class="layout-summary-row">
+          <span>Unsupported assets</span>
+          <span class="layout-summary-value">{layout.fidelity?.unsupportedAssets ?? 0}</span>
+        </div>
+        <div class="layout-summary-row">
+          <span>Omitted declarations</span>
+          <span class="layout-summary-value">{layout.fidelity?.omittedDeclarations ?? 0}</span>
+        </div>
       </section>
 
       <CodeBlock
@@ -1488,6 +1500,13 @@ function ReactLayoutView(props: { layout: ReactLayoutResult }): h.JSX.Element {
         copyLabel="Copy generated React"
         title={`${layout.componentName}.tsx`}
       />
+
+      {(layout.runtimeRequirements?.length ?? 0) > 0 ? (
+        <CodeBlock
+          code={layout.runtimeRequirements?.join('\n') ?? ''}
+          title="Set in application"
+        />
+      ) : null}
 
       {layout.diagnostics.length > 0 ? (
         <section class="layout-section" aria-labelledby="tashil-layout-notes-heading">

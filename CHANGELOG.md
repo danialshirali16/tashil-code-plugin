@@ -6,6 +6,11 @@ All notable changes to Tashil Code are documented in this file.
 
 ### Added
 
+- Added real TypeScript-program validation for generated layout modules and
+  PostCSS parsing for every emitted styled-components template.
+- Added deterministic snapshots for every layout fixture, adversarial
+  name/text/token/CSS coverage, and byte-identical Dev Mode/Inspect Code parity
+  tests.
 - Restored full selected-tree React generation: frames, groups, sections, and
   text now produce one complete styled-components `.tsx` module in Dev Mode and
   Inspect Code. Token-aware Figma CSS is preserved inside styled declarations,
@@ -57,6 +62,12 @@ All notable changes to Tashil Code are documented in this file.
 
 ### Changed
 
+- React layout extraction and selected-layer inspection now share request-local
+  component, connection, variable, and CSS caches. Sibling extraction is
+  concurrency-bounded while preserving Figma document order.
+- Inspect Code now separates semantic runtime requirements from generation
+  diagnostics and reports unresolved-component, unsupported-asset, and
+  omitted-declaration counts.
 - Bound gap, padding, width, and height variables are now reconstructed with
   Sync Tokens' kebab-case CSS names and measured fallbacks when Figma CSS is
   unavailable; repeated variable lookups are cached per generation.
@@ -95,5 +106,5 @@ All notable changes to Tashil Code are documented in this file.
 ### Validation
 
 - Added parser, compiler, migration, drift, revision, upload, and UI integration coverage.
-- All 274 automated tests pass.
+- The complete automated suite passes.
 - ESLint, TypeScript checks, and the production build pass.

@@ -16,7 +16,12 @@
  *   other entries.
  */
 
-import { GenerationContext, type GenerationLimits } from '../layout/generation-context';
+import {
+  GenerationContext,
+  mapWithConcurrency,
+  type GenerationLimits,
+  type GenerationTraversal,
+} from '../layout/generation-context';
 import { resolveInstance, type InstanceLike } from '../layout/figma-component-resolver';
 import { getNodeCss, type CssSourceNode } from './node-css';
 import type {
@@ -33,7 +38,9 @@ export type InspectableNode = CssSourceNode & {
   children?: readonly InspectableNode[];
 };
 
-export type InspectFrameOptions = GenerationLimits;
+export type InspectFrameOptions = GenerationLimits & {
+  context?: GenerationContext;
+};
 
 /**
  * Inspect one selected node: its Layout/Style CSS plus the connected component
@@ -43,23 +50,32 @@ export async function inspectFrame(
   root: InspectableNode,
   options: InspectFrameOptions = {},
 ): Promise<FrameInspection> {
-  const context = new GenerationContext(options);
+  const context = options.context ?? new GenerationContext(options);
+  const traversal = context.createTraversal();
   const diagnostics: InspectionDiagnostic[] = [];
   const connectedComponents: ConnectedComponentEntry[] = [];
 
-  const cssResult = await getNodeCss(root);
+  const cssResult = await getNodeCss(root, context);
   diagnostics.push(...cssResult.diagnostics);
 
-  context.visit();
+  traversal.visit();
   if (root.type === 'INSTANCE') {
     // An instance root is itself the one candidate entry (the connected case
     // is normally routed to the component branch before inspection).
     await collectInstance(root, [root.name], context, connectedComponents, diagnostics);
   } else {
-    await collectChildren(root, [root.name], context, connectedComponents, diagnostics);
+    await collectChildren(
+      root,
+      [root.name],
+      context,
+      traversal,
+      connectedComponents,
+      diagnostics,
+      0,
+    );
   }
 
-  if (context.isLimitReached) {
+  if (traversal.isLimitReached) {
     diagnostics.push({
       severity: 'warning',
       reason: 'node-limit',
@@ -80,10 +96,12 @@ async function collectChildren(
   node: InspectableNode,
   layerPath: string[],
   context: GenerationContext,
+  traversal: GenerationTraversal,
   entries: ConnectedComponentEntry[],
   diagnostics: InspectionDiagnostic[],
+  depth: number,
 ): Promise<void> {
-  if (!context.enter()) {
+  if (depth >= context.maxDepth) {
     diagnostics.push({
       severity: 'warning',
       reason: 'node-limit',
@@ -94,30 +112,52 @@ async function collectChildren(
     return;
   }
 
+  const candidates: Array<{ child: InspectableNode; path: string[] }> = [];
   for (const child of node.children ?? []) {
-    if (context.isLimitReached) {
+    if (traversal.isLimitReached) {
       break;
     }
     if (child.visible === false) {
       continue;
     }
-    if (!context.visit()) {
+    if (!traversal.visit()) {
       break;
     }
 
-    const childPath = [...layerPath, child.name];
-
-    if (child.type === 'INSTANCE') {
-      await collectInstance(child, childPath, context, entries, diagnostics);
-      continue; // Atomic boundary — internals are never visited.
-    }
-    if (child.type === 'COMPONENT' || child.type === 'COMPONENT_SET') {
-      continue; // Main-component boundary — not a usage; never traversed.
-    }
-    await collectChildren(child, childPath, context, entries, diagnostics);
+    candidates.push({ child, path: [...layerPath, child.name] });
   }
-
-  context.exit();
+  const results = await mapWithConcurrency(
+    candidates,
+    context.maxConcurrency,
+    async ({ child, path }) => {
+      const childEntries: ConnectedComponentEntry[] = [];
+      const childDiagnostics: InspectionDiagnostic[] = [];
+      if (child.type === 'INSTANCE') {
+        await collectInstance(
+          child,
+          path,
+          context,
+          childEntries,
+          childDiagnostics,
+        );
+      } else if (child.type !== 'COMPONENT' && child.type !== 'COMPONENT_SET') {
+        await collectChildren(
+          child,
+          path,
+          context,
+          traversal,
+          childEntries,
+          childDiagnostics,
+          depth + 1,
+        );
+      }
+      return { entries: childEntries, diagnostics: childDiagnostics };
+    },
+  );
+  for (const result of results) {
+    entries.push(...result.entries);
+    diagnostics.push(...result.diagnostics);
+  }
 }
 
 async function collectInstance(

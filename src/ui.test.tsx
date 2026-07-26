@@ -919,9 +919,19 @@ describe('Plugin rendered interactions', () => {
       layout: {
         componentCount: 1,
         componentName: 'PaymentForm',
-        diagnostics: [],
+        diagnostics: [{
+          severity: 'warning',
+          reason: 'unsupported-paint',
+          message: 'A visual layer needs review.',
+        }],
+        fidelity: {
+          unresolvedComponents: 0,
+          unsupportedAssets: 1,
+          omittedDeclarations: 0,
+        },
         nodeName: 'Payment form',
         nodeType: 'FRAME',
+        runtimeRequirements: ['onSubmit: () => void'],
         wrapperCount: 2,
         tsx: [
           'import styled from "styled-components";',
@@ -945,6 +955,11 @@ describe('Plugin rendered interactions', () => {
     expect(screen.getByRole('button', { name: /Copy generated React/ })).toBeTruthy();
     expect(document.body.textContent).toContain('export function PaymentForm');
     expect(document.body.textContent).toContain('display: flex;');
+    expect(screen.getByText('Set in application')).toBeTruthy();
+    expect(document.body.textContent).toContain('onSubmit: () => void');
+    expect(screen.getByText('Generation notes')).toBeTruthy();
+    expect(document.body.textContent).toContain('A visual layer needs review.');
+    expect(document.body.textContent).toContain('Unsupported assets1');
     expect(document.body.textContent).not.toContain('.module.css');
   });
 

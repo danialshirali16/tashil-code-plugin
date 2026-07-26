@@ -12,9 +12,6 @@
 
 import type { ConnectionMetadata } from '../types';
 
-// Figma node types (ComponentNode, InstanceNode) are ambient globals provided
-// by @figma/plugin-typings; no import needed.
-
 /** A connection read outcome, mirroring `main.ts`'s private `ConnectionReadResult`. */
 export type ConnectionReadResult =
   | { ok: true; metadata: ConnectionMetadata }
@@ -25,74 +22,50 @@ export type GenerationLimits = {
   maxDepth?: number;
   /** Max nodes visited before a partial result is returned. Default 500. */
   maxNodes?: number;
+  /** Maximum sibling tasks evaluated concurrently. Default 8. */
+  maxConcurrency?: number;
 };
 
 const DEFAULT_MAX_DEPTH = 64;
 const DEFAULT_MAX_NODES = 500;
 
 /**
- * Mutable accumulator for one generation. `visit()` enforces the node-count
- * limit and reports whether traversal should stop; `enter()/exit()` track depth.
+ * Shared caches and limits for one generation request.
  */
 export class GenerationContext {
   readonly maxDepth: number;
   readonly maxNodes: number;
+  readonly maxConcurrency: number;
 
-  private readonly mainComponentCache = new Map<string, ComponentNode | null>();
+  private readonly mainComponentCache = new Map<string, unknown | null>();
   private readonly connectionCache = new Map<string, ConnectionReadResult>();
-  private depth = 0;
-  private nodesVisited = 0;
-  /** Set once the node-count limit is reached; stays set for the run. */
-  private limitReached = false;
-
+  private readonly cssCache = new Map<string, Promise<Record<string, string>>>();
+  private readonly variableCache = new Map<
+    string,
+    Promise<{ id: string; name: string } | null>
+  >();
   constructor(limits: GenerationLimits = {}) {
     this.maxDepth = limits.maxDepth ?? DEFAULT_MAX_DEPTH;
     this.maxNodes = limits.maxNodes ?? DEFAULT_MAX_NODES;
-  }
-
-  /** True once the node budget is exhausted. */
-  get isLimitReached(): boolean {
-    return this.limitReached;
-  }
-
-  get currentDepth(): number {
-    return this.depth;
+    this.maxConcurrency = Math.max(1, limits.maxConcurrency ?? 8);
   }
 
   /**
-   * Record one visited node. Returns false when the node budget is exhausted
-   * and traversal should stop.
+   * Create an independent node budget for one traversal. React extraction and
+   * selected-layer inspection share caches without consuming each other's
+   * traversal allowance.
    */
-  visit(): boolean {
-    this.nodesVisited += 1;
-    if (this.nodesVisited > this.maxNodes) {
-      this.limitReached = true;
-      return false;
-    }
-    return true;
-  }
-
-  enter(): boolean {
-    if (this.depth >= this.maxDepth) {
-      return false;
-    }
-    this.depth += 1;
-    return true;
-  }
-
-  exit(): void {
-    if (this.depth > 0) {
-      this.depth -= 1;
-    }
+  createTraversal(): GenerationTraversal {
+    return new GenerationTraversal(this.maxNodes);
   }
 
   // ---- per-generation caches ------------------------------------------------
 
-  getCachedMainComponent(instanceId: string): ComponentNode | null | undefined {
-    return this.mainComponentCache.get(instanceId);
+  getCachedMainComponent<T>(instanceId: string): T | null | undefined {
+    return this.mainComponentCache.get(instanceId) as T | null | undefined;
   }
 
-  cacheMainComponent(instanceId: string, component: ComponentNode | null): void {
+  cacheMainComponent<T>(instanceId: string, component: T | null): void {
     this.mainComponentCache.set(instanceId, component);
   }
 
@@ -103,6 +76,75 @@ export class GenerationContext {
   cacheConnection(nodeId: string, result: ConnectionReadResult): void {
     this.connectionCache.set(nodeId, result);
   }
+
+  getNodeCss(
+    nodeId: string,
+    load: () => Promise<Record<string, string>>,
+  ): Promise<Record<string, string>> {
+    const cached = this.cssCache.get(nodeId);
+    if (cached) {
+      return cached;
+    }
+    const pending = load();
+    this.cssCache.set(nodeId, pending);
+    return pending;
+  }
+
+  getVariable(
+    variableId: string,
+    load: () => Promise<{ id: string; name: string } | null>,
+  ): Promise<{ id: string; name: string } | null> {
+    const cached = this.variableCache.get(variableId);
+    if (cached) {
+      return cached;
+    }
+    const pending = load();
+    this.variableCache.set(variableId, pending);
+    return pending;
+  }
+}
+
+export class GenerationTraversal {
+  private nodesVisited = 0;
+  private limitReached = false;
+
+  constructor(private readonly maxNodes: number) {}
+
+  get isLimitReached(): boolean {
+    return this.limitReached;
+  }
+
+  visit(): boolean {
+    this.nodesVisited += 1;
+    if (this.nodesVisited > this.maxNodes) {
+      this.limitReached = true;
+      return false;
+    }
+    return true;
+  }
+}
+
+export async function mapWithConcurrency<T, R>(
+  values: readonly T[],
+  limit: number,
+  task: (value: T, index: number) => Promise<R>,
+): Promise<R[]> {
+  const results = new Array<R>(values.length);
+  let next = 0;
+  async function worker(): Promise<void> {
+    while (next < values.length) {
+      const index = next;
+      next += 1;
+      results[index] = await task(values[index], index);
+    }
+  }
+  await Promise.all(
+    Array.from(
+      { length: Math.min(Math.max(1, limit), values.length) },
+      () => worker(),
+    ),
+  );
+  return results;
 }
 
 /**
@@ -110,14 +152,18 @@ export class GenerationContext {
  * private `getConnectionTarget`: a component inside a COMPONENT_SET resolves to
  * the set; otherwise the component is its own target.
  */
-export function getConnectionTarget(component: ComponentNode): ComponentNode {
+export function getConnectionTarget<
+  T extends { parent?: { type?: string } | null },
+>(component: T): T {
   if (component.parent?.type === 'COMPONENT_SET') {
-    return component.parent as unknown as ComponentNode;
+    return component.parent as unknown as T;
   }
   return component;
 }
 
 /** Narrowing helper for instance doubles. */
-export function isInstanceNode(node: { type: string }): node is InstanceNode {
+export function isInstanceNode<T extends { type: string }>(
+  node: T,
+): node is T & { type: 'INSTANCE' } {
   return node.type === 'INSTANCE';
 }

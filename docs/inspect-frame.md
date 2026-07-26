@@ -83,6 +83,11 @@ being silently dropped:
   ordinary children placed from their Figma-local coordinates;
 - a very large tree truncated at the node/depth budget.
 
+Inspect Code keeps these notes separate from **Set in application**, which lists
+runtime values required by semantic component recipes. The summary card reports
+unresolved components, unsupported assets, and omitted declarations so the
+fidelity of a generated module is visible before copying it.
+
 ## Troubleshooting
 
 - **A component is a JSX marker** — open **Connect component**, save a valid

@@ -1538,6 +1538,43 @@ describe('persisted metadata reads', () => {
 });
 
 describe('Dev Mode inspection codegen', () => {
+  it('returns the same generated TSX through Dev Mode and Inspect Code', async () => {
+    const metadata: ConnectionMetadata = {
+      schemaVersion: CURRENT_SCHEMA_VERSION,
+      childrenMode: 'none',
+      componentName: 'Button',
+      importPath: '@tashilcar/ui',
+    };
+    const { codegenEvents, selection } = await startPlugin();
+    const button = createComponent('c-parity-button', 'Button', {
+      sharedPluginData: JSON.stringify(metadata),
+    });
+    const frame = createFrame('f-parity', 'Parity layout', [
+      createInstance('i-parity-button', Promise.resolve(button)),
+    ], {
+      layoutMode: 'VERTICAL',
+      itemSpacing: 12,
+      css: { display: 'flex', gap: '12px' },
+    });
+
+    const blocks = await codegenEvents.get('generate')?.({ node: frame });
+    const devModeTsx = blocks?.find((block) => block.title === 'ParityLayout.tsx')?.code;
+
+    selection.push(frame);
+    utilityMocks.handlers.get('REFRESH_SELECTION')?.(undefined);
+    await vi.waitFor(() => {
+      expect(emittedPayloads<InspectCodeState>('INSPECT_CODE_STATE'))
+        .toContainEqual(expect.objectContaining({ status: 'layout' }));
+    });
+    const inspectState = emittedPayloads<InspectCodeState>('INSPECT_CODE_STATE')
+      .find((state) => state.status === 'layout') as Extract<
+        InspectCodeState,
+        { status: 'layout' }
+      >;
+
+    expect(devModeTsx).toBe(inspectState.layout.tsx);
+  });
+
   it('returns Layout and Style CSS blocks plus a connected-components note for a frame', async () => {
     const metadata: ConnectionMetadata = {
       schemaVersion: CURRENT_SCHEMA_VERSION,

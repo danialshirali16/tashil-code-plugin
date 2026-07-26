@@ -11,6 +11,7 @@ import {
   usesColorTokens,
 } from './styled-components-emitter';
 import type {
+  AssetCompositionNode,
   CompositionNode,
   ComponentCompositionNode,
   ComponentImport,
@@ -141,6 +142,8 @@ function renderNode(
   styled: StyledRegistry,
 ): string {
   switch (node.kind) {
+    case 'asset':
+      return renderAsset(node, depth, styled);
     case 'container':
       return renderContainer(node, depth, aliases, styled);
     case 'component':
@@ -150,6 +153,16 @@ function renderNode(
     case 'placeholder':
       return renderPlaceholder(node, depth);
   }
+}
+
+function renderAsset(
+  node: AssetCompositionNode,
+  depth: number,
+  styled: StyledRegistry,
+): string {
+  const pad = '  '.repeat(depth);
+  const element = styled.namesByNodeId.get(node.nodeId) ?? 'img';
+  return `${pad}<${element} alt=${JSON.stringify(node.alt)} src=${JSON.stringify(node.src)} />`;
 }
 
 function renderComponent(

@@ -1,0 +1,484 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`full React layout generation > matches the deterministic absolutePositionedChild roadmap fixture snapshot 1`] = `
+{
+  "componentCount": 0,
+  "componentName": "CardWithBadge",
+  "diagnostics": [
+    {
+      "layerPath": [
+        "Card with badge",
+        "Badge",
+      ],
+      "message": ""Badge" is absolutely positioned; its Figma coordinates and CSS were preserved.",
+      "nodeId": "t:badge",
+      "reason": "absolute-positioning",
+      "severity": "info",
+    },
+  ],
+  "fidelity": {
+    "omittedDeclarations": 0,
+    "unresolvedComponents": 0,
+    "unsupportedAssets": 0,
+  },
+  "runtimeRequirements": [],
+  "tsx": "import styled from "styled-components";
+
+const CardWithBadgeRoot = styled.div\`
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  position: relative;
+\`;
+
+const Badge = styled.span\`
+  position: absolute;
+  left: 248px;
+  top: 16px;
+  width: 48px;
+  height: 24px;
+\`;
+
+export function CardWithBadge() {
+  return (
+    <CardWithBadgeRoot>
+      <Badge>New</Badge>
+    </CardWithBadgeRoot>
+  );
+}
+",
+  "wrapperCount": 1,
+}
+`;
+
+exports[`full React layout generation > matches the deterministic brokenInstance roadmap fixture snapshot 1`] = `
+{
+  "componentCount": 0,
+  "componentName": "FrameWithBrokenInstance",
+  "diagnostics": [
+    {
+      "layerPath": [
+        "Frame with broken instance",
+        "Button / Missing",
+      ],
+      "message": ""Button / Missing" has no main component; it was emitted as a placeholder.",
+      "nodeId": "i:broken",
+      "reason": "missing-main-component",
+      "severity": "warning",
+    },
+  ],
+  "fidelity": {
+    "omittedDeclarations": 0,
+    "unresolvedComponents": 1,
+    "unsupportedAssets": 0,
+  },
+  "runtimeRequirements": [],
+  "tsx": "import styled from "styled-components";
+
+const FrameWithBrokenInstanceRoot = styled.div\`
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  align-items: flex-start;
+\`;
+
+export function FrameWithBrokenInstance() {
+  return (
+    <FrameWithBrokenInstanceRoot>
+      {/* missing-main-component */}
+    </FrameWithBrokenInstanceRoot>
+  );
+}
+",
+  "wrapperCount": 1,
+}
+`;
+
+exports[`full React layout generation > matches the deterministic connectedMultiplePackages roadmap fixture snapshot 1`] = `
+{
+  "componentCount": 2,
+  "componentName": "MixedSources",
+  "diagnostics": [],
+  "fidelity": {
+    "omittedDeclarations": 0,
+    "unresolvedComponents": 0,
+    "unsupportedAssets": 0,
+  },
+  "runtimeRequirements": [],
+  "tsx": "import styled from "styled-components";
+import { Button, Field } from "@tashilcar/swiss-army-knife";
+
+const MixedSourcesRoot = styled.div\`
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  align-items: flex-start;
+\`;
+
+export function MixedSources() {
+  return (
+    <MixedSourcesRoot>
+      <Button>
+        Button
+      </Button>
+      <Field>
+        Field
+      </Field>
+    </MixedSourcesRoot>
+  );
+}
+",
+  "wrapperCount": 1,
+}
+`;
+
+exports[`full React layout generation > matches the deterministic connectedOnePackage roadmap fixture snapshot 1`] = `
+{
+  "componentCount": 2,
+  "componentName": "Actions",
+  "diagnostics": [],
+  "fidelity": {
+    "omittedDeclarations": 0,
+    "unresolvedComponents": 0,
+    "unsupportedAssets": 0,
+  },
+  "runtimeRequirements": [],
+  "tsx": "import styled from "styled-components";
+import { Button } from "@tashilcar/swiss-army-knife";
+
+const ActionsRoot = styled.div\`
+  display: flex;
+  flex-direction: row;
+  gap: 12px;
+  align-items: flex-start;
+\`;
+
+export function Actions() {
+  return (
+    <ActionsRoot>
+      <Button>
+        Button / Back
+      </Button>
+      <Button>
+        Button / Continue
+      </Button>
+    </ActionsRoot>
+  );
+}
+",
+  "wrapperCount": 1,
+}
+`;
+
+exports[`full React layout generation > matches the deterministic duplicateNamesAcrossPackages roadmap fixture snapshot 1`] = `
+{
+  "componentCount": 2,
+  "componentName": "DuplicateNames",
+  "diagnostics": [],
+  "fidelity": {
+    "omittedDeclarations": 0,
+    "unresolvedComponents": 0,
+    "unsupportedAssets": 0,
+  },
+  "runtimeRequirements": [],
+  "tsx": "import styled from "styled-components";
+import { Card } from "@tashilcar/swiss-army-knife";
+
+const DuplicateNamesRoot = styled.div\`
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  align-items: flex-start;
+\`;
+
+export function DuplicateNames() {
+  return (
+    <DuplicateNamesRoot>
+      <Card>
+        Card
+      </Card>
+      <Card>
+        Card
+      </Card>
+    </DuplicateNamesRoot>
+  );
+}
+",
+  "wrapperCount": 1,
+}
+`;
+
+exports[`full React layout generation > matches the deterministic horizontalHeader roadmap fixture snapshot 1`] = `
+{
+  "componentCount": 1,
+  "componentName": "PageHeader",
+  "diagnostics": [],
+  "fidelity": {
+    "omittedDeclarations": 0,
+    "unresolvedComponents": 0,
+    "unsupportedAssets": 0,
+  },
+  "runtimeRequirements": [],
+  "tsx": "import styled from "styled-components";
+import { IconButton } from "@tashilcar/swiss-army-knife";
+
+const PageHeaderRoot = styled.div\`
+  display: flex;
+  flex-direction: row;
+  gap: 12px;
+  align-items: center;
+\`;
+
+const Title = styled.span\`
+  flex-grow: 1;
+\`;
+
+export function PageHeader() {
+  return (
+    <PageHeaderRoot>
+      <IconButton>
+        IconButton / Back
+      </IconButton>
+      <Title>Checkout</Title>
+    </PageHeaderRoot>
+  );
+}
+",
+  "wrapperCount": 1,
+}
+`;
+
+exports[`full React layout generation > matches the deterministic nestedAutoLayout roadmap fixture snapshot 1`] = `
+{
+  "componentCount": 1,
+  "componentName": "PaymentSection",
+  "diagnostics": [],
+  "fidelity": {
+    "omittedDeclarations": 0,
+    "unresolvedComponents": 0,
+    "unsupportedAssets": 0,
+  },
+  "runtimeRequirements": [],
+  "tsx": "import styled from "styled-components";
+import { TextField } from "@tashilcar/swiss-army-knife";
+
+const PaymentSectionRoot = styled.div\`
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  align-items: flex-start;
+\`;
+
+const CardFields = styled.div\`
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  align-items: flex-start;
+\`;
+
+export function PaymentSection() {
+  return (
+    <PaymentSectionRoot>
+      <CardFields>
+        <TextField>
+          TextField / Card number
+        </TextField>
+      </CardFields>
+    </PaymentSectionRoot>
+  );
+}
+",
+  "wrapperCount": 2,
+}
+`;
+
+exports[`full React layout generation > matches the deterministic rawText roadmap fixture snapshot 1`] = `
+{
+  "componentCount": 0,
+  "componentName": "Caption",
+  "diagnostics": [],
+  "fidelity": {
+    "omittedDeclarations": 0,
+    "unresolvedComponents": 0,
+    "unsupportedAssets": 0,
+  },
+  "runtimeRequirements": [],
+  "tsx": "export function Caption() {
+  return (
+    <>
+      Add a payment method
+    </>
+  );
+}
+",
+  "wrapperCount": 0,
+}
+`;
+
+exports[`full React layout generation > matches the deterministic unconnectedInstance roadmap fixture snapshot 1`] = `
+{
+  "componentCount": 0,
+  "componentName": "FrameWithUnconnectedInstance",
+  "diagnostics": [
+    {
+      "layerPath": [
+        "Frame with unconnected instance",
+        "Button / Ghost",
+      ],
+      "message": ""Button / Ghost" is not connected to a production component.",
+      "nodeId": "i:unconnected",
+      "reason": "unconnected-instance",
+      "severity": "info",
+    },
+  ],
+  "fidelity": {
+    "omittedDeclarations": 0,
+    "unresolvedComponents": 1,
+    "unsupportedAssets": 0,
+  },
+  "runtimeRequirements": [],
+  "tsx": "import styled from "styled-components";
+
+const FrameWithUnconnectedInstanceRoot = styled.div\`
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  align-items: flex-start;
+\`;
+
+export function FrameWithUnconnectedInstance() {
+  return (
+    <FrameWithUnconnectedInstanceRoot>
+      {/* FRAME: Button / Ghost */}
+    </FrameWithUnconnectedInstanceRoot>
+  );
+}
+",
+  "wrapperCount": 1,
+}
+`;
+
+exports[`full React layout generation > matches the deterministic unsupportedVector roadmap fixture snapshot 1`] = `
+{
+  "componentCount": 0,
+  "componentName": "Divider",
+  "diagnostics": [
+    {
+      "layerPath": [
+        "Divider",
+      ],
+      "message": ""Divider" could not be exported as an SVG asset.",
+      "nodeId": "v:divider",
+      "reason": "unsupported-paint",
+      "severity": "warning",
+    },
+  ],
+  "fidelity": {
+    "omittedDeclarations": 0,
+    "unresolvedComponents": 0,
+    "unsupportedAssets": 1,
+  },
+  "runtimeRequirements": [],
+  "tsx": "export function Divider() {
+  return (
+    <>
+      {/* VECTOR: Divider */}
+    </>
+  );
+}
+",
+  "wrapperCount": 0,
+}
+`;
+
+exports[`full React layout generation > matches the deterministic verticalForm roadmap fixture snapshot 1`] = `
+{
+  "componentCount": 2,
+  "componentName": "PaymentForm",
+  "diagnostics": [],
+  "fidelity": {
+    "omittedDeclarations": 0,
+    "unresolvedComponents": 0,
+    "unsupportedAssets": 0,
+  },
+  "runtimeRequirements": [],
+  "tsx": "import styled from "styled-components";
+import { TextField, Button } from "@tashilcar/swiss-army-knife";
+
+const PaymentFormRoot = styled.div\`
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 24px;
+  align-items: flex-start;
+\`;
+
+const ButtonSubmitWrapper = styled.div\`
+  width: 100%;
+  align-self: stretch;
+\`;
+
+export function PaymentForm() {
+  return (
+    <PaymentFormRoot>
+      <TextField>
+        TextField / Email
+      </TextField>
+      <ButtonSubmitWrapper>
+        <Button>
+          Button / Submit
+        </Button>
+      </ButtonSubmitWrapper>
+    </PaymentFormRoot>
+  );
+}
+",
+  "wrapperCount": 1,
+}
+`;
+
+exports[`full React layout generation > matches the deterministic wrappingActionRow roadmap fixture snapshot 1`] = `
+{
+  "componentCount": 4,
+  "componentName": "FilterChips",
+  "diagnostics": [],
+  "fidelity": {
+    "omittedDeclarations": 0,
+    "unresolvedComponents": 0,
+    "unsupportedAssets": 0,
+  },
+  "runtimeRequirements": [],
+  "tsx": "import styled from "styled-components";
+import { Tag } from "@tashilcar/swiss-army-knife";
+
+const FilterChipsRoot = styled.div\`
+  display: flex;
+  flex-direction: row;
+  flex-wrap: wrap;
+  column-gap: 8px;
+  row-gap: 8px;
+  align-items: flex-start;
+\`;
+
+export function FilterChips() {
+  return (
+    <FilterChipsRoot>
+      <Tag>
+        Tag / Filter
+      </Tag>
+      <Tag>
+        Tag / Filter
+      </Tag>
+      <Tag>
+        Tag / Filter
+      </Tag>
+      <Tag>
+        Tag / Filter
+      </Tag>
+    </FilterChipsRoot>
+  );
+}
+",
+  "wrapperCount": 1,
+}
+`;
