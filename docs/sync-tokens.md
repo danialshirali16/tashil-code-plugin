@@ -1,7 +1,7 @@
 # Sync Tokens — User Guide
 
 Status: Active
-Last updated: 2026-07-24
+Last updated: 2026-07-28
 
 The **Sync Tokens** tab exports your Figma Variables as CSS custom properties
 (`--my-token`) so you can hand design tokens to engineering in a format they
@@ -39,29 +39,45 @@ The list shows every local Variable collection in the file, each with:
 
 - a checkbox to include it in the export
 - the **variable count** (e.g. `(42)`) so you know how much you're exporting
-- **type badges** (`color`, `number`, `string`) showing what's inside
 
 Use **Select all** / **Clear all** to toggle the whole list, or check
-individual rows.
+individual rows. When search is active, the bulk action states how many visible
+results it affects while a separate summary keeps the total selection visible.
 
 ### 2. Pick modes (for themed collections)
 
-If a collection has more than one mode (e.g. **Light** and **Dark**), a row of
-mode chips appears under its name. **Tap one or more** to choose which modes to
+If a collection has more than one mode (e.g. **Light** and **Dark**), mode
+checkboxes appear in its output-file section. Select one or more modes to
 export.
 
 - Selecting both **Light** and **Dark** produces **two CSS files**
   (`colors-light.css` and `colors-dark.css`).
-- Selecting one mode produces a single file (`colors.css`).
-- If you don't tap any chip, the collection's **default mode** is used.
+- Selecting one mode produces a single, mode-stable file (`colors-light.css`).
+- The collection's **default mode** is selected when you first choose it.
 
-Collections with a single mode have no chips — that mode is always used.
+Collections with a single mode show a disabled checked mode — it is always used.
 
-### 3. Set advanced options (optional)
+### 3. Set output options and review the preview
 
-Expand **Advanced settings** to control how values are written. All of these
-have sensible defaults; you only need to touch them when you want a specific
-output.
+The expanded **Output settings** section controls how values are written. The
+preview below it is generated from the selected collections and modes by the
+same resolver and serializer used for the download.
+
+Each preview file reports:
+
+- selected Figma variables → emitted CSS declarations
+- unresolved aliases, unsupported values, and missing mode values
+- referenced collections that fell back to a default mode
+- numeric values left unitless because their Figma scope did not identify a length
+
+Long files are bounded in the UI, but the download always contains the complete
+stylesheet.
+
+If a referenced collection has no mode matching the output mode's name, its
+warning includes an **Alias mode** dropdown. Choose the intended mode there;
+the preview regenerates immediately and the same mapping is applied to the
+download. Mappings are scoped to the current output collection and mode, so
+one theme can use **Light** while another uses **Dark**.
 
 #### Convert px to rem
 
@@ -97,7 +113,8 @@ custom-property names:
 | Style   | Example output             |
 | ------- | -------------------------- |
 | `kebab` | `--color-text-primary`     |
-| `slash` | `--color/text/primary`     |
+| `slash` | `--color\/text\/primary`   |
+| `dot`   | `--color\.text\.primary`   |
 | `snake` | `--color_text_primary`     |
 | `pascal`| `--ColorTextPrimary`       |
 
@@ -112,13 +129,15 @@ Click **Export**. The button shows how many files you'll get.
   modes) → bundled into a single **`sync-tokens.zip`**.
 
 Your browser may ask once for permission to download multiple files.
+The plugin announces the downloaded filename when packaging completes.
 
 ## Output details
 
 ### File naming
 
-- `{collection}.css` — single collection, single mode (e.g. `spacing-scale.css`)
-- `{collection}-{mode}.css` — single collection, multiple modes
+- `{collection}.css` — a collection that defines only one mode (e.g. `spacing-scale.css`)
+- `{collection}-{mode}.css` — a collection that defines multiple modes,
+  even when only one is selected
   (e.g. `colors-primitive-light.css`)
 
 Names are slugified: spaces and special characters collapse to hyphens and
@@ -132,8 +151,9 @@ Every variable in each selected collection, for each selected mode. Aliases
 - **Color aliases** → the actual color value is written (so `--color-brand`
   pointing at a primitive gets the primitive's hex), unless you pick the
   **Variable** color format, in which case the alias name is preserved.
-- **Non-color aliases** → skipped if they can't be resolved to a concrete
-  value.
+- **Non-color aliases** → recursively resolved when possible. If an alias
+  cannot be resolved, its `var()` reference is preserved and the preview shows
+  a warning.
 
 ### Scope of the conversion
 
@@ -154,5 +174,7 @@ no unit, so a blanket px→rem would corrupt unitless values.
 | "No variable collections in this file." | Create collections in Figma's Variables panel. The tab only sees **local** collections in the current file. |
 | "Could not load variable collections." | A Figma API error. Click **Retry**. |
 | Export produced fewer files than expected | You may have selected modes that some collections don't define; those are skipped. |
+| Preview shows a mode fallback warning | A referenced collection does not have a mode with the selected mode's name, so its default mode was used. Use the warning's **Alias mode** dropdown to choose the intended mode. |
+| Preview reports fewer declarations than variables | Open the listed warnings; missing values and unsupported Figma value shapes are skipped instead of fabricating CSS. |
 | Opacity / font-weight came out as `rem` | It shouldn't — only length-scoped variables convert. If it does, the variable's scope in Figma is mislabeled. |
 | Want `.scss` / `.json` instead | Not supported yet. CSS only for now. |

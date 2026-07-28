@@ -11,6 +11,11 @@ import {
 import { h } from 'preact';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { Plugin } from './ui';
+import type {
+  ExportFile,
+  ExportOptions,
+  TokenExportWarning,
+} from './sync-tokens/types';
 import {
   CURRENT_SCHEMA_VERSION,
   type ConnectionMetadata,
@@ -139,6 +144,37 @@ function emittedPayloads<T>(name: string): T[] {
     ));
 }
 
+function previewFile(
+  name: string,
+  css: string,
+  options: {
+    declarations?: number;
+    sourceVariables?: number;
+    warnings?: readonly TokenExportWarning[];
+  } = {},
+): ExportFile {
+  return {
+    name,
+    css,
+    declarationCount: options.declarations ?? 294,
+    sourceVariableCount: options.sourceVariables ?? 294,
+    warnings: options.warnings ?? [],
+  };
+}
+
+function receiveLatestTokenPreview(files: readonly ExportFile[]): void {
+  const requests = emittedPayloads<{ operationId: string }>('PREVIEW_TOKENS');
+  const request = requests[requests.length - 1];
+  if (!request) {
+    throw new Error('Expected a PREVIEW_TOKENS request.');
+  }
+  receive('PREVIEW_TOKENS_RESULT', {
+    ok: true,
+    operationId: request.operationId,
+    files,
+  });
+}
+
 function renderPlugin(): void {
   render(h(Plugin, {}));
 }
@@ -147,10 +183,20 @@ beforeEach(() => {
   messageBus.emit.mockClear();
   messageBus.on.mockClear();
   messageBus.handlers.clear();
+  Object.defineProperty(URL, 'createObjectURL', {
+    configurable: true,
+    value: vi.fn(() => 'blob:sync-tokens-test'),
+  });
+  Object.defineProperty(URL, 'revokeObjectURL', {
+    configurable: true,
+    value: vi.fn(),
+  });
+  vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => undefined);
 });
 
 afterEach(() => {
   cleanup();
+  vi.restoreAllMocks();
   vi.useRealTimers();
 });
 
@@ -305,7 +351,7 @@ describe('Plugin rendered interactions', () => {
     expect(document.activeElement).toBe(connectTab);
   });
 
-  it('builds token outputs with live settings previews and accurate export payloads', () => {
+  it('builds token outputs with live settings previews and accurate export payloads', async () => {
     renderPlugin();
     fireEvent.click(screen.getByRole('tab', { name: 'Sync Tokens' }));
 
@@ -316,8 +362,11 @@ describe('Plugin rendered interactions', () => {
         {
           id: 'references',
           name: 'References Color',
-          modes: [{ modeId: 'default', name: 'Default' }],
-          defaultModeId: 'default',
+          modes: [
+            { modeId: 'light', name: 'Light' },
+            { modeId: 'dark', name: 'Dark' },
+          ],
+          defaultModeId: 'light',
           tokenCount: 362,
         },
         {
@@ -337,7 +386,7 @@ describe('Plugin rendered interactions', () => {
     expect(screen.getByRole('heading', { name: 'Sync tokens' })).toBeTruthy();
     expect(screen.getByLabelText('Root font size in pixels')).toBeTruthy();
     expect(screen.getByLabelText('CSS token preview').textContent)
-      .toContain('--color-text-primary: #0d99ff;');
+      .toContain('Select a collection to preview its generated CSS.');
 
     const collectionSearch = screen.getByRole('textbox', { name: 'Search collections' });
     fireEvent.input(collectionSearch, { target: { value: 'Product' } });
@@ -356,34 +405,109 @@ describe('Plugin rendered interactions', () => {
     expect(screen.queryByRole('button', {
       name: 'Copy product-tokens-zamyad.css',
     })).toBeNull();
-    expect(screen.getByText('1 file · 294 variables')).toBeTruthy();
+    receiveLatestTokenPreview([
+      previewFile(
+        'product-tokens-zhina.css',
+        ':root {\n  --color-text-primary: #0d99ff;\n}',
+        {
+          declarations: 293,
+          warnings: [{
+            code: 'unresolved-alias',
+            message: 'The referenced variable could not be resolved.',
+            tokenName: 'Color/Text/Muted',
+          }],
+        },
+      ),
+    ]);
+    expect(screen.getByLabelText('CSS token preview').textContent)
+      .toContain('--color-text-primary: #0d99ff;');
+    expect(screen.getAllByText(/294 variables → 293 declarations/).length).toBeGreaterThan(0);
+    expect(screen.getByText(/Color\/Text\/Muted: The referenced variable/)).toBeTruthy();
+
+    receiveLatestTokenPreview([
+      previewFile(
+        'product-tokens-zhina.css',
+        ':root {\n  --color-text-primary: #0d99ff;\n}',
+        {
+          warnings: [{
+            code: 'mode-fallback',
+            message: 'No “Zhina” mode exists in References Color; using Light.',
+            tokenName: 'Color/Text/Primary',
+            sourceCollectionId: 'product',
+            sourceModeId: 'zhina',
+            targetCollectionId: 'references',
+            fallbackModeId: 'light',
+          }],
+        },
+      ),
+    ]);
+    const aliasModeDropdown = screen.getByLabelText('Alias mode for References Color');
+    expect(aliasModeDropdown.textContent).toContain('Light');
+    fireEvent.keyDown(aliasModeDropdown, { key: 'ArrowDown' });
+    fireEvent.click(screen.getByRole('radio', { name: 'Dark' }));
+    const overrideRequests = emittedPayloads<{
+      options: ExportOptions;
+    }>('PREVIEW_TOKENS');
+    const overrideRequest = overrideRequests[overrideRequests.length - 1];
+    expect(
+      overrideRequest?.options.aliasModeOverridesByCollectionMode
+        ?.product?.zhina?.references,
+    ).toBe('dark');
+    receiveLatestTokenPreview([
+      previewFile(
+        'product-tokens-zhina.css',
+        ':root {\n  --color-text-primary: #033366;\n}',
+      ),
+    ]);
+    expect(screen.getByLabelText('CSS token preview').textContent)
+      .toContain('--color-text-primary: #033366;');
 
     fireEvent.click(screen.getByRole('checkbox', { name: 'Tashilpay' }));
-    expect(screen.getByText('product-tokens-zhina.css')).toBeTruthy();
-    expect(screen.getByText('product-tokens-tashilpay.css')).toBeTruthy();
+    expect(screen.getAllByText('product-tokens-zhina.css').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('product-tokens-tashilpay.css').length).toBeGreaterThan(0);
     expect(screen.getByRole('button', {
       name: 'Copy product-tokens-tashilpay.css',
     })).toBeTruthy();
-    expect(screen.getByText('2 files · 294 variables')).toBeTruthy();
+    receiveLatestTokenPreview([
+      previewFile('product-tokens-zhina.css', ':root {\n  --color-text-primary: #0d99ff;\n}'),
+      previewFile('product-tokens-tashilpay.css', ':root {\n  --color-text-primary: #033366;\n}'),
+    ]);
+    expect(screen.getByText('2 files · 294 variables → 588 declarations')).toBeTruthy();
 
     fireEvent.click(screen.getByRole('radio', { name: 'slash' }));
+    receiveLatestTokenPreview([
+      previewFile('product-tokens-zhina.css', ':root {\n  --color\\/text\\/primary: #0d99ff;\n}'),
+      previewFile('product-tokens-tashilpay.css', ':root {\n  --color\\/text\\/primary: #033366;\n}'),
+    ]);
     expect(screen.getByLabelText('CSS token preview').textContent)
       .toContain('--color\\/text\\/primary: #0d99ff;');
 
     fireEvent.click(screen.getByRole('radio', { name: 'dot' }));
+    receiveLatestTokenPreview([
+      previewFile('product-tokens-zhina.css', ':root {\n  --color\\.text\\.primary: #0d99ff;\n  --spacing\\.4: 1rem;\n}'),
+      previewFile('product-tokens-tashilpay.css', ':root {\n  --color\\.text\\.primary: #033366;\n}'),
+    ]);
     expect(screen.getByLabelText('CSS token preview').textContent)
       .toContain('--color\\.text\\.primary: #0d99ff;');
 
     fireEvent.click(screen.getByRole('checkbox', { name: 'Convert px to rem' }));
     expect(screen.queryByLabelText('Root font size in pixels')).toBeNull();
+    receiveLatestTokenPreview([
+      previewFile('product-tokens-zhina.css', ':root {\n  --color\\.text\\.primary: #0d99ff;\n  --spacing\\.4: 16;\n}'),
+      previewFile('product-tokens-tashilpay.css', ':root {\n  --color\\.text\\.primary: #033366;\n}'),
+    ]);
     expect(screen.getByLabelText('CSS token preview').textContent)
       .toContain('--spacing\\.4: 16;');
 
     fireEvent.click(screen.getByRole('button', { name: 'Export 2 CSS files' }));
     const request = emittedPayloads<{
+      operationId: string;
       collectionIds: readonly string[];
       options: {
         modesByCollection: Record<string, readonly string[]>;
+        aliasModeOverridesByCollectionMode?: ExportOptions[
+          'aliasModeOverridesByCollectionMode'
+        ];
         convertPxToRem: boolean;
         nameStyle: string;
       };
@@ -392,6 +516,21 @@ describe('Plugin rendered interactions', () => {
     expect(request.options.modesByCollection.product).toEqual(['zhina', 'tashilpay']);
     expect(request.options.convertPxToRem).toBe(false);
     expect(request.options.nameStyle).toBe('dot');
+    expect(
+      request.options.aliasModeOverridesByCollectionMode
+        ?.product?.zhina?.references,
+    ).toBe('dark');
+
+    receive('EXPORT_TOKENS_RESULT', {
+      ok: true,
+      operationId: request.operationId,
+      files: [
+        previewFile('product-tokens-zhina.css', ':root {}'),
+      ],
+    });
+    await waitFor(() => {
+      expect(screen.getByText('Downloaded product-tokens-zhina.css.')).toBeTruthy();
+    });
   });
 
   it('shows the correct connection status and action availability as setup changes', () => {

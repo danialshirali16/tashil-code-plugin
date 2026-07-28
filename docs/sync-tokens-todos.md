@@ -15,33 +15,42 @@ Source: [Sync Tokens audit](../output/sync-tokens-audit/audit-report.md), 2026-0
 
 ## P2 — Export trust
 
-- [ ] Replace the synthetic CSS preview with previews generated from the selected files.
+- [x] Replace the synthetic CSS preview with previews generated from the selected files.
   - Use the same resolved tokens and serializer as the download.
   - Show a bounded preview per output file.
-- [ ] Add export preflight counts and warnings.
+- [x] Add export preflight counts and warnings.
   - Distinguish selected Figma variables from emitted declarations.
   - Report unresolved aliases, unsupported values, and skipped conversions.
-- [ ] Surface cross-collection alias mode fallbacks.
-  - Show the chosen target mode when names do not match.
-  - Allow explicit mappings if fallback warnings are common.
-- [ ] Clarify filtered bulk selection completely.
+- [x] Add explicit cross-collection alias mode mapping.
+  - [x] Show the chosen fallback mode when names do not match.
+  - [x] Allow explicit per-output-mode mappings from the fallback warning.
+- [x] Clarify filtered bulk selection completely.
   - [x] Label the action with its result scope.
   - [x] Disable it when no collections match.
-  - [ ] Keep selected-count and clear-all feedback visible.
+  - [x] Keep selected-count and clear-all feedback visible.
 - [x] Hide or disable filename copy actions for inactive modes.
-- [ ] Announce successful downloads and packaging failures through an accessible status region.
+- [x] Announce successful downloads and packaging failures through an accessible status region.
 
 ## P3 — Scale and accessibility
 
-- [ ] Avoid sequential variable lookups for large collections.
+- [x] Avoid sequential variable lookups for large collections.
   - Load variables once or use bounded parallel resolution.
   - Preserve stale-operation cancellation.
-- [ ] Explain numeric values skipped by px-to-rem because their Figma scope is unknown.
-- [ ] Run keyboard, screen-reader, and contrast QA in the real Figma host.
+- [x] Explain numeric values skipped by px-to-rem because their Figma scope is unknown.
+- [x] Run keyboard, screen-reader, and contrast QA in the real Figma host.
+  - Figma's accessibility tree exposes named tabs, collection checkboxes,
+    settings, preview status, and export actions.
+  - Keyboard Space toggles px-to-rem and its conditional root-size field;
+    arrow keys operate the official Figma segmented controls.
+  - Dark-theme host inspection confirmed readable selected, preview, summary,
+    and action states.
 
 ## Verification
 
 - [x] Run focused Sync Tokens tests.
 - [x] Run typecheck, lint, full tests, and production build.
 - [x] Validate every naming format in a real browser stylesheet.
-- [ ] Complete a real Figma-hosted export and inspect the downloaded CSS/ZIP.
+- [x] Complete a real Figma-hosted export and inspect the downloaded CSS/ZIP.
+  - `4-measurement.css` parsed as 29 custom properties with no empty values.
+  - `sync-tokens.zip` contained valid 61- and 29-declaration stylesheets,
+    exactly matching the 90-declaration preflight.

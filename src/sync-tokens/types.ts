@@ -46,6 +46,16 @@ export const LENGTH_SCOPES = new Set<string>([
 export type ExportOptions = {
   /** Per-collection chosen mode ids (collections define their own modes). */
   modesByCollection: Readonly<Record<string, readonly string[]>>;
+  /**
+   * Optional explicit mode mapping for aliases that cross collection
+   * boundaries: source collection → source mode → target collection → mode.
+   */
+  aliasModeOverridesByCollectionMode?: Readonly<
+    Record<
+      string,
+      Readonly<Record<string, Readonly<Record<string, string>>>>
+    >
+  >;
   /** Divide length-scoped FLOAT values by `rootFontSize`. */
   convertPxToRem: boolean;
   /** Divisor for px→rem. Default 16. */
@@ -109,5 +119,31 @@ export type TokenCollectionSummary = {
   tokenCount: number;
 };
 
-/** One generated CSS file. */
-export type ExportFile = { name: string; css: string };
+export type TokenExportWarningCode =
+  | 'missing-mode-value'
+  | 'missing-variable'
+  | 'mode-fallback'
+  | 'unknown-number-scope'
+  | 'unresolved-alias'
+  | 'unsupported-value';
+
+/** A non-fatal condition discovered while resolving an output file. */
+export type TokenExportWarning = {
+  code: TokenExportWarningCode;
+  message: string;
+  tokenName?: string;
+  /** Present for mode-fallback warnings so the UI can offer a correction. */
+  sourceCollectionId?: string;
+  sourceModeId?: string;
+  targetCollectionId?: string;
+  fallbackModeId?: string;
+};
+
+/** One generated CSS file plus the preflight data used by preview and export. */
+export type ExportFile = {
+  name: string;
+  css: string;
+  declarationCount: number;
+  sourceVariableCount: number;
+  warnings: readonly TokenExportWarning[];
+};

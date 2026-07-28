@@ -77,6 +77,8 @@ import {
   type MappingDocument,
   type OpenComponentTargetHandler,
   type PropMappings,
+  type PreviewTokensHandler,
+  type PreviewTokensResultHandler,
   type RefreshSelectionHandler,
   type ScanComponentsHandler,
   type SaveConnectionHandler,
@@ -157,8 +159,13 @@ export type ConnectionController = {
   tokenCollectionsError: string;
   tokensExportStatus: 'idle' | 'exporting' | 'error';
   tokensExportError: string;
+  tokensExportSuccess: string;
+  tokensPreviewStatus: 'idle' | 'loading' | 'error';
+  tokensPreviewError: string;
+  tokensPreviewFiles: readonly ExportFile[];
   loadTokenCollections: () => void;
   exportTokens: (collectionIds: readonly string[], options: ExportOptions) => void;
+  previewTokens: (collectionIds: readonly string[], options: ExportOptions) => void;
 };
 
 export function useConnectionController(): ConnectionController {
@@ -206,8 +213,15 @@ export function useConnectionController(): ConnectionController {
   const [tokenCollectionsError, setTokenCollectionsError] = useState('');
   const [tokensExportStatus, setTokensExportStatus] = useState<'idle' | 'exporting' | 'error'>('idle');
   const [tokensExportError, setTokensExportError] = useState('');
+  const [tokensExportSuccess, setTokensExportSuccess] = useState('');
+  const [tokensPreviewStatus, setTokensPreviewStatus] =
+    useState<'idle' | 'loading' | 'error'>('idle');
+  const [tokensPreviewError, setTokensPreviewError] = useState('');
+  const [tokensPreviewFiles, setTokensPreviewFiles] = useState<readonly ExportFile[]>([]);
   const latestTokensExportIdRef = useRef('');
+  const latestTokensPreviewIdRef = useRef('');
   const tokensExportSequenceRef = useRef(0);
+  const tokensPreviewSequenceRef = useRef(0);
   const [isSourceUploading, setIsSourceUploading] = useState(false);
   const [isSourceReplacementPending, setIsSourceReplacementPending] = useState(false);
   const pendingSourceFilesRef = useRef<readonly File[]>();
@@ -320,9 +334,22 @@ export function useConnectionController(): ConnectionController {
         return;
       }
       setTokensExportError('');
-      setTokensExportStatus('idle');
       // Deliver files to the user. Deferred so we keep the message handler cheap.
       void deliverTokenFiles(result.files ?? []);
+    });
+
+    const offTokensPreview = on<PreviewTokensResultHandler>('PREVIEW_TOKENS_RESULT', (result) => {
+      if (result.operationId !== latestTokensPreviewIdRef.current) {
+        return; // superseded
+      }
+      if (!result.ok) {
+        setTokensPreviewError(result.message || 'Could not preview tokens.');
+        setTokensPreviewStatus('error');
+        return;
+      }
+      setTokensPreviewError('');
+      setTokensPreviewFiles(result.files ?? []);
+      setTokensPreviewStatus('idle');
     });
 
     rescanComponents();
@@ -337,6 +364,7 @@ export function useConnectionController(): ConnectionController {
       offScaffoldResult();
       offTokenCollections();
       offTokensExport();
+      offTokensPreview();
     };
   }, []);
 
@@ -1227,8 +1255,31 @@ export function useConnectionController(): ConnectionController {
     const operationId = `tokens-${Date.now()}-${++tokensExportSequenceRef.current}`;
     latestTokensExportIdRef.current = operationId;
     setTokensExportError('');
+    setTokensExportSuccess('');
     setTokensExportStatus('exporting');
     emit<ExportTokensHandler>('EXPORT_TOKENS', { operationId, collectionIds, options });
+  }
+
+  function previewTokensAction(
+    collectionIds: readonly string[],
+    options: ExportOptions,
+  ): void {
+    if (collectionIds.length === 0) {
+      latestTokensPreviewIdRef.current = '';
+      setTokensPreviewError('');
+      setTokensPreviewFiles([]);
+      setTokensPreviewStatus('idle');
+      return;
+    }
+    const operationId = `tokens-preview-${Date.now()}-${++tokensPreviewSequenceRef.current}`;
+    latestTokensPreviewIdRef.current = operationId;
+    setTokensPreviewError('');
+    setTokensPreviewStatus('loading');
+    emit<PreviewTokensHandler>('PREVIEW_TOKENS', {
+      operationId,
+      collectionIds,
+      options,
+    });
   }
 
   // ponytail: single-file fast path avoids jszip overhead when there's one
@@ -1242,6 +1293,8 @@ export function useConnectionController(): ConnectionController {
     try {
       if (files.length === 1) {
         downloadBlob(new Blob([files[0].css], { type: 'text/css' }), files[0].name);
+        setTokensExportStatus('idle');
+        setTokensExportSuccess(`Downloaded ${files[0].name}.`);
         return;
       }
       const zip = new JSZip();
@@ -1250,7 +1303,12 @@ export function useConnectionController(): ConnectionController {
       }
       const bytes = await zip.generateAsync({ type: 'blob' });
       downloadBlob(bytes, 'sync-tokens.zip');
+      setTokensExportStatus('idle');
+      setTokensExportSuccess(
+        `Downloaded sync-tokens.zip with ${files.length} CSS files.`,
+      );
     } catch {
+      setTokensExportSuccess('');
       setTokensExportError('Could not package the export for download.');
       setTokensExportStatus('error');
     }
@@ -1303,7 +1361,12 @@ export function useConnectionController(): ConnectionController {
     tokenCollectionsError,
     tokensExportStatus,
     tokensExportError,
+    tokensExportSuccess,
+    tokensPreviewStatus,
+    tokensPreviewError,
+    tokensPreviewFiles,
     loadTokenCollections,
     exportTokens: exportTokensAction,
+    previewTokens: previewTokensAction,
   };
 }

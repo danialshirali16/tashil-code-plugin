@@ -366,6 +366,27 @@ export type ExportTokensHandler = {
   }) => void;
 };
 
+/** UI -> main: generate selected CSS files for preview without downloading. */
+export type PreviewTokensHandler = {
+  name: 'PREVIEW_TOKENS';
+  handler: (payload: {
+    operationId: string;
+    collectionIds: readonly string[];
+    options: import('./sync-tokens/types').ExportOptions;
+  }) => void;
+};
+
+/** main -> UI: generated files and preflight data for the latest preview. */
+export type PreviewTokensResultHandler = {
+  name: 'PREVIEW_TOKENS_RESULT';
+  handler: (result: {
+    ok: boolean;
+    operationId: string;
+    files?: ReadonlyArray<import('./sync-tokens/types').ExportFile>;
+    message?: string;
+  }) => void;
+};
+
 /** main -> UI: the generated CSS files (one per collection), or a failure. */
 export type ExportTokensResultHandler = {
   name: 'EXPORT_TOKENS_RESULT';

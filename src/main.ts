@@ -54,6 +54,8 @@ import {
   type OpenExternalHandler,
   type PropMapping,
   type PropMappings,
+  type PreviewTokensHandler,
+  type PreviewTokensResultHandler,
   type RefreshSelectionHandler,
   type ResizeWindowHandler,
   type ScanComponentsHandler,
@@ -77,6 +79,7 @@ import type {
   Token,
   TokenCollection,
   TokenCollectionSummary,
+  TokenExportWarning,
   TokenValue,
   VariableResolvedType,
 } from './sync-tokens/types';
@@ -143,6 +146,10 @@ export default function (): void {
 
   on<ExportTokensHandler>('EXPORT_TOKENS', (payload) => {
     void exportTokens(payload.operationId, payload.collectionIds, payload.options);
+  });
+
+  on<PreviewTokensHandler>('PREVIEW_TOKENS', (payload) => {
+    void previewTokens(payload.operationId, payload.collectionIds, payload.options);
   });
 
   on<OpenExternalHandler>('OPEN_EXTERNAL', (payload) => {
@@ -790,6 +797,7 @@ async function loadTokenCollections(): Promise<void> {
 // ponytail: track the latest export operation so a superseded request's late
 // resolve is ignored — mirrors the scanComponents stale-guard.
 let latestTokensExportId = '';
+let latestTokensPreviewId = '';
 
 async function exportTokens(
   operationId: string,
@@ -797,49 +805,13 @@ async function exportTokens(
   options: ExportOptions,
 ): Promise<void> {
   latestTokensExportId = operationId;
-  const wantSet = new Set(collectionIds);
   try {
-    const collections = await figma.variables.getLocalVariableCollectionsAsync();
-    const collectionsById = new Map(
-      collections.map((collection) => [collection.id, collection]),
+    const files = await generateTokenFiles(
+      collectionIds,
+      options,
+      () => latestTokensExportId === operationId,
     );
-    const files: ExportFile[] = [];
-    for (const collection of collections) {
-      if (latestTokensExportId !== operationId) {
-        return; // superseded
-      }
-      if (!wantSet.has(collection.id)) {
-        continue;
-      }
-      // One CSS file per selected mode. Falls back to the default mode if none
-      // were explicitly chosen (keeps a bare "export this" click working).
-      const modeIds = options.modesByCollection[collection.id] ?? [collection.defaultModeId];
-      const collectionSlug = slug(collection.name) || collection.id;
-      for (const modeId of modeIds) {
-        if (latestTokensExportId !== operationId) {
-          return;
-        }
-        const mode = collection.modes.find((m) => m.modeId === modeId);
-        const tokens = await collectTokens(collection, modeId, {
-          collectionsById,
-          modeIdsByCollection: new Map([[collection.id, modeId]]),
-          preferredModeName: mode?.name ?? '',
-        });
-        const domain: TokenCollection = {
-          id: collection.id,
-          name: collection.name,
-          modes: collection.modes.map((m) => ({ modeId: m.modeId, name: m.name })),
-          defaultModeId: collection.defaultModeId,
-          tokens,
-        };
-        const suffix = collection.modes.length > 1 && mode ? `-${slug(mode.name)}` : '';
-        files.push({
-          name: `${collectionSlug}${suffix}.css`,
-          css: serializeCollection(domain, options),
-        });
-      }
-    }
-    if (latestTokensExportId !== operationId) {
+    if (files === null) {
       return;
     }
     emit<ExportTokensResultHandler>('EXPORT_TOKENS_RESULT', {
@@ -859,30 +831,177 @@ async function exportTokens(
   }
 }
 
+async function previewTokens(
+  operationId: string,
+  collectionIds: readonly string[],
+  options: ExportOptions,
+): Promise<void> {
+  latestTokensPreviewId = operationId;
+  try {
+    const files = await generateTokenFiles(
+      collectionIds,
+      options,
+      () => latestTokensPreviewId === operationId,
+    );
+    if (files === null) {
+      return;
+    }
+    emit<PreviewTokensResultHandler>('PREVIEW_TOKENS_RESULT', {
+      ok: true,
+      operationId,
+      files,
+    });
+  } catch (error) {
+    if (latestTokensPreviewId !== operationId) {
+      return;
+    }
+    emit<PreviewTokensResultHandler>('PREVIEW_TOKENS_RESULT', {
+      ok: false,
+      operationId,
+      message: errorMessage(error, 'preview tokens'),
+    });
+  }
+}
+
+async function generateTokenFiles(
+  collectionIds: readonly string[],
+  options: ExportOptions,
+  isCurrent: () => boolean,
+): Promise<ExportFile[] | null> {
+  const wantSet = new Set(collectionIds);
+  const collections = await figma.variables.getLocalVariableCollectionsAsync();
+  const variables = await figma.variables.getLocalVariablesAsync();
+  const collectionsById = new Map(
+    collections.map((collection) => [collection.id, collection]),
+  );
+  const variablesById = new Map(
+    variables.map((variable) => [variable.id, variable]),
+  );
+  const files: ExportFile[] = [];
+
+  for (const collection of collections) {
+    if (!isCurrent()) {
+      return null;
+    }
+    if (!wantSet.has(collection.id)) {
+      continue;
+    }
+    // One CSS file per selected mode. Falls back to the default mode if none
+    // were explicitly chosen (keeps a bare "export this" click working).
+    const modeIds = options.modesByCollection[collection.id] ?? [collection.defaultModeId];
+    const collectionSlug = slug(collection.name) || collection.id;
+    for (const modeId of modeIds) {
+      if (!isCurrent()) {
+        return null;
+      }
+      const mode = collection.modes.find((item) => item.modeId === modeId);
+      const warnings: TokenExportWarning[] = [];
+      const configuredOverrides =
+        options.aliasModeOverridesByCollectionMode?.[collection.id]?.[modeId] ?? {};
+      const resolvedModeIds = new Map<string, string>([[collection.id, modeId]]);
+      for (const [targetCollectionId, targetModeId] of Object.entries(configuredOverrides)) {
+        const targetCollection = collectionsById.get(targetCollectionId);
+        if (targetCollection?.modes.some((item) => item.modeId === targetModeId)) {
+          resolvedModeIds.set(targetCollectionId, targetModeId);
+        }
+      }
+      const tokens = await collectTokens(collection, modeId, {
+        collectionsById,
+        modeFallbackKeys: new Set(),
+        modeIdsByCollection: resolvedModeIds,
+        preferredModeName: mode?.name ?? '',
+        sourceCollectionId: collection.id,
+        sourceModeId: modeId,
+        variablesById,
+        warnings,
+      }, options);
+      const domain: TokenCollection = {
+        id: collection.id,
+        name: collection.name,
+        modes: collection.modes.map((item) => ({
+          modeId: item.modeId,
+          name: item.name,
+        })),
+        defaultModeId: collection.defaultModeId,
+        tokens,
+      };
+      const suffix = collection.modes.length > 1 && mode ? `-${slug(mode.name)}` : '';
+      files.push({
+        name: `${collectionSlug}${suffix}.css`,
+        css: serializeCollection(domain, options),
+        declarationCount: tokens.length,
+        sourceVariableCount: collection.variableIds.length,
+        warnings,
+      });
+    }
+  }
+
+  return files;
+}
+
 type TokenResolutionContext = {
   collectionsById: Map<string, VariableCollection>;
+  modeFallbackKeys: Set<string>;
   modeIdsByCollection: Map<string, string>;
   preferredModeName: string;
+  sourceCollectionId: string;
+  sourceModeId: string;
+  variablesById: Map<string, Variable>;
+  warnings: TokenExportWarning[];
 };
 
 async function collectTokens(
   collection: VariableCollection,
   modeId: string,
   context: TokenResolutionContext,
+  options: ExportOptions,
 ): Promise<Token[]> {
   const tokens: Token[] = [];
   for (const variableId of collection.variableIds) {
-    const variable = await figma.variables.getVariableByIdAsync(variableId);
+    const variable = await getVariable(variableId, context);
     if (variable === null) {
+      context.warnings.push({
+        code: 'missing-variable',
+        message: `Variable ${variableId} is no longer available.`,
+      });
       continue;
     }
     const raw = variable.valuesByMode[modeId];
     if (raw === undefined) {
+      context.warnings.push({
+        code: 'missing-mode-value',
+        message: `No value exists for the selected mode.`,
+        tokenName: variable.name,
+      });
       continue;
     }
     const value = await normalizeValue(raw, variable.resolvedType, context);
     if (value === null) {
+      context.warnings.push({
+        code: 'unsupported-value',
+        message: `The value type cannot be exported as CSS.`,
+        tokenName: variable.name,
+      });
       continue;
+    }
+    if (value.kind === 'alias' && value.value.resolvedValue === undefined) {
+      context.warnings.push({
+        code: 'unresolved-alias',
+        message: `The referenced variable could not be resolved; the var() reference was preserved.`,
+        tokenName: variable.name,
+      });
+    }
+    if (
+      options.convertPxToRem
+      && variable.resolvedType === 'FLOAT'
+      && (variable.scopes.length === 0 || variable.scopes.includes('ALL_SCOPES'))
+      && tokenValueContainsNumber(value)
+    ) {
+      context.warnings.push({
+        code: 'unknown-number-scope',
+        message: `The numeric value stayed unitless because its Figma scope does not identify a length.`,
+        tokenName: variable.name,
+      });
     }
     tokens.push({
       id: variable.id,
@@ -893,6 +1012,26 @@ async function collectTokens(
     });
   }
   return tokens;
+}
+
+async function getVariable(
+  variableId: string,
+  context: TokenResolutionContext,
+): Promise<Variable | null> {
+  const cached = context.variablesById.get(variableId);
+  if (cached !== undefined) {
+    return cached;
+  }
+  const variable = await figma.variables.getVariableByIdAsync(variableId);
+  if (variable !== null) {
+    context.variablesById.set(variable.id, variable);
+  }
+  return variable;
+}
+
+function tokenValueContainsNumber(value: TokenValue): boolean {
+  return value.kind === 'number'
+    || (value.kind === 'alias' && value.value.resolvedValue?.kind === 'number');
 }
 
 async function normalizeValue(
@@ -912,8 +1051,8 @@ async function normalizeValue(
   // Object shapes: alias, RGB, RGBA.
   const maybeAlias = raw as { type?: string; id?: string };
   if (maybeAlias.type === 'VARIABLE_ALIAS' && typeof maybeAlias.id === 'string') {
-    const target = await figma.variables.getVariableByIdAsync(maybeAlias.id);
-    const targetName = target?.name ?? '';
+    const target = await getVariable(maybeAlias.id, context);
+    const targetName = target?.name ?? maybeAlias.id;
     const resolvedValue = target === null
       ? null
       : await resolveVariableValue(target, context, new Set());
@@ -953,7 +1092,7 @@ async function resolveVariableValue(
   if (typeof raw === 'object' && raw !== null) {
     const alias = raw as { type?: string; id?: string };
     if (alias.type === 'VARIABLE_ALIAS' && typeof alias.id === 'string') {
-      const target = await figma.variables.getVariableByIdAsync(alias.id);
+      const target = await getVariable(alias.id, context);
       return target === null
         ? null
         : resolveVariableValue(target, context, visitedVariableIds);
@@ -991,6 +1130,24 @@ async function resolveVariableModeId(
       (mode) => mode.name.trim().toLocaleLowerCase() === preferredModeName,
     );
   const modeId = matchingMode?.modeId ?? collection.defaultModeId;
+  if (matchingMode === undefined && preferredModeName.length > 0) {
+    const fallbackKey = `${collection.id}:${preferredModeName}`;
+    if (!context.modeFallbackKeys.has(fallbackKey)) {
+      const fallbackMode = collection.modes.find(
+        (mode) => mode.modeId === collection.defaultModeId,
+      );
+      context.modeFallbackKeys.add(fallbackKey);
+      context.warnings.push({
+        code: 'mode-fallback',
+        message: `No “${context.preferredModeName}” mode exists in ${collection.name}; using ${fallbackMode?.name ?? 'its default mode'}.`,
+        tokenName: variable.name,
+        sourceCollectionId: context.sourceCollectionId,
+        sourceModeId: context.sourceModeId,
+        targetCollectionId: collection.id,
+        fallbackModeId: modeId,
+      });
+    }
+  }
   context.modeIdsByCollection.set(collection.id, modeId);
   return modeId;
 }
