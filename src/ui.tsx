@@ -1755,7 +1755,12 @@ function InspectCodeView(props: {
   }
 
   if (inspectCodeState.status === 'layout') {
-    return <ReactLayoutView layout={inspectCodeState.layout} />;
+    return (
+      <ReactLayoutView
+        inspection={inspectCodeState.inspection}
+        layout={inspectCodeState.layout}
+      />
+    );
   }
 
   // status === 'connected' — a single connected component.
@@ -1799,8 +1804,13 @@ function InspectCodeView(props: {
 }
 
 /** Full selected-tree styled-components React output. */
-function ReactLayoutView(props: { layout: ReactLayoutResult }): h.JSX.Element {
-  const { layout } = props;
+function ReactLayoutView(props: {
+  inspection?: FrameInspection;
+  layout: ReactLayoutResult;
+}): h.JSX.Element {
+  const { inspection, layout } = props;
+  const layoutCss = inspection ? formatCssBlock(inspection.css.layout) : '';
+  const styleCss = inspection ? formatCssBlock(inspection.css.style) : '';
 
   return (
     <main aria-labelledby="tashil-inspect-code-heading" class="inspect-content">
@@ -1837,6 +1847,9 @@ function ReactLayoutView(props: { layout: ReactLayoutResult }): h.JSX.Element {
           <span class="layout-summary-value">{layout.fidelity?.omittedDeclarations ?? 0}</span>
         </div>
       </section>
+
+      {layoutCss ? <CodeBlock code={layoutCss} title="Layout" copyLabel="Copy Layout CSS" /> : null}
+      {styleCss ? <CodeBlock code={styleCss} title="Style" copyLabel="Copy Style CSS" /> : null}
 
       <CodeBlock
         code={layout.tsx}

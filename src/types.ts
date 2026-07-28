@@ -219,7 +219,7 @@ export type InspectCodeState =
   | { status: 'not-connected' }
   | { status: 'connection-issue'; message: string; connectionIssue: ConnectionIssue }
   | { status: 'connected'; output: InspectCodeComponentOutput }
-  | { status: 'layout'; layout: ReactLayoutResult }
+  | { status: 'layout'; layout: ReactLayoutResult; inspection?: FrameInspection }
   | { status: 'inspection'; inspection: FrameInspection };
 
 export type OpenExternalHandler = {

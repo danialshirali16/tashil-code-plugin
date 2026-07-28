@@ -173,46 +173,25 @@ figma.codegen.on('generate', async (event) => generateCodegenBlocks(event.node))
 
 /**
  * Produce Dev Mode codegen blocks for a selected node. A connected component
- * (instance/component/component-set) follows the existing single-component
- * branch, byte-identical to before. A supported design root additionally
- * produces a complete styled-components React module for its visible subtree;
- * the selected-layer inspection blocks remain additive.
+ * with a valid connection follows the existing single-component branch,
+ * byte-identical to before. Unconnected components and other supported design
+ * roots produce a complete styled-components React module for their visible
+ * subtree; selected-layer Layout and Style blocks remain additive.
  */
 async function generateCodegenBlocks(node: SceneNode): Promise<CodegenBlock[]> {
   try {
     const selection = await resolveSelection(node);
 
     if (selection) {
-      return generateComponentCodegenBlocks(selection, node);
+      const connection = readConnectionMetadata(selection.mainComponent);
+      if (!connection.ok && !connection.issue && supportsReactLayout(node)) {
+        return generateLayoutAndInspectionBlocks(node);
+      }
+      return generateComponentCodegenBlocks(selection, node, connection);
     }
 
     if (supportsReactLayout(node)) {
-      const context = new GenerationContext();
-      const [layoutResult, inspectionResult] = await Promise.allSettled([
-        generateReactLayout(
-          node as unknown as LayoutSourceNode,
-          { context },
-        ),
-        inspectSceneNode(node, context),
-      ]);
-      const blocks: CodegenBlock[] = [];
-      if (layoutResult.status === 'fulfilled') {
-        blocks.push(...generateReactLayoutBlocks(layoutResult.value));
-      } else {
-        blocks.push(createPlainTextBlock(
-          'React generation notes',
-          `React generation failed: ${formatUnexpectedError(layoutResult.reason)}`,
-        ));
-      }
-      if (inspectionResult.status === 'fulfilled') {
-        blocks.push(...generateInspectionBlocks(inspectionResult.value));
-      } else {
-        blocks.push(createPlainTextBlock(
-          'Inspection notes',
-          `Selected-layer inspection failed: ${formatUnexpectedError(inspectionResult.reason)}`,
-        ));
-      }
-      return blocks;
+      return generateLayoutAndInspectionBlocks(node);
     }
 
     return generateInspectionBlocks(await inspectSceneNode(node));
@@ -224,6 +203,37 @@ async function generateCodegenBlocks(node: SceneNode): Promise<CodegenBlock[]> {
       ),
     ];
   }
+}
+
+async function generateLayoutAndInspectionBlocks(
+  node: SceneNode,
+): Promise<CodegenBlock[]> {
+  const context = new GenerationContext();
+  const [layoutResult, inspectionResult] = await Promise.allSettled([
+    generateReactLayout(
+      node as unknown as LayoutSourceNode,
+      { context },
+    ),
+    inspectSceneNode(node, context),
+  ]);
+  const blocks: CodegenBlock[] = [];
+  if (layoutResult.status === 'fulfilled') {
+    blocks.push(...generateReactLayoutBlocks(layoutResult.value));
+  } else {
+    blocks.push(createPlainTextBlock(
+      'React generation notes',
+      `React generation failed: ${formatUnexpectedError(layoutResult.reason)}`,
+    ));
+  }
+  if (inspectionResult.status === 'fulfilled') {
+    blocks.push(...generateInspectionBlocks(inspectionResult.value));
+  } else {
+    blocks.push(createPlainTextBlock(
+      'Inspection notes',
+      `Selected-layer inspection failed: ${formatUnexpectedError(inspectionResult.reason)}`,
+    ));
+  }
+  return blocks;
 }
 
 /** Complete styled-components React module for a selected design tree. */
@@ -258,9 +268,8 @@ function formatUnexpectedError(error: unknown): string {
 async function generateComponentCodegenBlocks(
   selection: ResolvedSelection,
   selectedNode: SceneNode,
+  connection: ConnectionReadResult = readConnectionMetadata(selection.mainComponent),
 ): Promise<CodegenBlock[]> {
-  const connection = readConnectionMetadata(selection.mainComponent);
-
   if (!connection.ok) {
     return [
       createPlainTextBlock(
@@ -1640,6 +1649,17 @@ async function createInspectCodeState(
           connectionIssue: connection.issue,
           message: connection.message,
         };
+      }
+      if (selectedNode && supportsReactLayout(selectedNode)) {
+        const context = new GenerationContext();
+        const [layout, inspection] = await Promise.all([
+          generateReactLayout(
+            selectedNode as unknown as LayoutSourceNode,
+            { context },
+          ),
+          inspectSceneNode(selectedNode, context),
+        ]);
+        return { status: 'layout', layout, inspection };
       }
       return { status: 'not-connected' };
     }

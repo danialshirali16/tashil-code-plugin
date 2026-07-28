@@ -182,16 +182,6 @@ async function traverseRoot(
   traversal.visit();
   const path = [root.name];
 
-  if (root.type === 'INSTANCE') {
-    return resolveInstanceNode(
-      root as unknown as InstanceLike,
-      context,
-      diagnostics,
-      classNames,
-      path,
-      tokens,
-    );
-  }
   if (root.type === 'TEXT') {
     return resolveTextNode(root, path, classNames, diagnostics, false, tokens);
   }
@@ -773,7 +763,14 @@ function placeholder(
 }
 
 function isContainer(node: LayoutSourceNode): boolean {
-  return node.type === 'FRAME' || node.type === 'GROUP' || node.type === 'SECTION';
+  return [
+    'COMPONENT',
+    'COMPONENT_SET',
+    'FRAME',
+    'GROUP',
+    'INSTANCE',
+    'SECTION',
+  ].includes(node.type);
 }
 
 function isExportableAsset(node: LayoutSourceNode): boolean {

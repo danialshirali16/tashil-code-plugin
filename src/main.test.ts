@@ -1837,6 +1837,66 @@ describe('persisted metadata reads', () => {
 });
 
 describe('Dev Mode inspection codegen', () => {
+  it('generates React, Layout, and Style for an unconnected component', async () => {
+    const { codegenEvents, selection } = await startPlugin();
+    const component = createComponent('c-unconnected-card', 'Account card');
+    Object.assign(component, {
+      children: [],
+      getCSSAsync: vi.fn(() => Promise.resolve({
+        display: 'flex',
+        'flex-direction': 'column',
+        'background-color': 'var(--color-surface)',
+      })),
+      itemSpacing: 0,
+      layoutMode: 'VERTICAL',
+      paddingBottom: 0,
+      paddingLeft: 0,
+      paddingRight: 0,
+      paddingTop: 0,
+    });
+
+    const blocks = await codegenEvents.get('generate')?.({ node: component });
+
+    expect(blocks?.find((block) => block.title === 'AccountCard.tsx')).toMatchObject({
+      language: 'TYPESCRIPT',
+      code: expect.stringContaining('export function AccountCard()'),
+    });
+    expect(blocks?.find((block) => block.title === 'Layout')?.code).toBe(
+      'display: flex;\nflex-direction: column;',
+    );
+    expect(blocks?.find((block) => block.title === 'Style')?.code).toBe(
+      'background-color: var(--color-surface);',
+    );
+
+    selection.push(component);
+    utilityMocks.handlers.get('REFRESH_SELECTION')?.(undefined);
+
+    await vi.waitFor(() => {
+      expect(emittedPayloads<InspectCodeState>('INSPECT_CODE_STATE')).toContainEqual(
+        expect.objectContaining({
+          inspection: expect.objectContaining({
+            css: {
+              layout: expect.arrayContaining([
+                { property: 'display', value: 'flex' },
+              ]),
+              style: expect.arrayContaining([
+                {
+                  property: 'background-color',
+                  value: 'var(--color-surface)',
+                },
+              ]),
+            },
+          }),
+          layout: expect.objectContaining({
+            componentName: 'AccountCard',
+            tsx: expect.stringContaining('export function AccountCard()'),
+          }),
+          status: 'layout',
+        }),
+      );
+    });
+  });
+
   it('returns the same generated TSX through Dev Mode and Inspect Code', async () => {
     const metadata: ConnectionMetadata = {
       schemaVersion: CURRENT_SCHEMA_VERSION,
