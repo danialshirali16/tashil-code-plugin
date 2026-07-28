@@ -1,6 +1,9 @@
 # Sync Tokens remediation TODOs
 
-Source: [Sync Tokens audit](../output/sync-tokens-audit/audit-report.md), 2026-07-26.
+> Archived — all remediation and verification tasks are complete. Retained for
+> implementation and QA history.
+
+Source: [Sync Tokens audit](../../output/sync-tokens-audit/audit-report.md), 2026-07-26.
 
 ## P1 — Export correctness
 

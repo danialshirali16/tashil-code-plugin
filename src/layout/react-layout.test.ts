@@ -19,6 +19,7 @@ import {
   duplicateNamesAcrossPackages,
   frame,
   instance,
+  line,
   nestedAutoLayout,
   rawText,
   text,
@@ -429,7 +430,7 @@ describe('full React layout generation', () => {
     expect(generated.tsx).toContain(standaloneJsx);
   });
 
-  it('keeps non-auto-layout children and reports manual positioning', async () => {
+  it('reconstructs non-auto-layout children without an unsupported-layout warning', async () => {
     const freeform = frame(
       'f:free',
       'Freeform card',
@@ -454,9 +455,11 @@ describe('full React layout generation', () => {
     expect(generated.tsx).toContain('width: 120px;');
     expect(generated.tsx).toContain('height: 20px;');
     expect(generated.tsx).not.toContain('{/* FRAME:');
-    expect(generated.diagnostics).toEqual(expect.arrayContaining([
-      expect.objectContaining({ reason: 'unsupported-layout-mode' }),
+    expect(generated.diagnostics).not.toEqual(expect.arrayContaining([
       expect.objectContaining({ reason: 'absolute-positioning' }),
+    ]));
+    expect(generated.diagnostics).not.toEqual(expect.arrayContaining([
+      expect.objectContaining({ reason: 'unsupported-layout-mode' }),
     ]));
   });
 
@@ -475,9 +478,7 @@ describe('full React layout generation', () => {
     expect(generated.tsx).toContain('height: 24px;');
     expect(generated.tsx).toContain('<Badge>New</Badge>');
     expect(generated.tsx).not.toContain('{/* FRAME:');
-    expect(generated.diagnostics).toEqual([
-      expect.objectContaining({ reason: 'absolute-positioning' }),
-    ]);
+    expect(generated.diagnostics).toEqual([]);
   });
 
   it('preserves token-aware absolute offsets from Figma CSS', async () => {
@@ -636,6 +637,99 @@ describe('full React layout generation', () => {
     expect(generated.diagnostics).toEqual([]);
   });
 
+  it('renders a CSS-backed line as a styled divider when SVG export is unavailable', async () => {
+    const divider = line('l:divider', 'Divider', {
+      css: {
+        width: '100%',
+        height: '1px',
+        'background-color': 'var(--color-border-subtle, #e5e7eb)',
+      },
+      exportError: new Error('Line export is unavailable'),
+    });
+
+    const generated = await generate(frame('f:divider', 'Divider row', [divider]));
+
+    expect(generated.tsx).toContain('const Divider = styled.div`');
+    expect(generated.tsx).toContain('background-color: ${colors.border.subtle};');
+    expect(generated.tsx).toContain('<Divider aria-hidden="true" />');
+    expect(generated.tsx).not.toContain('{/* LINE: Divider */}');
+    expect(generated.diagnostics).not.toEqual(expect.arrayContaining([
+      expect.objectContaining({ reason: 'unsupported-paint' }),
+    ]));
+  });
+
+  it('renders a monochrome token-bound SVG as a recolorable CSS mask', async () => {
+    const closeIcon = vector('v:close', 'Vector', {
+      width: 15,
+      height: 15,
+      x: 4.5,
+      y: 4.5,
+      svg: [
+        '<svg viewBox="0 0 15 15" fill="none">',
+        '<path d="M0 0h15v15H0z" fill="#667890"/>',
+        '</svg>',
+      ].join(''),
+      css: {
+        width: '15px',
+        height: '15px',
+        fill: 'var(--color-icon-subtler, #667890)',
+      },
+    });
+
+    const generated = await generate(frame(
+      'f:close',
+      'Close',
+      [closeIcon],
+      {
+        layoutMode: 'NONE',
+        width: 24,
+        height: 24,
+        css: { width: '24px', height: '24px' },
+      },
+    ));
+
+    expectValidTsx(generated.tsx);
+    expect(generated.tsx).toContain('const Vector = styled.span`');
+    expect(generated.tsx).toContain('background-color: ${colors.icon.subtler};');
+    expect(generated.tsx).toContain('--icon-mask: url("data:image/svg+xml,');
+    expect(generated.tsx).toContain(
+      '-webkit-mask: var(--icon-mask) center / 100% 100% no-repeat;',
+    );
+    expect(generated.tsx).toContain(
+      'mask: var(--icon-mask) center / 100% 100% no-repeat;',
+    );
+    expect(generated.tsx.match(/data:image\/svg\+xml/g)).toHaveLength(1);
+    expect(generated.tsx).toContain('<Vector aria-hidden="true" />');
+    expect(generated.tsx).not.toContain('<Vector alt=');
+    expect(generated.tsx).not.toContain('fill: ${colors.icon.subtler};');
+    expect(generated.diagnostics).toEqual([]);
+  });
+
+  it('keeps multicolor SVGs as images and omits ineffective paint CSS', async () => {
+    const multicolorIcon = vector('v:multicolor', 'Multicolor icon', {
+      svg: [
+        '<svg viewBox="0 0 16 16">',
+        '<path d="M0 0h8v16H0z" fill="#ef4444"/>',
+        '<path d="M8 0h8v16H8z" fill="#3b82f6"/>',
+        '</svg>',
+      ].join(''),
+      css: {
+        fill: 'var(--color-icon-subtler, #667890)',
+      },
+    });
+
+    const generated = await generate(frame(
+      'f:multicolor',
+      'Multicolor asset',
+      [multicolorIcon],
+    ));
+
+    expect(generated.tsx).toContain('<img alt="Multicolor icon"');
+    expect(generated.tsx).not.toContain("import colors from 'styles/colors';");
+    expect(generated.tsx).not.toContain('fill: ${colors.icon.subtler};');
+    expect(generated.tsx).not.toContain('mask-image:');
+  });
+
   it('uses a semantic section element for Figma sections', async () => {
     const sectionNode = {
       ...(frame('s:content', 'Content section', [
@@ -770,6 +864,22 @@ describe('full React layout generation', () => {
     expect(generated.tsx).toContain(
       'filter: blur(var(--blur-soft, 4px));',
     );
+  });
+
+  it('preserves the Figma node receiver when loading layout CSS through the cache', async () => {
+    const root = frame('f:receiver', 'Receiver card', []) as unknown as FrameNode & {
+      getCSSAsync: () => Promise<Record<string, string>>;
+    };
+    root.getCSSAsync = async function () {
+      return { content: this.name };
+    };
+
+    const generated = await generate(root);
+
+    expect(generated.tsx).toContain('content: Receiver card;');
+    expect(generated.diagnostics).not.toEqual(expect.arrayContaining([
+      expect.objectContaining({ reason: 'css-unavailable' }),
+    ]));
   });
 
   it('reconstructs bound structural tokens with kebab-case names and fallbacks', async () => {

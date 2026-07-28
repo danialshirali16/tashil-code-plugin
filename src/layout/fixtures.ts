@@ -52,6 +52,7 @@ type FrameOptions = {
 export type FrameDouble = FrameNode;
 export type GroupDouble = GroupNode;
 export type InstanceDouble = InstanceNode;
+export type LineDouble = LineNode;
 export type TextDouble = TextNode;
 export type VectorDouble = VectorNode;
 
@@ -123,6 +124,7 @@ type ChildLayoutOptions = {
   componentProperties?: Record<string, { type: string; value: string | boolean }>;
   svg?: string;
   exportError?: Error;
+  css?: Record<string, string>;
 };
 
 /** A standalone TEXT node (outside any component instance). */
@@ -216,6 +218,10 @@ export function vector(
     layoutGrow: childOptions.layoutGrow ?? 0,
     layoutAlign: childOptions.layoutAlign ?? 'INHERIT',
     layoutPositioning: childOptions.layoutPositioning ?? 'AUTO',
+    width: childOptions.width,
+    height: childOptions.height,
+    x: childOptions.x,
+    y: childOptions.y,
     name,
     parent: { type: 'PAGE' },
     type: 'VECTOR',
@@ -227,7 +233,42 @@ export function vector(
             : Promise.resolve(childOptions.svg ?? ''),
         }
       : {}),
+    ...(childOptions.css
+      ? { getCSSAsync: () => Promise.resolve({ ...childOptions.css }) }
+      : {}),
   } as unknown as VectorDouble;
+}
+
+/** A simple LINE node that should render as a styled divider when CSS exists. */
+export function line(
+  id: string,
+  name: string,
+  childOptions: ChildLayoutOptions = {},
+): LineDouble {
+  return {
+    id,
+    layoutGrow: childOptions.layoutGrow ?? 0,
+    layoutAlign: childOptions.layoutAlign ?? 'INHERIT',
+    layoutPositioning: childOptions.layoutPositioning ?? 'AUTO',
+    width: childOptions.width,
+    height: childOptions.height,
+    x: childOptions.x,
+    y: childOptions.y,
+    name,
+    parent: { type: 'PAGE' },
+    type: 'LINE',
+    visible: childOptions.visible ?? true,
+    ...(childOptions.svg || childOptions.exportError
+      ? {
+          exportAsync: () => childOptions.exportError
+            ? Promise.reject(childOptions.exportError)
+            : Promise.resolve(childOptions.svg ?? ''),
+        }
+      : {}),
+    ...(childOptions.css
+      ? { getCSSAsync: () => Promise.resolve({ ...childOptions.css }) }
+      : {}),
+  } as unknown as LineDouble;
 }
 
 // ---------------------------------------------------------------------------

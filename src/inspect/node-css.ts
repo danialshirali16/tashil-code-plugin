@@ -47,7 +47,7 @@ export async function getNodeCss(
   let raw: { [key: string]: string };
   try {
     raw = context
-      ? await context.getNodeCss(node.id, node.getCSSAsync)
+      ? await context.getNodeCss(node.id, () => node.getCSSAsync!())
       : await node.getCSSAsync();
   } catch {
     return {

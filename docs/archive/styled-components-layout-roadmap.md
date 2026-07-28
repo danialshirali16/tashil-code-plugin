@@ -1,10 +1,13 @@
 # Styled-Components Layout Generation Roadmap
 
+> Archived — implementation and verification are complete. Retained for
+> architecture and delivery context.
+
 Status: Complete
 
 Date: 2026-07-26
 
-Related decisions: [`layout-composer-decisions.md`](layout-composer-decisions.md)
+Related decisions: [`layout-composer-decisions.md`](../layout-composer-decisions.md)
 
 Replaces the generated CSS Module direction for selected-design React output.
 

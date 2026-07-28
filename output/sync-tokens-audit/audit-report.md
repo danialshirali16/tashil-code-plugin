@@ -4,7 +4,9 @@ Audit date: 2026-07-26
 
 Scope: the local Figma-plugin harness at `http://127.0.0.1:5178/dev/harness/index.html`, the Sync Tokens UI, serializer, Figma variable resolution, and download pipeline.
 
-Remediation update: the P1 CSS-identifier and filename-stability defects documented below were fixed in the accompanying change set. Filtered bulk-selection labeling and inactive-mode copy actions were also improved. Remaining recommendations are tracked in `docs/sync-tokens-todos.md`.
+Remediation update: all recommendations were completed and verified. The
+historical checklist is archived at
+[`docs/archive/sync-tokens-todos.md`](../../docs/archive/sync-tokens-todos.md).
 
 ## Executive summary
 

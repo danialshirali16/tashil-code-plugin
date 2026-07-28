@@ -148,6 +148,8 @@ export async function extractLayout(
   if (
     composition.kind === 'container'
     && composition.layout.width !== undefined
+    && !composition.declarations.some(({ property }) =>
+      property.trim().toLowerCase() === 'width')
     && (
       composition.layout.mode === 'freeform'
       || composition.layout.sizingHorizontal === 'fixed'
@@ -204,6 +206,16 @@ async function traverseRoot(
       tokens,
       0,
       true,
+      false,
+    );
+  }
+  if (root.type === 'LINE') {
+    return resolveLineNode(
+      root,
+      path,
+      diagnostics,
+      classNames,
+      tokens,
       false,
     );
   }
@@ -335,16 +347,6 @@ async function traverseChild(
   tokens: StructuralTokenResolver,
   depth: number,
 ): Promise<CompositionNode | null> {
-  if (child.layoutPositioning === 'ABSOLUTE' || parentIsFreeform) {
-    diagnostics.push({
-      severity: 'info',
-      reason: 'absolute-positioning',
-      message: `"${child.name}" is absolutely positioned; its Figma coordinates and CSS were preserved.`,
-      nodeId: child.id,
-      layerPath,
-    });
-  }
-
   if (child.type === 'INSTANCE') {
     return resolveInstanceNode(
       child as unknown as InstanceLike,
@@ -377,6 +379,16 @@ async function traverseChild(
       tokens,
       depth,
       false,
+      parentIsFreeform,
+    );
+  }
+  if (child.type === 'LINE') {
+    return resolveLineNode(
+      child,
+      layerPath,
+      diagnostics,
+      classNames,
+      tokens,
       parentIsFreeform,
     );
   }
@@ -485,6 +497,40 @@ function containerNode(
   };
 }
 
+async function resolveLineNode(
+  node: LayoutSourceNode,
+  layerPath: string[],
+  diagnostics: LayoutDiagnostic[],
+  classNames: ClassNameRegistry,
+  tokens: StructuralTokenResolver,
+  parentIsFreeform: boolean,
+): Promise<CompositionNode> {
+  const declarations = await readCssDeclarations(
+    node,
+    tokens,
+    diagnostics,
+    layerPath,
+  );
+  if (declarations.length === 0) {
+    return resolveAssetNode(
+      node,
+      layerPath,
+      diagnostics,
+      tokens,
+      parentIsFreeform,
+    );
+  }
+  const childStyle = await getChildStyle(node, tokens, parentIsFreeform);
+  return {
+    kind: 'shape',
+    nodeId: node.id,
+    layerPath,
+    className: classNames.assign(node.id, node.name),
+    declarations,
+    ...(childStyle ? { childStyle } : {}),
+  };
+}
+
 async function resolveAssetNode(
   node: LayoutSourceNode,
   layerPath: string[],
@@ -513,6 +559,9 @@ async function resolveAssetNode(
       diagnostics,
       layerPath,
     );
+    const maskColor = resolveSvgMaskColor(svg, declarations);
+    const renderedDeclarations = declarations.filter(({ property }) =>
+      !isSvgPaintProperty(property));
     const childStyle = await getChildStyle(node, tokens, parentIsFreeform);
     return {
       kind: 'asset',
@@ -520,8 +569,9 @@ async function resolveAssetNode(
       layerPath,
       alt: node.name,
       src: `data:image/svg+xml,${encodeURIComponent(svg)}`,
-      declarations,
+      declarations: renderedDeclarations,
       ...(childStyle ? { childStyle } : {}),
+      ...(maskColor ? { mask: { color: maskColor } } : {}),
     };
   } catch (_error) {
     diagnostics.push({
@@ -535,6 +585,45 @@ async function resolveAssetNode(
   }
 }
 
+function resolveSvgMaskColor(
+  svg: string,
+  declarations: ContainerCompositionNode['declarations'],
+): ContainerCompositionNode['declarations'][number] | undefined {
+  const tokenPaints = declarations.filter(({ property, value }) =>
+    isSvgPaintProperty(property) && isCssVariable(value));
+  const values = new Set(tokenPaints.map(({ value }) => value.trim()));
+  if (values.size !== 1 || !isMonochromeSvg(svg)) {
+    return undefined;
+  }
+  const [paint] = tokenPaints;
+  return {
+    property: 'background-color',
+    value: paint.value,
+    source: paint.source,
+  };
+}
+
+function isSvgPaintProperty(property: string): boolean {
+  const normalized = property.trim().toLowerCase();
+  return normalized === 'fill' || normalized === 'stroke';
+}
+
+function isCssVariable(value: string): boolean {
+  return /^var\(\s*--[a-zA-Z0-9_./-]+(?:\s*,[\s\S]*)?\)$/.test(value.trim());
+}
+
+function isMonochromeSvg(svg: string): boolean {
+  if (/<(?:linearGradient|radialGradient|pattern|image)\b/i.test(svg)) {
+    return false;
+  }
+  const paints = Array.from(
+    svg.matchAll(/\b(?:fill|stroke)=["']([^"']+)["']/gi),
+    (match) => match[1].trim().toLowerCase(),
+  ).filter((paint) =>
+    paint !== '' && paint !== 'none' && paint !== 'transparent');
+  return new Set(paints).size <= 1;
+}
+
 async function readCssDeclarations(
   node: LayoutSourceNode,
   tokens: StructuralTokenResolver,
@@ -546,7 +635,7 @@ async function readCssDeclarations(
   }
 
   try {
-    const css = await tokens.getNodeCss(node.id, node.getCSSAsync);
+    const css = await tokens.getNodeCss(node.id, () => node.getCSSAsync!());
     return Object.entries(css)
       .filter(([property, value]) => property.trim() !== '' && value.trim() !== '')
       .map(([property, value]) => ({
@@ -572,14 +661,11 @@ async function layoutStyle(
   layerPath: string[],
   tokens: StructuralTokenResolver,
 ): Promise<LayoutStyle> {
-  if (node.type === 'FRAME' && !isAutoLayout(node)) {
-    const reason = node.layoutMode === 'GRID'
-      ? 'grid-layout'
-      : 'unsupported-layout-mode';
+  if (node.type === 'FRAME' && node.layoutMode === 'GRID') {
     diagnostics.push({
       severity: 'warning',
-      reason,
-      message: `"${node.name}" uses ${node.layoutMode ?? 'NONE'} layout; children were emitted in document order and may need manual positioning.`,
+      reason: 'grid-layout',
+      message: `"${node.name}" uses GRID layout; children were emitted in document order and may need manual positioning.`,
       nodeId: node.id,
       layerPath,
     });
@@ -694,7 +780,6 @@ function isExportableAsset(node: LayoutSourceNode): boolean {
   return [
     'BOOLEAN_OPERATION',
     'ELLIPSE',
-    'LINE',
     'POLYGON',
     'RECTANGLE',
     'STAR',

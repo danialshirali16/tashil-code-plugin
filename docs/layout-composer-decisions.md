@@ -20,11 +20,15 @@ any of those.
 | Standalone `TEXT` node | ✅ Emits escaped JSX text | Outside component instances only |
 | `GROUP` | ✅ Transparent container, no layout meaning | Does not change the layout contract |
 | Auto-layout wrapping (`layoutWrap: WRAP`) | ✅ `flex-wrap: wrap` | Counter-axis spacing applies |
-| `layoutMode: NONE` | ⚠️ Detected, not generated → placeholder | Diagnostic `unsupported-layout-mode` |
+| `layoutMode: NONE` | ✅ Reconstructed as a freeform positioned container | Children retain Figma-local coordinates; no unsupported-layout warning |
 | Grid auto layout | ⚠️ Detected → placeholder | Diagnostic `grid-layout` |
-| Absolute-positioned child (`layoutPositioning: ABSOLUTE`) | ⚠️ Detected → placeholder | Diagnostic `absolute-positioning` |
-| `SECTION` used as visual organization | ⚠️ Detected → placeholder | Diagnostic `unsupported-node` |
-| `VECTOR`, `STAR`, `POLYGON`, `LINE`, `BOOLEAN_OPERATION`, `RECTANGLE`, `VIDEO`, `EMBED` | ⚠️ Detected → placeholder | Diagnostic `unsupported-node` |
+| Absolute-positioned child (`layoutPositioning: ABSOLUTE`) | ✅ Reconstructed from Figma-local coordinates | No diagnostic when coordinates and CSS are preserved |
+| `SECTION` used as visual organization | ✅ Emits a semantic `section` container | Visible children only |
+| `LINE` | ✅ Emits a styled divider when Figma CSS is available | Falls back to SVG export only when CSS is unavailable |
+| Monochrome token-bound SVG asset | ✅ Emits a CSS mask with the token as its background color | Keeps the exported vector shape while allowing theme colors |
+| Multicolor SVG asset | ✅ Emits an image with its exported paints intact | Ineffective external `fill`/`stroke` CSS is omitted |
+| `VECTOR`, `STAR`, `POLYGON`, `BOOLEAN_OPERATION`, `RECTANGLE` | ✅ Exports a safe SVG image asset | Failed exports produce `unsupported-paint` |
+| `VIDEO`, `EMBED` | ⚠️ Detected → placeholder | Diagnostic `unsupported-node` |
 | Masks, blend modes, complex effects, rotations, transforms | ⚠️ Detected → placeholder | Reported, not approximated |
 | Multiple selected roots | ⚠️ Detected → invalid selection | Diagnostic per root |
 | Hidden layer | Excluded from traversal | Informational diagnostic only when omission is materially useful |

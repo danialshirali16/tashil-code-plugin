@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
+import { GenerationContext } from '../layout/generation-context';
 import { formatCssBlock, isLayoutProperty, partitionCss } from './css-partition';
 import { getNodeCss, type CssSourceNode } from './node-css';
 import { formatConnectedComponentsSnippet, formatUsageSnippet } from './usage-snippet';
@@ -179,6 +180,23 @@ describe('getNodeCss', () => {
     ]);
     expect(result.css.style).toEqual([
       decl('border-bottom', '1px solid var(--color-border)'),
+    ]);
+  });
+
+  it('preserves the Figma node receiver when loading CSS through the cache', async () => {
+    const node: CssSourceNode = {
+      id: '1:receiver',
+      name: 'Receiver card',
+      async getCSSAsync() {
+        return { content: this.name };
+      },
+    };
+
+    const result = await getNodeCss(node, new GenerationContext());
+
+    expect(result.diagnostics).toEqual([]);
+    expect(result.css.style).toEqual([
+      decl('content', 'Receiver card'),
     ]);
   });
 
