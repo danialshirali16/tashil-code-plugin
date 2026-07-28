@@ -195,6 +195,8 @@ declare const styles: {
   readonly "sync-tokens-intro": string;
   readonly "sync-tokens-mode-control": string;
   readonly "sync-tokens-mode-list": string;
+  readonly "sync-tokens-mode-override": string;
+  readonly "sync-tokens-mode-overrides": string;
   readonly "sync-tokens-mode-row": string;
   readonly "sync-tokens-number-input": string;
   readonly "sync-tokens-output-empty": string;
@@ -202,11 +204,18 @@ declare const styles: {
   readonly "sync-tokens-output-heading": string;
   readonly "sync-tokens-output-panel": string;
   readonly "sync-tokens-preview": string;
+  readonly "sync-tokens-preview-empty": string;
+  readonly "sync-tokens-preview-file": string;
+  readonly "sync-tokens-preview-file-heading": string;
+  readonly "sync-tokens-preview-files": string;
   readonly "sync-tokens-preview-heading": string;
+  readonly "sync-tokens-preview-warnings": string;
   readonly "sync-tokens-row-selected": string;
   readonly "sync-tokens-scroll": string;
+  readonly "sync-tokens-selection-summary": string;
   readonly "sync-tokens-settings-panel": string;
   readonly "sync-tokens-step": string;
+  readonly "sync-tokens-success": string;
   readonly "sync-tokens-toolbar": string;
   readonly "sync-tokens-unit-settings": string;
   readonly "sync-tokens-view": string;

@@ -9,6 +9,7 @@ import {
   type InspectCodeState,
   type MappingDocument,
   type ExportTokensResultHandler,
+  type PreviewTokensResultHandler,
   type ScaffoldResultHandler,
   type UiTargetState,
 } from './types';
@@ -272,6 +273,7 @@ async function startPlugin(options: StartPluginOptions = {}): Promise<{
     ui: { resize: vi.fn() },
     variables: {
       getLocalVariableCollectionsAsync: vi.fn(() => Promise.resolve(variableCollections)),
+      getLocalVariablesAsync: vi.fn(() => Promise.resolve(variables)),
       getVariableByIdAsync: vi.fn((id: string) => Promise.resolve(variablesById.get(id) ?? null)),
       getVariableCollectionByIdAsync: vi.fn(
         (id: string) => Promise.resolve(variableCollectionsById.get(id) ?? null),
@@ -403,6 +405,18 @@ describe('Sync Tokens export', () => {
     >('EXPORT_TOKENS_RESULT')[0];
     expect(result.ok).toBe(true);
     expect(result.files?.[0]?.name).toBe('product-tokens-zhina.css');
+    expect(result.files?.[0]?.sourceVariableCount).toBe(2);
+    expect(result.files?.[0]?.declarationCount).toBe(2);
+    expect(result.files?.[0]?.warnings).toEqual([
+      expect.objectContaining({
+        code: 'mode-fallback',
+        message: expect.stringContaining('using Light'),
+        sourceCollectionId: 'product',
+        sourceModeId: 'product-zhina',
+        targetCollectionId: 'references',
+        fallbackModeId: 'references-light',
+      }),
+    ]);
     expect(result.files?.[0]?.css).toContain('--color\\.primary\\.hover: #0d99ff;');
     expect(result.files?.[0]?.css).toContain('--spacing\\.4: 1rem;');
     expect(result.files?.[1]?.name).toBe('product-tokens-dark.css');
@@ -428,6 +442,144 @@ describe('Sync Tokens export', () => {
       Parameters<ExportTokensResultHandler['handler']>[0]
     >('EXPORT_TOKENS_RESULT')[1];
     expect(singleModeResult.files?.[0]?.name).toBe('product-tokens-zhina.css');
+
+    utilityMocks.handlers.get('EXPORT_TOKENS')?.({
+      collectionIds: ['product'],
+      operationId: 'export-explicit-alias-mode',
+      options: {
+        ...options,
+        modesByCollection: { product: ['product-zhina'] },
+        aliasModeOverridesByCollectionMode: {
+          product: {
+            'product-zhina': {
+              references: 'references-dark',
+            },
+          },
+        },
+      },
+    });
+    await vi.waitFor(() => {
+      expect(emittedPayloads<
+        Parameters<ExportTokensResultHandler['handler']>[0]
+      >('EXPORT_TOKENS_RESULT')).toHaveLength(3);
+    });
+    const explicitModeResult = emittedPayloads<
+      Parameters<ExportTokensResultHandler['handler']>[0]
+    >('EXPORT_TOKENS_RESULT')[2];
+    expect(explicitModeResult.files?.[0]?.css)
+      .toContain('--color\\.primary\\.hover: #033366;');
+    expect(explicitModeResult.files?.[0]?.css)
+      .toContain('--spacing\\.4: 1.25rem;');
+    expect(explicitModeResult.files?.[0]?.warnings).toEqual([]);
+
+    utilityMocks.handlers.get('PREVIEW_TOKENS')?.({
+      collectionIds: ['product'],
+      operationId: 'preview-single-mode',
+      options: {
+        ...options,
+        modesByCollection: { product: ['product-dark'] },
+      },
+    });
+    await vi.waitFor(() => {
+      expect(emittedPayloads<
+        Parameters<PreviewTokensResultHandler['handler']>[0]
+      >('PREVIEW_TOKENS_RESULT')).toHaveLength(1);
+    });
+    const previewResult = emittedPayloads<
+      Parameters<PreviewTokensResultHandler['handler']>[0]
+    >('PREVIEW_TOKENS_RESULT')[0];
+    expect(previewResult.files?.[0]?.name).toBe('product-tokens-dark.css');
+    expect(previewResult.files?.[0]?.css).toContain('--color\\.primary\\.hover: #033366;');
+  });
+
+  it('reports skipped values, unresolved aliases, and unknown numeric scopes', async () => {
+    const collection = {
+      id: 'diagnostics',
+      name: 'Diagnostics',
+      modes: [{ modeId: 'default', name: 'Default' }],
+      defaultModeId: 'default',
+      variableIds: [
+        'missing',
+        'missing-mode',
+        'unsupported',
+        'unknown-number',
+        'unresolved-alias',
+      ],
+    } as unknown as VariableCollection;
+    const missingMode = {
+      id: 'missing-mode',
+      name: 'Missing/Mode',
+      resolvedType: 'STRING',
+      scopes: ['ALL_SCOPES'],
+      valuesByMode: {},
+      variableCollectionId: collection.id,
+    } as unknown as Variable;
+    const unsupported = {
+      id: 'unsupported',
+      name: 'Unsupported/Value',
+      resolvedType: 'STRING',
+      scopes: ['ALL_SCOPES'],
+      valuesByMode: { default: { fontFamily: 'Inter' } },
+      variableCollectionId: collection.id,
+    } as unknown as Variable;
+    const unknownNumber = {
+      id: 'unknown-number',
+      name: 'Unknown/Number',
+      resolvedType: 'FLOAT',
+      scopes: ['ALL_SCOPES'],
+      valuesByMode: { default: 8 },
+      variableCollectionId: collection.id,
+    } as unknown as Variable;
+    const unresolvedAlias = {
+      id: 'unresolved-alias',
+      name: 'Unresolved/Alias',
+      resolvedType: 'COLOR',
+      scopes: ['ALL_FILLS'],
+      valuesByMode: {
+        default: { type: 'VARIABLE_ALIAS', id: 'missing-target' },
+      },
+      variableCollectionId: collection.id,
+    } as unknown as Variable;
+
+    await startPlugin({
+      variableCollections: [collection],
+      variables: [missingMode, unsupported, unknownNumber, unresolvedAlias],
+    });
+
+    utilityMocks.handlers.get('EXPORT_TOKENS')?.({
+      collectionIds: [collection.id],
+      operationId: 'export-diagnostics',
+      options: {
+        colorFormat: 'variable',
+        convertPxToRem: true,
+        modesByCollection: { [collection.id]: ['default'] },
+        nameStyle: 'kebab',
+        rootFontSize: 16,
+      } satisfies ExportOptions,
+    });
+
+    await vi.waitFor(() => {
+      expect(emittedPayloads<
+        Parameters<ExportTokensResultHandler['handler']>[0]
+      >('EXPORT_TOKENS_RESULT')).toHaveLength(1);
+    });
+    const result = emittedPayloads<
+      Parameters<ExportTokensResultHandler['handler']>[0]
+    >('EXPORT_TOKENS_RESULT')[0];
+    expect(result.files?.[0]).toEqual(expect.objectContaining({
+      declarationCount: 2,
+      sourceVariableCount: 5,
+    }));
+    expect(result.files?.[0]?.css).toContain(
+      '--unresolved-alias: var(--missing-target);',
+    );
+    expect(result.files?.[0]?.warnings.map((warning) => warning.code)).toEqual([
+      'missing-variable',
+      'missing-mode-value',
+      'unsupported-value',
+      'unknown-number-scope',
+      'unresolved-alias',
+    ]);
   });
 });
 

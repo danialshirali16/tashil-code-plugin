@@ -15,6 +15,13 @@
 import { createRecipeDraft } from '../../src/semantic/authoring';
 import { extractFigmaSemanticSnapshot } from '../../src/semantic/figma-extractor';
 import { extractSourceContract } from '../../src/semantic/source-contract';
+import { serializeCollection } from '../../src/sync-tokens/serialize';
+import type {
+  ExportFile,
+  ExportOptions,
+  Token,
+  TokenCollection,
+} from '../../src/sync-tokens/types';
 import { CURRENT_SCHEMA_VERSION } from '../../src/types';
 import type {
   ComponentInventoryState,
@@ -231,8 +238,11 @@ const TOKEN_COLLECTIONS = [
   {
     id: 'references',
     name: 'References Color',
-    modes: [{ modeId: 'default', name: 'Default' }],
-    defaultModeId: 'default',
+    modes: [
+      { modeId: 'light', name: 'Light' },
+      { modeId: 'dark', name: 'Dark' },
+    ],
+    defaultModeId: 'light',
     tokenCount: 362,
   },
   {
@@ -263,6 +273,109 @@ const TOKEN_COLLECTIONS = [
   },
 ] as const;
 
+function tokenFileSlug(name: string): string {
+  return name
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+}
+
+function createHarnessTokens(count: number, modeIndex: number): Token[] {
+  const tokens: Token[] = [
+    {
+      id: 'preview-color',
+      name: 'Color/Text/Primary',
+      resolvedType: 'COLOR',
+      scopes: ['ALL_FILLS'],
+      value: {
+        kind: 'color',
+        value: modeIndex % 2 === 0
+          ? { r: 13 / 255, g: 153 / 255, b: 1 }
+          : { r: 3 / 255, g: 51 / 255, b: 102 / 255 },
+      },
+    },
+    {
+      id: 'preview-spacing',
+      name: 'Spacing/4',
+      resolvedType: 'FLOAT',
+      scopes: ['GAP'],
+      value: { kind: 'number', value: 16 + modeIndex * 4 },
+    },
+    {
+      id: 'preview-radius',
+      name: 'Radius/Small',
+      resolvedType: 'FLOAT',
+      scopes: ['CORNER_RADIUS'],
+      value: { kind: 'number', value: 8 },
+    },
+  ];
+  for (let index = tokens.length; index < count; index += 1) {
+    tokens.push({
+      id: `preview-${index}`,
+      name: `Generated/Token/${index + 1}`,
+      resolvedType: 'FLOAT',
+      scopes: ['OPACITY'],
+      value: { kind: 'number', value: (index + 1) / count },
+    });
+  }
+  return tokens;
+}
+
+function createPreviewFiles(payload: {
+  collectionIds?: readonly string[];
+  options?: ExportOptions;
+}): ExportFile[] {
+  if (!payload.options) {
+    return [];
+  }
+  const selectedIds = new Set(payload.collectionIds ?? []);
+  const files: ExportFile[] = [];
+  for (const collection of TOKEN_COLLECTIONS) {
+    if (!selectedIds.has(collection.id)) {
+      continue;
+    }
+    const modeIds = payload.options.modesByCollection[collection.id]
+      ?? [collection.defaultModeId];
+    for (const modeId of modeIds) {
+      const modeIndex = collection.modes.findIndex((mode) => mode.modeId === modeId);
+      const mode = collection.modes[Math.max(0, modeIndex)];
+      const tokens = createHarnessTokens(collection.tokenCount, Math.max(0, modeIndex));
+      const domain: TokenCollection = {
+        id: collection.id,
+        name: collection.name,
+        modes: collection.modes,
+        defaultModeId: collection.defaultModeId,
+        tokens,
+      };
+      const suffix = collection.modes.length > 1
+        ? `-${tokenFileSlug(mode.name)}`
+        : '';
+      files.push({
+        name: `${tokenFileSlug(collection.name)}${suffix}.css`,
+        css: serializeCollection(domain, payload.options),
+        declarationCount: tokens.length,
+        sourceVariableCount: collection.tokenCount,
+        warnings: collection.id === 'product'
+          && modeId === 'zhina'
+          && payload.options.aliasModeOverridesByCollectionMode
+            ?.product?.zhina?.references === undefined
+          ? [{
+              code: 'mode-fallback',
+              message: 'No “Zhina” mode exists in References Color; using Light.',
+              tokenName: 'Color/Primary/Hover',
+              sourceCollectionId: 'product',
+              sourceModeId: 'zhina',
+              targetCollectionId: 'references',
+              fallbackModeId: 'light',
+            }]
+          : [],
+      });
+    }
+  }
+  return files;
+}
+
 function respond(name: string, payload: unknown): void {
   const request = (payload ?? {}) as Record<string, string>;
 
@@ -282,6 +395,19 @@ function respond(name: string, payload: unknown): void {
         collections: TOKEN_COLLECTIONS,
       });
       break;
+    case 'PREVIEW_TOKENS': {
+      const previewRequest = (payload ?? {}) as {
+        collectionIds?: readonly string[];
+        operationId?: string;
+        options?: ExportOptions;
+      };
+      send('PREVIEW_TOKENS_RESULT', {
+        ok: true,
+        operationId: previewRequest.operationId,
+        files: createPreviewFiles(previewRequest),
+      });
+      break;
+    }
     case 'SAVE_CONNECTION':
       send('SAVE_RESULT', {
         message: 'Connection saved.',

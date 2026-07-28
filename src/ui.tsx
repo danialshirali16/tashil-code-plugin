@@ -2,6 +2,7 @@ import {
   Button,
   Checkbox,
   Container,
+  Dropdown,
   IconBackwardSmall24,
   IconCheck24,
   IconButton,
@@ -59,16 +60,11 @@ import {
 } from './types';
 import type {
   ColorFormat,
+  ExportFile,
   ExportOptions,
   NameStyle,
-  Token,
   TokenCollectionSummary,
 } from './sync-tokens/types';
-import {
-  formatColor,
-  formatCssTokenName,
-  formatNumber,
-} from './sync-tokens/serialize';
 import { formatCssBlock } from './inspect/css-partition';
 import { formatUsageSnippet } from './inspect/usage-snippet';
 import type { FrameInspection } from './inspect/types';
@@ -136,8 +132,13 @@ export function Plugin(): h.JSX.Element {
     tokenCollectionsError,
     tokensExportStatus,
     tokensExportError,
+    tokensExportSuccess,
+    tokensPreviewStatus,
+    tokensPreviewError,
+    tokensPreviewFiles,
     loadTokenCollections,
     exportTokens,
+    previewTokens,
   } = useConnectionController();
 
   function handleOpenInventoryTarget(targetToken: string): void {
@@ -422,8 +423,13 @@ export function Plugin(): h.JSX.Element {
             collectionsError={tokenCollectionsError}
             exportStatus={tokensExportStatus}
             exportError={tokensExportError}
+            exportSuccess={tokensExportSuccess}
+            previewStatus={tokensPreviewStatus}
+            previewError={tokensPreviewError}
+            previewFiles={tokensPreviewFiles}
             onLoadCollections={loadTokenCollections}
             onExport={exportTokens}
+            onPreview={previewTokens}
           />
         </div>
       ) : null}
@@ -1105,24 +1111,16 @@ function tokenFileSlug(name: string): string {
     .replace(/^-+|-+$/g, '');
 }
 
-function createTokenPreview(options: ExportOptions): string {
-  const lengthToken = (name: string): Token => ({
-    id: `preview-${name}`,
-    name,
-    resolvedType: 'FLOAT',
-    scopes: ['WIDTH_HEIGHT'],
-    value: { kind: 'number', value: 0 },
-  });
-  const previewColor = options.colorFormat === 'variable'
-    ? `var(--${formatCssTokenName('Reference/Color/Blue/500', options.nameStyle)})`
-    : formatColor({ r: 13 / 255, g: 153 / 255, b: 1 }, options.colorFormat);
-
+function boundedCssPreview(css: string, maximumLines = 14): string {
+  const lines = css.split('\n');
+  if (lines.length <= maximumLines) {
+    return css;
+  }
+  const hiddenLineCount = lines.length - maximumLines + 1;
   return [
-    ':root {',
-    `  --${formatCssTokenName('Color/Text/Primary', options.nameStyle)}: ${previewColor};`,
-    `  --${formatCssTokenName('Spacing/4', options.nameStyle)}: ${formatNumber(16, lengthToken('Spacing/4'), options)};`,
-    `  --${formatCssTokenName('Radius/Small', options.nameStyle)}: ${formatNumber(8, lengthToken('Radius/Small'), options)};`,
-    '}',
+    ...lines.slice(0, maximumLines - 2),
+    `  /* … ${hiddenLineCount} more declarations */`,
+    lines[lines.length - 1],
   ].join('\n');
 }
 
@@ -1132,8 +1130,13 @@ function SyncTokensView(props: {
   collectionsError: string;
   exportStatus: 'idle' | 'exporting' | 'error';
   exportError: string;
+  exportSuccess: string;
+  previewStatus: 'idle' | 'loading' | 'error';
+  previewError: string;
+  previewFiles: readonly ExportFile[];
   onLoadCollections: () => void;
   onExport: (collectionIds: readonly string[], options: ExportOptions) => void;
+  onPreview: (collectionIds: readonly string[], options: ExportOptions) => void;
 }): h.JSX.Element {
   const {
     collections,
@@ -1141,8 +1144,13 @@ function SyncTokensView(props: {
     collectionsError,
     exportStatus,
     exportError,
+    exportSuccess,
+    previewStatus,
+    previewError,
+    previewFiles,
     onLoadCollections,
     onExport,
+    onPreview,
   } = props;
 
   const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -1153,6 +1161,9 @@ function SyncTokensView(props: {
   const [rootFontSize, setRootFontSize] = useState<number>(16);
   const [colorFormat, setColorFormat] = useState<ColorFormat>('hex');
   const [nameStyle, setNameStyle] = useState<NameStyle>('kebab');
+  const [aliasModeOverrides, setAliasModeOverrides] = useState<
+    Record<string, Record<string, Record<string, string>>>
+  >({});
 
   // Load once on mount.
   useEffect(() => {
@@ -1241,12 +1252,61 @@ function SyncTokensView(props: {
     }
     onExport([...selected], {
       modesByCollection: payloadModes,
+      aliasModeOverridesByCollectionMode: aliasModeOverrides,
       convertPxToRem,
       rootFontSize: rootFontSize > 0 ? rootFontSize : 16,
       colorFormat,
       nameStyle,
     });
   }
+
+  function clearAllSelections(): void {
+    setSelected(new Set());
+  }
+
+  function setAliasModeOverride(
+    sourceCollectionId: string,
+    sourceModeId: string,
+    targetCollectionId: string,
+    targetModeId: string,
+  ): void {
+    setAliasModeOverrides((previous) => ({
+      ...previous,
+      [sourceCollectionId]: {
+        ...previous[sourceCollectionId],
+        [sourceModeId]: {
+          ...previous[sourceCollectionId]?.[sourceModeId],
+          [targetCollectionId]: targetModeId,
+        },
+      },
+    }));
+  }
+
+  const selectedCollectionIds = collections
+    .filter((collection) => selected.has(collection.id))
+    .map((collection) => collection.id);
+  const previewModes: Record<string, readonly string[]> = {};
+  for (const collection of collections) {
+    if (selected.has(collection.id)) {
+      previewModes[collection.id] = [...modesFor(collection)];
+    }
+  }
+  const previewOptions: ExportOptions = {
+    modesByCollection: previewModes,
+    aliasModeOverridesByCollectionMode: aliasModeOverrides,
+    convertPxToRem,
+    rootFontSize: rootFontSize > 0 ? rootFontSize : 16,
+    colorFormat,
+    nameStyle,
+  };
+  const previewRequestKey = JSON.stringify({
+    collectionIds: selectedCollectionIds,
+    options: previewOptions,
+  });
+
+  useEffect(() => {
+    onPreview(selectedCollectionIds, previewOptions);
+  }, [previewRequestKey]);
 
   if (collections.length === 0) {
     if (collectionsStatus === 'error') {
@@ -1286,15 +1346,17 @@ function SyncTokensView(props: {
     (sum, collection) => sum + modesFor(collection).size,
     0,
   );
-  const effectiveRootFontSize = rootFontSize > 0 ? rootFontSize : 16;
-  const previewOptions: ExportOptions = {
-    modesByCollection: {},
-    convertPxToRem,
-    rootFontSize: effectiveRootFontSize,
-    colorFormat,
-    nameStyle,
-  };
-  const tokenPreview = createTokenPreview(previewOptions);
+  const previewDeclarationCount = previewFiles.reduce(
+    (sum, file) => sum + file.declarationCount,
+    0,
+  );
+  const previewWarningCount = previewFiles.reduce(
+    (sum, file) => sum + file.warnings.length,
+    0,
+  );
+  const previewIsCurrent = previewStatus === 'idle'
+    && previewFiles.length === outputFileCount
+    && outputFileCount > 0;
 
   return (
     <main aria-labelledby="tashil-sync-tokens-heading" class="sync-tokens-view">
@@ -1319,6 +1381,14 @@ function SyncTokensView(props: {
             {bulkSelectionLabel}
           </Button>
         </div>
+        {selected.size > 0 ? (
+          <div class="sync-tokens-selection-summary" role="status">
+            <span>
+              {selected.size} {selected.size === 1 ? 'collection' : 'collections'} selected
+            </span>
+            <Button onClick={clearAllSelections} secondary>Clear all</Button>
+          </div>
+        ) : null}
 
         <section class="sync-tokens-step">
           <h2>1. Choose collections</h2>
@@ -1467,15 +1537,141 @@ function SyncTokensView(props: {
             <div class="sync-tokens-preview">
               <div class="sync-tokens-preview-heading">
                 <strong>CSS preview</strong>
-                <span>Updates with your output settings</span>
+                <span>
+                  {previewStatus === 'loading'
+                    ? 'Updating from Figma variables…'
+                    : 'Generated from the selected output files'}
+                </span>
               </div>
-              <pre aria-label="CSS token preview" tabIndex={0}>
-                <code>{tokenPreview}</code>
-              </pre>
+              <div
+                aria-label="CSS token preview"
+                class="sync-tokens-preview-files"
+                role="region"
+              >
+                {selected.size === 0 ? (
+                  <div class="sync-tokens-preview-empty">
+                    Select a collection to preview its generated CSS.
+                  </div>
+                ) : null}
+                {selected.size > 0 && previewStatus === 'loading'
+                  && previewFiles.length === 0 ? (
+                    <div class="sync-tokens-preview-empty">Generating preview…</div>
+                  ) : null}
+                {selected.size > 0 && previewStatus === 'idle'
+                  && previewFiles.length === 0 ? (
+                    <div class="sync-tokens-preview-empty">
+                      No exportable declarations were found for this selection.
+                    </div>
+                  ) : null}
+                {previewStatus === 'error' ? (
+                  <div class="field-error" role="alert">
+                    {previewError || 'Could not preview tokens.'}
+                  </div>
+                ) : null}
+                {previewFiles.map((file) => (
+                  <section class="sync-tokens-preview-file" key={file.name}>
+                    <div class="sync-tokens-preview-file-heading">
+                      <strong>{file.name}</strong>
+                      <span>
+                        {file.sourceVariableCount} variables → {file.declarationCount} declarations
+                        {file.warnings.length > 0
+                          ? ` · ${file.warnings.length} warning${file.warnings.length === 1 ? '' : 's'}`
+                          : ''}
+                      </span>
+                    </div>
+                    <pre aria-label={`${file.name} CSS preview`} tabIndex={0}>
+                      <code>{boundedCssPreview(file.css)}</code>
+                    </pre>
+                    {file.warnings.some((warning) =>
+                      warning.code === 'mode-fallback'
+                      && warning.sourceCollectionId
+                      && warning.sourceModeId
+                      && warning.targetCollectionId
+                    ) ? (
+                      <div class="sync-tokens-mode-overrides">
+                        {file.warnings.map((warning, index) => {
+                          if (
+                            warning.code !== 'mode-fallback'
+                            || warning.sourceCollectionId === undefined
+                            || warning.sourceModeId === undefined
+                            || warning.targetCollectionId === undefined
+                          ) {
+                            return null;
+                          }
+                          const targetCollection = collections.find(
+                            (collection) => collection.id === warning.targetCollectionId,
+                          );
+                          if (targetCollection === undefined) {
+                            return null;
+                          }
+                          const selectedModeId =
+                            aliasModeOverrides[warning.sourceCollectionId]
+                              ?.[warning.sourceModeId]
+                              ?.[warning.targetCollectionId]
+                            ?? warning.fallbackModeId
+                            ?? targetCollection.defaultModeId;
+                          return (
+                            <div
+                              class="sync-tokens-mode-override"
+                              key={`${warning.targetCollectionId}-${index}`}
+                            >
+                              <div>
+                                <strong>Alias mode for {targetCollection.name}</strong>
+                                <span>{warning.message}</span>
+                              </div>
+                              <Dropdown
+                                aria-label={`Alias mode for ${targetCollection.name}`}
+                                onValueChange={(targetModeId) =>
+                                  setAliasModeOverride(
+                                    warning.sourceCollectionId as string,
+                                    warning.sourceModeId as string,
+                                    warning.targetCollectionId as string,
+                                    targetModeId,
+                                  )
+                                }
+                                options={targetCollection.modes.map((mode) => ({
+                                  value: mode.modeId,
+                                  text: mode.name,
+                                }))}
+                                value={selectedModeId}
+                              />
+                            </div>
+                          );
+                        })}
+                      </div>
+                    ) : null}
+                    {file.warnings.some((warning) => warning.code !== 'mode-fallback') ? (
+                      <ul class="sync-tokens-preview-warnings">
+                        {file.warnings
+                          .filter((warning) => warning.code !== 'mode-fallback')
+                          .slice(0, 3)
+                          .map((warning, index) => (
+                          <li key={`${warning.code}-${warning.tokenName ?? index}`}>
+                            {warning.tokenName ? `${warning.tokenName}: ` : ''}
+                            {warning.message}
+                          </li>
+                        ))}
+                        {file.warnings.filter((warning) =>
+                          warning.code !== 'mode-fallback'
+                        ).length > 3 ? (
+                          <li>
+                            +{file.warnings.filter((warning) =>
+                              warning.code !== 'mode-fallback'
+                            ).length - 3} more warnings
+                          </li>
+                        ) : null}
+                      </ul>
+                    ) : null}
+                  </section>
+                ))}
+              </div>
             </div>
           </div>
         </section>
 
+        {exportSuccess ? (
+          <div class="sync-tokens-success" role="status">{exportSuccess}</div>
+        ) : null}
         {exportStatus === 'error' && exportError ? (
           <div class="field-error" role="alert">{exportError}</div>
         ) : null}
@@ -1492,9 +1688,16 @@ function SyncTokensView(props: {
               {outputFileCount} {outputFileCount === 1 ? 'file' : 'files'}
               {' · '}
               {selectedTokenCount} variables
+              {previewIsCurrent ? ` → ${previewDeclarationCount} declarations` : ''}
             </strong>
             <span>
-              {outputFileCount === 0 ? 'Select a collection to continue' : 'Ready to export'}
+              {outputFileCount === 0
+                ? 'Select a collection to continue'
+                : previewStatus === 'loading'
+                  ? 'Analyzing output'
+                  : previewWarningCount > 0
+                    ? `${previewWarningCount} export warning${previewWarningCount === 1 ? '' : 's'}`
+                    : 'Ready to export'}
             </span>
           </div>
         </div>

@@ -1,7 +1,7 @@
 # Sync Tokens — How It Works (Developer Guide)
 
 Status: Active
-Last updated: 2026-07-24
+Last updated: 2026-07-28
 Companion user guide: [`sync-tokens.md`](./sync-tokens.md)
 
 This document is for engineers working on the **Sync Tokens** tab. It covers
@@ -15,10 +15,10 @@ cleanly into three layers, matching the rest of the plugin:
 
 ```text
 UI (src/ui.tsx)               user picks collections + options
-   │  emit EXPORT_TOKENS
+   │  emit PREVIEW_TOKENS / EXPORT_TOKENS
    ▼
 Backend (src/main.ts)         reads Figma Variables API → pure domain model
-   │  emit EXPORT_TOKENS_RESULT (CSS strings per file)
+   │  emit *_TOKENS_RESULT (CSS + preflight data per file)
    ▼
 UI (src/ui-controller.ts)     zips the files, triggers a download
 ```
@@ -34,12 +34,12 @@ the `semantic/` and `inspect/` layering.
 | --- | --- |
 | `src/sync-tokens/types.ts` | Pure domain model. Zero `@figma/plugin-typings` imports. |
 | `src/sync-tokens/serialize.ts` | Pure transforms: name → CSS ident, color → css, number → rem, collection → `:root {}` block. |
-| `src/sync-tokens/serialize.test.ts` | Unit tests for the above (22 cases). |
+| `src/sync-tokens/serialize.test.ts` | Unit tests for the above (28 cases). |
 | `src/main.ts` | The only place that calls `figma.variables.*`. Maps live Variable objects into the pure domain model, then serializes. |
 | `src/ui-controller.ts` | Holds tab state, owns the message round-trips, and **packages/downloads** the result. |
 | `src/ui-download.ts` | `downloadBlob()` — `URL.createObjectURL` + synthetic `<a download>`. The plugin's only file-download mechanism. |
 | `src/ui.tsx` | The `SyncTokensView` component + third tab wiring. |
-| `src/types.ts` | The four message handler types. |
+| `src/types.ts` | Collection, preview, and export message handler types. |
 
 tsconfig note: new backend files must be added to `tsconfig.json`'s `include`;
 UI/view files to `tsconfig.ui.json`; tests to `tsconfig.tests.json`. The pure
@@ -47,7 +47,7 @@ core compiles under the test project too (no Figma typings there).
 
 ## The message protocol
 
-Sync Tokens uses two request/response pairs, following the same
+Sync Tokens uses three request/response pairs, following the same
 `@create-figma-plugin/utilities` `emit`/`on` pattern as the rest of the plugin
 (see `SCAFFOLD_PROP_MAPPINGS`/`SCAFFOLD_RESULT`). Defined in `src/types.ts`.
 
@@ -63,7 +63,20 @@ LOAD_TOKEN_COLLECTIONS_RESULT  (main → UI)
 `tokenCount` (the length of `collection.variableIds`) — enough to render the
 list without shipping token values to the UI.
 
-### 2. Export
+### 2. Preview
+
+```text
+PREVIEW_TOKENS  (UI → main)
+   { operationId, collectionIds: string[], options: ExportOptions }
+
+PREVIEW_TOKENS_RESULT  (main → UI)
+   { ok, operationId, files?: ExportFile[], message? }
+```
+
+Preview runs the production `generateTokenFiles` pipeline without downloading.
+The UI bounds the displayed CSS, but the message contains the complete files.
+
+### 3. Export
 
 ```text
 EXPORT_TOKENS  (UI → main)
@@ -73,26 +86,28 @@ EXPORT_TOKENS_RESULT  (main → UI)
    { ok, operationId, files?: ExportFile[], message? }
 ```
 
-`ExportFile` is `{ name: string; css: string }` — **CSS text, not bytes**. The
-UI owns packaging (zip) and download; the backend knows nothing about jszip.
+`ExportFile` contains `name`, `css`, `sourceVariableCount`,
+`declarationCount`, and `warnings`. It carries **CSS text, not bytes**. The UI
+owns packaging (zip) and download; the backend knows nothing about jszip.
 
 ### Correlation / stale guards
 
-Both round-trips use an `operationId` the UI generates, and the backend tracks
-the latest id (`latestTokensExportId` in `main.ts`). If a newer export request
-supersedes an in-flight one, the late resolve is ignored. This is the same
-pattern as `scanComponents`/`latestComponentScanId`.
+Preview and export use an `operationId` the UI generates. The backend tracks
+their latest ids independently. If a newer request supersedes an in-flight one,
+the late resolve is ignored. This is the same pattern as
+`scanComponents`/`latestComponentScanId`.
 
 ## The pure core (`src/sync-tokens/`)
 
 This is the part that matters. Four functions, each tiny and tested:
 
-### `formatTokenName(raw, style)`
+### `formatTokenName(raw, style)` and `formatCssTokenName(raw, style)`
 
 Splits the Figma name on `/` (Figma groups variables with slashes) and rejoins
 per the chosen style. Each segment is normalized independently — never the raw
 string — so internal camelCase and spaces are handled. Styles: `kebab`, `slash`,
-`snake`, `pascal`.
+`dot`, `snake`, `pascal`. `formatCssTokenName` then escapes dot and slash
+separators at the CSS identifier boundary.
 
 ### `formatColor(value, format, alias?)`
 
@@ -119,28 +134,30 @@ Emits the `:root { … }` block. Skips tokens whose value serializes to empty
 
 ## The Figma adapter (`src/main.ts`)
 
-`exportTokens(operationId, collectionIds, options)` is the orchestrator. Per
-selected collection, per selected mode:
+`generateTokenFiles(collectionIds, options, isCurrent)` is the shared preview
+and export orchestrator. Per selected collection, per selected mode:
 
-1. `collectTokens(collection, modeId)` — iterates `collection.variableIds`,
-   calls `figma.variables.getVariableByIdAsync(id)`, reads
-   `variable.valuesByMode[modeId]`.
+1. `generateTokenFiles` loads local variables once with
+   `getLocalVariablesAsync` and builds an id map. `collectTokens` then reads
+   `collection.variableIds` from that map in stable collection order; remote
+   or late-bound aliases fall back to `getVariableByIdAsync`.
 2. `normalizeValue(raw, resolvedType, modeId)` — turns the `VariableValue`
    union into the pure `TokenValue`. Handles the three object shapes:
    `VariableAlias` (resolves via `getVariableByIdAsync`, and if the target is a
    color, resolves the color too), `RGB`, `RGBA`.
 3. Builds a `TokenCollection` and calls `serializeCollection`.
-4. Pushes an `ExportFile` named `{collection}-{mode}.css` (single mode → no
-   suffix).
+4. Pushes an `ExportFile` with CSS, counts, and non-fatal warnings. Collections
+   that define multiple modes always include the mode suffix, so filenames stay
+   stable as the selection changes.
 
 **Critical:** `manifest.json` has `documentAccess: "dynamic-page"`, so the
 deprecated sync Variables API (`getLocalVariableCollections()`,
 `getVariableById()`) **throws**. Always use the `*Async` variants:
 `getLocalVariableCollectionsAsync()`, `getVariableByIdAsync()`.
 
-Alias resolution is recursive for colors (`resolveColorValue` follows the alias
-chain). It is **not** recursive for non-colors — a non-color alias with no
-concrete value is skipped. Extending this is a known gap.
+Alias resolution is recursive across color, number, string, and boolean values.
+Cycles and missing targets preserve a `var()` reference and add a warning
+instead of fabricating a fallback value.
 
 ## Packaging & download (`src/ui-controller.ts`)
 
@@ -168,6 +185,9 @@ Local state holds:
 - `selected: Set<string>` — checked collection ids
 - `modesByCollection: Record<string, Set<string>>` — per-collection selected
   mode ids (multi-select). Empty = use the collection's default mode.
+- `aliasModeOverrides` — source collection → source mode → referenced
+  collection → explicit target mode. A fallback warning exposes the control
+  that writes this mapping, and preview/export share the same option payload.
 - the advanced-option fields (`convertPxToRem`, `rootFontSize`, `colorFormat`,
   `nameStyle`)
 
