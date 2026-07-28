@@ -229,8 +229,39 @@ function collectDefinitions(
     return;
   }
 
-  if (node.kind === 'asset' && (node.declarations.length > 0 || node.childStyle)) {
+  if (
+    node.kind === 'asset'
+    && (node.declarations.length > 0 || node.childStyle || node.mask)
+  ) {
     const name = names.claim(toComponentName(last(node.layerPath) ?? 'Asset'));
+    namesByNodeId.set(node.nodeId, name);
+    const maskDeclarations = node.mask
+      ? [
+          layout('--icon-mask', `url("${node.src}")`),
+          layout('display', 'block'),
+          node.mask.color,
+          layout(
+            '-webkit-mask',
+            'var(--icon-mask) center / 100% 100% no-repeat',
+          ),
+          layout('mask', 'var(--icon-mask) center / 100% 100% no-repeat'),
+        ]
+      : [];
+    definitions.push({
+      declarations: mergeDeclarations(
+        [...maskDeclarations, ...node.declarations],
+        childDeclarations(node.childStyle, parentAxis),
+        suppressedProperties(node.childStyle, parentAxis),
+      ),
+      name,
+      nodeId: node.nodeId,
+      tag: node.mask ? 'span' : 'img',
+    });
+    return;
+  }
+
+  if (node.kind === 'shape') {
+    const name = names.claim(toComponentName(last(node.layerPath) ?? 'Shape'));
     namesByNodeId.set(node.nodeId, name);
     definitions.push({
       declarations: mergeDeclarations(
@@ -240,7 +271,7 @@ function collectDefinitions(
       ),
       name,
       nodeId: node.nodeId,
-      tag: 'img',
+      tag: 'div',
     });
     return;
   }

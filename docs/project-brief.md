@@ -143,8 +143,8 @@ styled declarations, while unsupported or broken descendants surface as notes.
 Dev Mode additionally shows the selected node's token-aware **Layout** and
 **Style** CSS from Figma's `getCSSAsync()` output. See
 [Generate and inspect a frame](inspect-frame.md) for the user guide,
-[Styled-Components Layout Roadmap](styled-components-layout-roadmap.md) for the
-active plan, and
+[Styled-Components Layout Roadmap](archive/styled-components-layout-roadmap.md)
+for the completed implementation history, and
 [Layout Composer Architecture Decisions](layout-composer-decisions.md)
 (ADRs D–F) for the decision history.
 

@@ -18,6 +18,7 @@ import type {
   ContainerCompositionNode,
   LayoutDocument,
   PlaceholderCompositionNode,
+  ShapeCompositionNode,
   TextCompositionNode,
 } from './types';
 
@@ -148,6 +149,8 @@ function renderNode(
       return renderContainer(node, depth, aliases, styled);
     case 'component':
       return renderComponent(node, depth, aliases, styled);
+    case 'shape':
+      return renderShape(node, depth, styled);
     case 'text':
       return renderText(node, depth, styled);
     case 'placeholder':
@@ -162,7 +165,21 @@ function renderAsset(
 ): string {
   const pad = '  '.repeat(depth);
   const element = styled.namesByNodeId.get(node.nodeId) ?? 'img';
+  if (node.mask) {
+    return `${pad}<${element} aria-hidden="true" />`;
+  }
   return `${pad}<${element} alt=${JSON.stringify(node.alt)} src=${JSON.stringify(node.src)} />`;
+}
+
+function renderShape(
+  node: ShapeCompositionNode,
+  depth: number,
+  styled: StyledRegistry,
+): string {
+  const pad = '  '.repeat(depth);
+  const element = styled.namesByNodeId.get(node.nodeId)
+    ?? toComponentName(last(node.layerPath) ?? 'Shape');
+  return `${pad}<${element} aria-hidden="true" />`;
 }
 
 function renderComponent(

@@ -2039,7 +2039,7 @@ describe('Dev Mode inspection codegen', () => {
     expect(blocks?.find((b) => b.title === 'Style')?.code).toBe('fill: var(--color-border);');
   });
 
-  it('generates a non-auto-layout frame with an explicit positioning note', async () => {
+  it('generates a non-auto-layout frame without an unsupported positioning warning', async () => {
     const { codegenEvents } = await startPlugin();
     const noneFrame = createFrame('f-none', 'Absolute frame', [], {
       layoutMode: 'NONE',
@@ -2051,8 +2051,8 @@ describe('Dev Mode inspection codegen', () => {
     expect(blocks?.find((b) => b.title === 'Layout')?.code).toBe('width: 320px;\nheight: 200px;');
     expect(blocks?.find((b) => b.title === 'AbsoluteFrame.tsx')?.code)
       .toContain('export function AbsoluteFrame()');
-    expect(blocks?.find((b) => b.title === 'React generation notes')?.code)
-      .toContain('may need manual positioning');
+    const notes = blocks?.find((b) => b.title === 'React generation notes')?.code;
+    expect(notes).toBeUndefined();
   });
 
   it('adds a Notes block when the runtime cannot produce CSS', async () => {

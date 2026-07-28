@@ -138,6 +138,7 @@ export type CompositionNode =
   | AssetCompositionNode
   | ComponentCompositionNode
   | ContainerCompositionNode
+  | ShapeCompositionNode
   | TextCompositionNode
   | PlaceholderCompositionNode;
 
@@ -172,13 +173,31 @@ export type ContainerCompositionNode = {
   childStyle?: ChildStyle;
 };
 
-/** A safely exported visual leaf rendered as an accessible image element. */
+/** A safely exported visual leaf rendered as an image or token-colored mask. */
 export type AssetCompositionNode = {
   kind: 'asset';
   nodeId: string;
   layerPath: string[];
   alt: string;
   src: string;
+  declarations: CssDeclaration[];
+  childStyle?: ChildStyle;
+  /**
+   * Monochrome SVGs with one token-bound paint render as a CSS mask so the
+   * generated color token controls their pixels. Ordinary/multicolor assets
+   * remain image elements.
+   */
+  mask?: {
+    color: CssDeclaration;
+  };
+};
+
+/** A non-text visual leaf, such as a divider, rendered as a styled element. */
+export type ShapeCompositionNode = {
+  kind: 'shape';
+  nodeId: string;
+  layerPath: string[];
+  className: string;
   declarations: CssDeclaration[];
   childStyle?: ChildStyle;
 };

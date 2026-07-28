@@ -4,18 +4,7 @@ exports[`full React layout generation > matches the deterministic absolutePositi
 {
   "componentCount": 0,
   "componentName": "CardWithBadge",
-  "diagnostics": [
-    {
-      "layerPath": [
-        "Card with badge",
-        "Badge",
-      ],
-      "message": ""Badge" is absolutely positioned; its Figma coordinates and CSS were preserved.",
-      "nodeId": "t:badge",
-      "reason": "absolute-positioning",
-      "severity": "info",
-    },
-  ],
+  "diagnostics": [],
   "fidelity": {
     "omittedDeclarations": 0,
     "unresolvedComponents": 0,
