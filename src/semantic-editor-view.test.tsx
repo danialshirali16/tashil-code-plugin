@@ -82,11 +82,15 @@ describe('SemanticMappingView', () => {
     expect(screen.getByText('Actions')).toBeTruthy();
     expect(screen.getByText('Application behavior')).toBeTruthy();
     expect(screen.getByText('confirmAction.label')).toBeTruthy();
+    expect(screen.getByLabelText('6 of 6 code props resolved')).toBeTruthy();
 
     selectTarget('confirmAction.label');
     // The chosen Figma value is one of the grouped answers, and it is selected.
-    const chosen = screen.getByRole('radio', { name: /Primary action \/ label/ });
-    expect(chosen.getAttribute('aria-checked')).toBe('true');
+    const chosen = screen.getByRole('radio', { name: /Primary action: label - Delete/ });
+    expect((chosen as HTMLInputElement).checked).toBe(true);
+    expect(screen.getByText('Component properties')).toBeTruthy();
+    expect(screen.getByText('Nested instances')).toBeTruthy();
+    expect(screen.getByRole('radio', { name: /Title: text - Delete account\?/ })).toBeTruthy();
   });
 
   it('shows the structural mismatch note as information, not an error', () => {
@@ -123,6 +127,9 @@ describe('SemanticMappingView', () => {
     expect(preview.textContent).toContain('title={"Delete account?"}');
     expect(preview.textContent).toContain('onConfirm={undefined /* Set in application. */}');
     expect(preview.textContent).not.toContain('Dialog.Header');
+    expect(preview.textContent).toMatch(/<ConfirmationDialog\n {2}[A-Za-z_$]/);
+    expect(preview.textContent).toMatch(/\n {2}title=/);
+    expect(preview.textContent).toMatch(/\n {2}onConfirm=/);
   });
 
   it('reports unresolved required targets and forwards control changes', () => {
@@ -143,11 +150,83 @@ describe('SemanticMappingView', () => {
 
     expect(screen.getByText(/Map, set, or mark "title" before saving/).textContent)
       .toContain('required');
+    expect(screen.getByLabelText('5 of 6 code props resolved')).toBeTruthy();
 
     selectTarget('title');
-    // Every answer is a peer choice, named rather than anonymous.
-    chooseAnswer('In the app');
+    fireEvent.click(screen.getByRole('radio', { name: 'Set in code' }));
     expect(onOptionChange).toHaveBeenCalledWith(['title'], 'runtime', undefined);
+  });
+
+  it('keeps the focused prop selected after its mapping changes', () => {
+    const figmaSnapshot = createDialogFigmaSnapshot();
+    let recipe = setTargetOption(
+      createDialogRecipeDraft(),
+      figmaSnapshot,
+      ['title'],
+      '',
+    );
+
+    const renderView = () => (
+      <SemanticMappingView
+        componentName="ConfirmationDialog"
+        disabled={false}
+        figmaSnapshot={figmaSnapshot}
+        importPath="@tashilcar/ui"
+        onOptionChange={(path, optionId, staticValue) => {
+          recipe = setTargetOption(recipe, figmaSnapshot, path, optionId, staticValue);
+          view.rerender(renderView());
+        }}
+        recipe={recipe}
+      />
+    );
+
+    const view = render(renderView());
+    expect(screen.getByRole('heading', { level: 3 }).textContent).toBe('title');
+
+    fireEvent.click(screen.getByRole('radio', { name: 'Set in code' }));
+
+    expect(screen.getByRole('heading', { level: 3 }).textContent).toBe('title');
+    expect(screen.getByRole('button', { name: /Resolved title/ })
+      .getAttribute('aria-expanded')).toBe('true');
+  });
+
+  it('shows only the controls for the selected source mode', () => {
+    const figmaSnapshot = createDialogFigmaSnapshot();
+    let recipe = setTargetOption(
+      createDialogRecipeDraft(),
+      figmaSnapshot,
+      ['intent'],
+      'prop:prop-intent',
+    );
+    const renderView = () => (
+      <SemanticMappingView
+        componentName="ConfirmationDialog"
+        disabled={false}
+        figmaSnapshot={figmaSnapshot}
+        importPath="@tashilcar/ui"
+        onOptionChange={vi.fn()}
+        recipe={recipe}
+      />
+    );
+    const view = render(renderView());
+
+    selectTarget('intent');
+    expect(screen.getByText('Figma properties')).toBeTruthy();
+    expect(screen.getByText('Includes exposed properties from nested instances.')).toBeTruthy();
+    expect(screen.queryByText('Code value')).toBeNull();
+
+    recipe = setTargetOption(recipe, figmaSnapshot, ['intent'], OPTION_RUNTIME);
+    view.rerender(renderView());
+    expect(screen.queryByText('Figma properties')).toBeNull();
+    expect(screen.getByText('Code value')).toBeTruthy();
+    expect(screen.queryByLabelText('Static value for intent')).toBeNull();
+
+    recipe = setTargetOption(recipe, figmaSnapshot, ['intent'], OPTION_STATIC, 'Danger');
+    view.rerender(renderView());
+    expect(screen.getByLabelText('Static value for intent')).toBeTruthy();
+
+    selectTarget('description');
+    expect(screen.getByRole('radio', { name: 'Left out' })).toBeTruthy();
   });
 
   it('labels runtime targets as set in application', () => {
@@ -371,16 +450,17 @@ describe('SemanticMappingView', () => {
 
     selectTarget('fullWidth');
     const control = screen.getByLabelText('Static value for fullWidth') as HTMLInputElement;
-    // A text box, with the declared values offered as suggestions.
+    // A plain text field, without a suggestion dropdown.
     expect(control.tagName).toBe('INPUT');
-    expect(control.getAttribute('list')).toBe('vals-fullWidth');
+    expect(control.getAttribute('list')).toBeNull();
+    expect(document.querySelector('datalist')).toBeNull();
 
     // Typing a declared value still stores a real boolean, not the string.
     fireEvent.input(control, { target: { value: 'true' } });
     expect(onOptionChange).toHaveBeenCalledWith(['fullWidth'], OPTION_STATIC, true);
   });
 
-  it('constrains a literal-union static value to its legal options', () => {
+  it('accepts arbitrary text for a literal-union static value', () => {
     const onOptionChange = vi.fn();
     const figmaSnapshot = createDialogFigmaSnapshot();
     let recipe = createDialogRecipeDraft();
@@ -408,11 +488,15 @@ describe('SemanticMappingView', () => {
     selectTarget('size');
     const control = screen.getByLabelText('Static value for size') as HTMLInputElement;
     expect(control.tagName).toBe('INPUT');
-    // The legal values are suggestions, and the accepted set is stated.
-    expect(document.body.textContent).toContain('Accepts sm, md, lg');
+    expect(document.body.textContent).not.toContain('only accepts');
+    expect(document.body.textContent).not.toContain('Accepts sm, md, lg');
 
-    fireEvent.input(control, { target: { value: 'lg' } });
-    expect(onOptionChange).toHaveBeenCalledWith(['size'], OPTION_STATIC, 'lg');
+    fireEvent.input(control, { target: { value: 'anything-custom' } });
+    expect(onOptionChange).toHaveBeenCalledWith(
+      ['size'],
+      OPTION_STATIC,
+      'anything-custom',
+    );
   });
 
   it('keeps free text for an open string prop', () => {

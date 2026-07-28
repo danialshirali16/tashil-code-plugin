@@ -132,6 +132,8 @@ function getMappingProgress(document: MappingDocument): { completed: number; tot
 
 export function MappingEditorView(props: MappingEditorViewProps): h.JSX.Element {
   const [isDragging, setIsDragging] = useState(false);
+  const [activePropName, setActivePropName] = useState<string>();
+  const [filter, setFilter] = useState<'all' | 'review'>('all');
   const document = parseDocument(props.mappingDocument);
   const sourceProps = document?.sourceSnapshot?.props ?? [];
   const contentProps = sourceProps.filter((prop) => getPropertyMappingKind(prop) === 'children');
@@ -159,6 +161,16 @@ export function MappingEditorView(props: MappingEditorViewProps): h.JSX.Element 
       })))
     : [];
   const uploadDisabled = props.disabled || props.sourceUploading;
+  const focusedProp = mappableProps.find((sourceProp) => sourceProp.name === activePropName)
+    ?? mappableProps.find((sourceProp) => !document?.mappings.some(
+      (mapping) => mapping.sourceProp === sourceProp.name,
+    ))
+    ?? mappableProps[0];
+  const visibleProps = filter === 'review'
+    ? mappableProps.filter((sourceProp) => !document?.mappings.some(
+      (mapping) => mapping.sourceProp === sourceProp.name,
+    ))
+    : mappableProps;
 
   function submitFiles(files: readonly File[]): void {
     if (!uploadDisabled && files.length > 0) {
@@ -184,11 +196,33 @@ export function MappingEditorView(props: MappingEditorViewProps): h.JSX.Element 
         submitFiles(Array.from(event.dataTransfer?.files ?? []));
       }}
     >
-      <div class="mapping-editor-heading-row">
-        <div>
+      <header class="mapping-workbench-header">
+        <div class="mapping-workbench-title">
           <div class="field-label" id="tashil-mapping-heading">Source &amp; prop mappings</div>
           <div class="mapping-help">Upload TypeScript source, then connect code props to Figma properties.</div>
         </div>
+        {document?.sourceSnapshot ? (
+          <div class="mapping-workbench-source">
+            <span class="source-icon" aria-hidden="true">{'</>'}</span>
+            <span>
+              <strong>{document.sourceSnapshot.componentName}</strong>
+              <small class="source-file">{document.sourceSnapshot.fileName}</small>
+            </span>
+          </div>
+        ) : null}
+        {progress ? (
+          <div class="mapping-workbench-progress" aria-label={`${progress.completed} of ${progress.total} values mapped`}>
+            <strong>{progress.completed}/{progress.total}</strong>
+            <span>mapped</span>
+            <span class="mapping-progress-track" aria-hidden="true">
+              <span style={{
+                width: progress.total === 0
+                  ? '100%'
+                  : `${Math.round((progress.completed / progress.total) * 100)}%`,
+              }} />
+            </span>
+          </div>
+        ) : null}
         <label class={uploadDisabled ? 'file-button file-button-disabled' : 'file-button'}>
           {props.sourceUploading ? 'Analyzing…' : document ? 'Replace source' : 'Upload source'}
           <input
@@ -203,21 +237,10 @@ export function MappingEditorView(props: MappingEditorViewProps): h.JSX.Element 
             type="file"
           />
         </label>
-      </div>
+      </header>
 
       {document?.sourceSnapshot ? (
         <Fragment>
-          <div class="source-summary">
-            <span class="source-icon" aria-hidden="true">{'</>'}</span>
-            <span>
-              <strong>{document.sourceSnapshot.fileName}</strong>
-              <small>
-                {document.sourceSnapshot.componentName} · {mappableProps.length} mappable props
-                {progress ? ` · ${progress.completed}/${progress.total} mapped` : ''}
-              </small>
-            </span>
-          </div>
-
           {props.connectionHealth ? (
             <div class={`connection-health connection-health-${props.connectionHealth.status}`}>
               <div class="connection-health-heading">
@@ -257,112 +280,237 @@ export function MappingEditorView(props: MappingEditorViewProps): h.JSX.Element 
             </div>
           ) : null}
 
-          <div class="mapping-column-labels" aria-hidden="true">
-            <span>Code prop</span>
-            <span>Figma property</span>
-          </div>
-          <div class="mapping-rows">
-            {mappableProps.map((sourceProp, index) => {
-              const mapping = document.mappings.find(
-                (candidate) => candidate.sourceProp === sourceProp.name,
-              );
-              const figmaProperty = mapping
-                ? document.figmaSnapshot.properties.find(
-                  (candidate) => candidate.id === mapping.figmaPropertyId,
-                )
-                : undefined;
-              const compatibleProperties = getCompatibleProperties(
-                sourceProp,
-                document.figmaSnapshot.properties,
-              );
-              const kind = getPropertyMappingKind(sourceProp);
-              const previousKind = index > 0
-                ? getPropertyMappingKind(mappableProps[index - 1])
-                : undefined;
-              const sectionLabel = kind !== previousKind
-                ? kind === 'children'
-                  ? 'Content'
-                  : kind === 'instance-swap'
-                    ? 'Slots'
-                    : 'Variants & states'
-                : undefined;
-              const visibilityGuard = getVisibilityGuard(
-                sourceProp,
-                document.figmaSnapshot.properties,
-              );
-
-              return (
-                <Fragment key={sourceProp.name}>
-                  {sectionLabel ? (
-                    <div class="mapping-section-label">{sectionLabel}</div>
-                  ) : null}
-                  <div class="mapping-row">
-                    <div class="mapping-property-row">
-                      <div class="source-prop">
-                        <strong>{sourceProp.name}</strong>
-                        <small>{sourceProp.typeName}</small>
-                        {visibilityGuard ? (
-                          <small class="slot-guard">Visibility: {visibilityGuard}</small>
-                        ) : null}
-                      </div>
-                      <span class="mapping-arrow" aria-hidden="true">›</span>
-                      <label class="select-label">
-                        <span class="visually-hidden">Figma property for {sourceProp.name}</span>
-                        <select
-                          disabled={props.disabled}
-                          onInput={(event) => props.onPropertyChange(
-                            sourceProp.name,
-                            event.currentTarget.value,
-                          )}
-                          value={mapping?.figmaPropertyId ?? ''}
+          <div class="mapping-workbench">
+            <aside class="mapping-workbench-list" aria-label="Code props">
+              <div class="mapping-workbench-list-header">
+                <div>
+                  <strong>Code props</strong>
+                  <span>{mappableProps.length} mappable props</span>
+                </div>
+                <div class="mapping-filter" role="group" aria-label="Filter code props">
+                  <button
+                    aria-pressed={filter === 'all'}
+                    onClick={() => setFilter('all')}
+                    type="button"
+                  >
+                    All
+                  </button>
+                  <button
+                    aria-pressed={filter === 'review'}
+                    onClick={() => setFilter('review')}
+                    type="button"
+                  >
+                    Review
+                  </button>
+                </div>
+              </div>
+              <div class="prop-list">
+                {visibleProps.map((sourceProp, index) => {
+                  const mapping = document.mappings.find(
+                    (candidate) => candidate.sourceProp === sourceProp.name,
+                  );
+                  const compatibleProperties = getCompatibleProperties(
+                    sourceProp,
+                    document.figmaSnapshot.properties,
+                  );
+                  const visibilityGuard = getVisibilityGuard(
+                    sourceProp,
+                    document.figmaSnapshot.properties,
+                  );
+                  const kind = getPropertyMappingKind(sourceProp);
+                  const previousKind = index > 0
+                    ? getPropertyMappingKind(visibleProps[index - 1])
+                    : undefined;
+                  const sectionLabel = kind !== previousKind
+                    ? kind === 'children'
+                      ? 'Content'
+                      : kind === 'instance-swap'
+                        ? 'Slots'
+                        : 'Variants & states'
+                    : undefined;
+                  return (
+                    <Fragment key={sourceProp.name}>
+                      {sectionLabel ? (
+                        <div class="mapping-section-label">{sectionLabel}</div>
+                      ) : null}
+                      <div class="prop-row">
+                        <button
+                          aria-expanded={sourceProp.name === focusedProp?.name}
+                          class="prop-head"
+                          onClick={() => setActivePropName(sourceProp.name)}
+                          type="button"
                         >
-                          <option value="">Not mapped</option>
-                          {compatibleProperties.map((property) => (
-                            <option key={property.id} value={property.id}>{property.name}</option>
-                          ))}
-                        </select>
-                      </label>
-                    </div>
+                          <span class="dot-status" data-state={mapping ? 'done' : 'todo'} />
+                          <span class="prop-name">
+                            <b>{sourceProp.name}</b>
+                            <code class="prop-type">{sourceProp.typeName}</code>
+                            {visibilityGuard ? (
+                              <small class="slot-guard">Visibility: {visibilityGuard}</small>
+                            ) : null}
+                          </span>
+                          <span class="prop-current">
+                            {mapping
+                              ? document.figmaSnapshot.properties.find(
+                                (property) => property.id === mapping.figmaPropertyId,
+                              )?.name ?? 'mapped'
+                              : 'not mapped'}
+                          </span>
+                          <span class="prop-caret" aria-hidden="true">›</span>
+                        </button>
+                        <label class="visually-hidden">
+                          Figma property for {sourceProp.name}
+                          <select
+                            disabled={props.disabled}
+                            onInput={(event) => props.onPropertyChange(
+                              sourceProp.name,
+                              event.currentTarget.value,
+                            )}
+                            value={mapping?.figmaPropertyId ?? ''}
+                          >
+                            <option value="">Not mapped</option>
+                            {compatibleProperties.map((property) => (
+                              <option key={property.id} value={property.id}>{property.name}</option>
+                            ))}
+                          </select>
+                        </label>
+                      </div>
+                    </Fragment>
+                  );
+                })}
+                {visibleProps.length === 0 ? (
+                  <div class="mapping-list-empty">Everything is mapped.</div>
+                ) : null}
+              </div>
+            </aside>
 
+            <main class="mapping-workbench-inspector">
+              {focusedProp ? (() => {
+                const mapping = document.mappings.find(
+                  (candidate) => candidate.sourceProp === focusedProp.name,
+                );
+                const figmaProperty = mapping
+                  ? document.figmaSnapshot.properties.find(
+                    (candidate) => candidate.id === mapping.figmaPropertyId,
+                  )
+                  : undefined;
+                const compatibleProperties = getCompatibleProperties(
+                  focusedProp,
+                  document.figmaSnapshot.properties,
+                );
+                const kind = getPropertyMappingKind(focusedProp);
+                const visibilityGuard = getVisibilityGuard(
+                  focusedProp,
+                  document.figmaSnapshot.properties,
+                );
+
+                return (
+                  <section class="prop-inspector">
+                    <div class="prop-inspector-heading">
+                      <div>
+                        <span class="mapping-inspector-label">Focused code prop</span>
+                        <h3>{focusedProp.name}</h3>
+                      </div>
+                      <code class="prop-type">{focusedProp.typeName}</code>
+                    </div>
+                    {visibilityGuard ? (
+                      <div class="mapping-help">Visibility guard: {visibilityGuard}</div>
+                    ) : null}
+                    <div class="mapping-mode-group" role="radiogroup" aria-label={`Source mode for ${focusedProp.name}`}>
+                      <button
+                        aria-checked={Boolean(mapping)}
+                        disabled={props.disabled || compatibleProperties.length === 0}
+                        onClick={() => props.onPropertyChange(
+                          focusedProp.name,
+                          mapping?.figmaPropertyId ?? compatibleProperties[0]?.id ?? '',
+                        )}
+                        role="radio"
+                        type="button"
+                      >
+                        Figma
+                      </button>
+                      <button
+                        aria-checked={!mapping}
+                        disabled={props.disabled}
+                        onClick={() => props.onPropertyChange(focusedProp.name, '')}
+                        role="radio"
+                        type="button"
+                      >
+                        Omit
+                      </button>
+                    </div>
+                    <div class="mapping-inspector-section">
+                      <div class="mapping-inspector-label">Figma candidates</div>
+                      <div class="choice-list" role="radiogroup" aria-label={`Figma candidates for ${focusedProp.name}`}>
+                        {compatibleProperties.length === 0 ? (
+                          <p class="choice-none">No compatible Figma property was found.</p>
+                        ) : compatibleProperties.map((property) => (
+                          <button
+                            aria-checked={mapping?.figmaPropertyId === property.id}
+                            class="choice"
+                            data-on={mapping?.figmaPropertyId === property.id ? 'true' : undefined}
+                            disabled={props.disabled}
+                            key={property.id}
+                            onClick={() => props.onPropertyChange(focusedProp.name, property.id)}
+                            role="radio"
+                            type="button"
+                          >
+                            <span class="choice-dot" aria-hidden="true" />
+                            <span class="choice-label">{property.name}</span>
+                            <span class="choice-detail">{property.type.toLowerCase()}</span>
+                          </button>
+                        ))}
+                      </div>
+                    </div>
                     {mapping && figmaProperty && kind === 'property'
-                    && getSourceValues(sourceProp).length > 0 ? (
-                      <div class="value-mapping-list">
-                        {getSourceValues(sourceProp).map((sourceValue) => {
-                          const valueMapping = mapping.values.find(
-                            (candidate) => candidate.sourceValue === sourceValue,
-                          );
-                          return (
-                            <div class="value-mapping-row" key={`${sourceProp.name}-${String(sourceValue)}`}>
-                              <code>{displaySourceValue(sourceValue)}</code>
-                              <span aria-hidden="true">→</span>
-                              <label class="select-label">
-                                <span class="visually-hidden">
-                                  Figma value for {sourceProp.name} {displaySourceValue(sourceValue)}
-                                </span>
-                                <select
-                                  disabled={props.disabled}
-                                  onInput={(event) => props.onValueChange(
-                                    sourceProp.name,
-                                    sourceValue,
-                                    event.currentTarget.value,
-                                  )}
-                                  value={valueMapping?.figmaValue ?? ''}
-                                >
-                                  <option value="">Not mapped</option>
-                                  {figmaProperty.options.map((option) => (
-                                    <option key={option} value={option}>{option}</option>
-                                  ))}
-                                </select>
-                              </label>
-                            </div>
-                          );
-                        })}
+                    && getSourceValues(focusedProp).length > 0 ? (
+                      <div class="mapping-inspector-section">
+                        <div class="mapping-inspector-label">Value alignment</div>
+                        <div class="value-mapping-list">
+                          {getSourceValues(focusedProp).map((sourceValue) => {
+                            const valueMapping = mapping.values.find(
+                              (candidate) => candidate.sourceValue === sourceValue,
+                            );
+                            return (
+                              <div class="value-mapping-row" key={`${focusedProp.name}-${String(sourceValue)}`}>
+                                <code>{displaySourceValue(sourceValue)}</code>
+                                <span aria-hidden="true">→</span>
+                                <label class="select-label">
+                                  <span class="visually-hidden">
+                                    Figma value for {focusedProp.name} {displaySourceValue(sourceValue)}
+                                  </span>
+                                  <select
+                                    disabled={props.disabled}
+                                    onInput={(event) => props.onValueChange(
+                                      focusedProp.name,
+                                      sourceValue,
+                                      event.currentTarget.value,
+                                    )}
+                                    value={valueMapping?.figmaValue ?? ''}
+                                  >
+                                    <option value="">Not mapped</option>
+                                    {figmaProperty.options.map((option) => (
+                                      <option key={option} value={option}>{option}</option>
+                                    ))}
+                                  </select>
+                                </label>
+                              </div>
+                            );
+                          })}
+                        </div>
                       </div>
                     ) : null}
-                  </div>
-                </Fragment>
-              );
-            })}
+                    <section class="mapping-preview">
+                      <div class="mapping-inspector-label">Live mapping preview</div>
+                      <pre aria-label="Generated prop mappings JSON" class="generated-json-preview">
+                        {props.propMappings || '{}'}
+                      </pre>
+                    </section>
+                  </section>
+                );
+              })() : (
+                <div class="mapping-list-empty">No mappable code props were found.</div>
+              )}
+            </main>
           </div>
         </Fragment>
       ) : (
@@ -407,12 +555,6 @@ export function MappingEditorView(props: MappingEditorViewProps): h.JSX.Element 
                 {props.customPropMappingsError}
               </div>
             ) : null}
-          </details>
-          <details class="advanced-mappings">
-            <summary>Generated JSON preview</summary>
-            <pre aria-label="Generated prop mappings JSON" class="generated-json-preview">
-              {props.propMappings || '{}'}
-            </pre>
           </details>
         </Fragment>
       ) : (

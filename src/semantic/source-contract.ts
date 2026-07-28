@@ -12,7 +12,11 @@
 
 import * as ts from 'typescript';
 import type { SourcePropValue } from '../types';
-import { createSourceContentHash, type SourceFileInput } from '../source-schema';
+import {
+  createSourceContentHash,
+  selectSourcePropsInterface,
+  type SourceFileInput,
+} from '../source-schema';
 import { SEMANTIC_LIMITS } from './types';
 
 export type SourceTargetKind =
@@ -99,25 +103,13 @@ export function extractSourceContract(
   const exactMatch = expectedInterfaceName
     ? candidates.find(({ declaration }) => declaration.name.text === expectedInterfaceName)
     : undefined;
-  // Fall back to the only prop interface in the upload; see the matching note
-  // in `parseSourceComponent`. Both parsers must agree on which interface an
-  // upload describes, or the visual and semantic editors would disagree.
-  const selected = exactMatch ?? (candidates.length === 1 ? candidates[0] : undefined);
+  // Keep this selection aligned with `parseSourceComponent` so the visual and
+  // semantic editors always describe the same interface.
+  const selected = exactMatch ?? selectSourcePropsInterface(candidates, requestedComponentName);
 
   if (!selected) {
-    const found = candidates.map(({ declaration }) => declaration.name.text);
-
-    if (found.length === 0) {
-      return {
-        message: 'Could not find an interface whose name ends with Props.',
-        ok: false,
-      };
-    }
-
     return {
-      message: expectedInterfaceName
-        ? `Could not find an interface named ${expectedInterfaceName}. Found: ${found.join(', ')}. Set Component name to the one you want.`
-        : `Multiple prop interfaces were found: ${found.join(', ')}. Choose the component explicitly.`,
+      message: 'Could not find an interface whose name ends with Props.',
       ok: false,
     };
   }

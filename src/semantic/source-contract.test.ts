@@ -139,19 +139,21 @@ export interface WidgetProps {
     }
   });
 
-  it('lists the interfaces it found when the requested one is ambiguous', () => {
+  it('prefers the interface whose name contains the requested component name', () => {
     const result = extractSourceContract(
       [{
         fileName: 'types.ts',
-        contents: 'interface InfoModalProps { a?: string } interface StyleProps { b?: string }',
+        contents: 'interface StyleProps { b?: string } interface InfoModalProps { a?: string } interface DesktopHeaderProps { compact?: boolean }',
       }],
-      'Dialogbox',
+      'Modal',
     );
 
-    expect(result).toEqual(expect.objectContaining({
-      message: expect.stringContaining('InfoModalProps, StyleProps'),
-      ok: false,
-    }));
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.contract.componentName).toBe('InfoModal');
+      expect(result.contract.targets.map((target) => target.path.join('.'))).toEqual(['a']);
+      expect(result.warnings.join(' ')).toMatch(/InfoModalProps.*ModalProps/);
+    }
   });
 
   it('rejects files without a Props interface', () => {

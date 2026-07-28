@@ -31,6 +31,56 @@ type ResolvedType = {
 
 const UNSUPPORTED_STANDARD_PROPS = new Set(['className', 'id', 'key', 'ref', 'style']);
 
+type PropsInterfaceCandidate<TFile> = {
+  declaration: ts.InterfaceDeclaration;
+  file: TFile;
+};
+
+/**
+ * Pick the most likely public props interface without requiring the Figma and
+ * code component names to be identical. Name affinity wins; otherwise exported
+ * and more substantial interfaces are preferred, with source order as the
+ * stable tie-breaker.
+ */
+export function selectSourcePropsInterface<TFile>(
+  candidates: readonly PropsInterfaceCandidate<TFile>[],
+  requestedComponentName?: string,
+): PropsInterfaceCandidate<TFile> | undefined {
+  const requested = requestedComponentName?.trim().replace(/Props$/i, '').toLowerCase();
+
+  return candidates
+    .map((candidate, index) => {
+      const baseName = candidate.declaration.name.text.replace(/Props$/i, '').toLowerCase();
+      let nameScore = 0;
+
+      if (requested) {
+        if (baseName === requested) {
+          nameScore = 10_000;
+        } else if (baseName.endsWith(requested)) {
+          nameScore = 9_000 - (baseName.length - requested.length);
+        } else if (baseName.startsWith(requested)) {
+          nameScore = 8_000 - (baseName.length - requested.length);
+        } else if (baseName.includes(requested)) {
+          nameScore = 7_000 - (baseName.length - requested.length);
+        } else if (requested.includes(baseName)) {
+          nameScore = 6_000 - (requested.length - baseName.length);
+        }
+      }
+
+      const isExported = candidate.declaration.modifiers?.some(
+        ({ kind }) => kind === ts.SyntaxKind.ExportKeyword,
+      ) ?? false;
+
+      return {
+        candidate,
+        index,
+        score: nameScore + (isExported ? 100 : 0) + candidate.declaration.members.length,
+      };
+    })
+    .sort((left, right) => right.score - left.score || left.index - right.index)[0]
+    ?.candidate;
+}
+
 /** Parse local TS/TSX files without executing or persisting their contents. */
 export function parseSourceComponent(
   files: readonly SourceFileInput[],
@@ -71,26 +121,13 @@ export function parseSourceComponent(
   const exactMatch = expectedInterfaceName
     ? candidates.find(({ declaration }) => declaration.name.text === expectedInterfaceName)
     : undefined;
-  // Fall back to the only prop interface in the upload. A Figma component name
-  // legitimately differs from its code component name (e.g. a `Dialogbox`
-  // component implemented by `InfoModalProps`), so an exact-name miss must not
-  // dead-end when the intended interface is unambiguous.
-  const selected = exactMatch ?? (candidates.length === 1 ? candidates[0] : undefined);
+  // A Figma component name can legitimately differ from its code component
+  // name, so an exact-name miss must not block source upload.
+  const selected = exactMatch ?? selectSourcePropsInterface(candidates, requestedComponentName);
 
   if (!selected) {
-    const found = candidates.map(({ declaration }) => declaration.name.text);
-
-    if (found.length === 0) {
-      return {
-        message: 'Could not find an interface whose name ends with Props.',
-        ok: false,
-      };
-    }
-
     return {
-      message: expectedInterfaceName
-        ? `Could not find an interface named ${expectedInterfaceName}. Found: ${found.join(', ')}. Set Component name to the one you want.`
-        : `Multiple prop interfaces were found: ${found.join(', ')}. Choose the component explicitly.`,
+      message: 'Could not find an interface whose name ends with Props.',
       ok: false,
     };
   }
