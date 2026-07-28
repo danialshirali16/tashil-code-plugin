@@ -26,6 +26,7 @@ import type {
   LayoutTokenField,
   SizingMode,
 } from './types';
+import { normalizeCssValue } from '../css-values';
 
 type VariableAliasLike = { id: string };
 type VariableLike = { id: string; name: string };
@@ -114,6 +115,8 @@ class ClassNameRegistry {
 export type ExtractLayoutOptions = GenerationLimits & {
   context?: GenerationContext;
   loadVariable?: VariableLoader;
+  /** Public component name to use when the selected layer is one variant. */
+  rootName?: string;
 };
 
 export async function extractLayout(
@@ -128,6 +131,7 @@ export async function extractLayout(
   );
   const diagnostics: LayoutDiagnostic[] = [];
   const classNames = new ClassNameRegistry();
+  const rootName = options.rootName?.trim() || root.name;
   const composition = await traverseRoot(
     root,
     context,
@@ -135,6 +139,7 @@ export async function extractLayout(
     diagnostics,
     classNames,
     tokens,
+    rootName,
   );
 
   if (traversal.isLimitReached) {
@@ -160,13 +165,13 @@ export async function extractLayout(
       reason: 'root-fixed-size-omitted',
       message: 'The selected frame width was omitted so the generated layout can remain responsive.',
       nodeId: root.id,
-      layerPath: [root.name],
+      layerPath: [rootName],
     });
   }
 
   return {
     root: composition,
-    name: root.name,
+    name: rootName,
     diagnostics,
   };
 }
@@ -178,9 +183,10 @@ async function traverseRoot(
   diagnostics: LayoutDiagnostic[],
   classNames: ClassNameRegistry,
   tokens: StructuralTokenResolver,
+  rootName: string,
 ): Promise<CompositionNode> {
   traversal.visit();
-  const path = [root.name];
+  const path = [rootName];
 
   if (root.type === 'TEXT') {
     return resolveTextNode(root, path, classNames, diagnostics, false, tokens);
@@ -197,6 +203,7 @@ async function traverseRoot(
       0,
       true,
       false,
+      rootName,
     );
   }
   if (root.type === 'LINE') {
@@ -240,8 +247,9 @@ async function resolveContainer(
   depth: number,
   isRoot = false,
   parentIsFreeform = false,
+  nameOverride?: string,
 ): Promise<ContainerCompositionNode> {
-  const className = classNames.assign(node.id, node.name);
+  const className = classNames.assign(node.id, nameOverride ?? node.name);
   const layout = await layoutStyle(node, diagnostics, layerPath, tokens);
   const childStyle = isRoot
     ? undefined
@@ -346,6 +354,8 @@ async function traverseChild(
       layerPath,
       tokens,
       parentIsFreeform,
+      traversal,
+      depth,
     );
   }
   if (child.type === 'TEXT') {
@@ -410,9 +420,33 @@ async function resolveInstanceNode(
   layerPath: string[],
   tokens: StructuralTokenResolver,
   parentIsFreeform = false,
+  traversal?: GenerationTraversal,
+  depth = 0,
 ): Promise<CompositionNode> {
   const resolved = await resolveInstance(instance, context);
   if (resolved.kind === 'placeholder') {
+    const source = instance as unknown as LayoutSourceNode;
+    if (
+      resolved.node.reason === 'unconnected-instance'
+      && traversal
+      && (source.children?.length ?? 0) > 0
+    ) {
+      // Preserve the component boundary as UI metadata even though its visible
+      // children are expanded into the generated Frame structure.
+      diagnostics.push({ ...resolved.diagnostic, layerPath });
+      return resolveContainer(
+        source,
+        context,
+        traversal,
+        diagnostics,
+        classNames,
+        layerPath,
+        tokens,
+        depth,
+        false,
+        parentIsFreeform,
+      );
+    }
     diagnostics.push({ ...resolved.diagnostic, layerPath });
     return { ...resolved.node, layerPath };
   }
@@ -630,7 +664,7 @@ async function readCssDeclarations(
       .filter(([property, value]) => property.trim() !== '' && value.trim() !== '')
       .map(([property, value]) => ({
         property,
-        value,
+        value: normalizeCssValue(value),
         source: 'figma-css' as const,
       }));
   } catch (_error) {

@@ -18,6 +18,10 @@ import {
   supportsReactLayout,
 } from './layout/react-layout';
 import type { ReactLayoutResult } from './layout/types';
+import {
+  generateVariantLogic,
+  type VariantLogicResult,
+} from './layout/variant-logic';
 import { createSemanticNodeTree } from './semantic/figma-adapter';
 import { extractFigmaSemanticSnapshot } from './semantic/figma-extractor';
 import type { FigmaSemanticSnapshot } from './semantic/types';
@@ -185,7 +189,11 @@ async function generateCodegenBlocks(node: SceneNode): Promise<CodegenBlock[]> {
     if (selection) {
       const connection = readConnectionMetadata(selection.mainComponent);
       if (!connection.ok && !connection.issue && supportsReactLayout(node)) {
-        return generateLayoutAndInspectionBlocks(node);
+        return generateLayoutAndInspectionBlocks(
+          node,
+          createSelectionVariantLogic(selection),
+          createSelectionLayoutName(selection),
+        );
       }
       return generateComponentCodegenBlocks(selection, node, connection);
     }
@@ -207,18 +215,27 @@ async function generateCodegenBlocks(node: SceneNode): Promise<CodegenBlock[]> {
 
 async function generateLayoutAndInspectionBlocks(
   node: SceneNode,
+  variantLogic?: VariantLogicResult,
+  rootName?: string,
 ): Promise<CodegenBlock[]> {
   const context = new GenerationContext();
   const [layoutResult, inspectionResult] = await Promise.allSettled([
     generateReactLayout(
       node as unknown as LayoutSourceNode,
-      { context },
+      { context, rootName },
     ),
     inspectSceneNode(node, context),
   ]);
   const blocks: CodegenBlock[] = [];
   if (layoutResult.status === 'fulfilled') {
     blocks.push(...generateReactLayoutBlocks(layoutResult.value));
+    if (variantLogic) {
+      blocks.push({
+        title: 'Variant logic',
+        language: 'TYPESCRIPT',
+        code: variantLogic.code,
+      });
+    }
   } else {
     blocks.push(createPlainTextBlock(
       'React generation notes',
@@ -1655,11 +1672,22 @@ async function createInspectCodeState(
         const [layout, inspection] = await Promise.all([
           generateReactLayout(
             selectedNode as unknown as LayoutSourceNode,
-            { context },
+            {
+              context,
+              rootName: createSelectionLayoutName(selection),
+            },
           ),
           inspectSceneNode(selectedNode, context),
         ]);
-        return { status: 'layout', layout, inspection };
+        return {
+          status: 'layout',
+          ...(isOutsideMainComponent(selectedNode)
+            ? { showUnconnectedComponents: true }
+            : {}),
+          layout,
+          inspection,
+          variantLogic: createSelectionVariantLogic(selection),
+        };
       }
       return { status: 'not-connected' };
     }
@@ -1686,6 +1714,9 @@ async function createInspectCodeState(
     if (supportsReactLayout(selectedNode)) {
       return {
         status: 'layout',
+        ...(isOutsideMainComponent(selectedNode)
+          ? { showUnconnectedComponents: true }
+          : {}),
         layout: await generateReactLayout(
           selectedNode as unknown as LayoutSourceNode,
         ),
@@ -1701,6 +1732,50 @@ async function createInspectCodeState(
   }
 
   return { status: 'invalid-selection' };
+}
+
+function isOutsideMainComponent(node: SceneNode): boolean {
+  // A component/component-set is itself a main component, even when the
+  // design file visually groups it inside an ordinary frame.
+  if (node.type === 'COMPONENT' || node.type === 'COMPONENT_SET') {
+    return false;
+  }
+
+  let parent: BaseNode | null = node.parent;
+  while (parent && parent.type !== 'PAGE' && parent.type !== 'DOCUMENT') {
+    // Any selected layer below a main component belongs to that component's
+    // implementation and should receive the full React view without an
+    // unconnected warning.
+    if (parent.type === 'COMPONENT' || parent.type === 'COMPONENT_SET') {
+      return false;
+    }
+    parent = parent.parent;
+  }
+
+  // A generated layout outside a main component is a Frame structure. Its
+  // individual unresolved component instances may be labeled in Inspect Code.
+  return true;
+}
+
+function createSelectionVariantLogic(
+  selection: ResolvedSelection,
+): VariantLogicResult | undefined {
+  if (selection.mainComponent.type !== 'COMPONENT_SET') {
+    return undefined;
+  }
+
+  return generateVariantLogic(
+    selection.mainComponent,
+    selection.componentProperties,
+  );
+}
+
+function createSelectionLayoutName(
+  selection: ResolvedSelection,
+): string | undefined {
+  return selection.mainComponent.type === 'COMPONENT_SET'
+    ? selection.mainComponent.name
+    : undefined;
 }
 
 async function createCanvasTargetState(

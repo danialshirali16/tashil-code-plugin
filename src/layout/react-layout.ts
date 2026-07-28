@@ -31,7 +31,7 @@ export async function generateReactLayout(
 
   return {
     ...generated,
-    nodeName: node.name,
+    nodeName: options.rootName?.trim() || node.name,
     nodeType: node.type,
   };
 }

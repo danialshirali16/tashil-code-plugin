@@ -200,6 +200,39 @@ describe('getNodeCss', () => {
     ]);
   });
 
+  it('normalizes bare design-token paths into valid CSS variables', async () => {
+    const node: CssSourceNode = {
+      ...baseNode,
+      getCSSAsync: async () => ({
+        gap: 'spacing.0',
+        padding: 'spacing.6 spacing.12',
+        'border-radius': 'radius.4',
+        background: 'colors.bg.primary.default',
+        'font-family': 'fontFamily',
+        'font-size': 'fontSize.body.sm',
+        'font-weight': 'fontWeight.500',
+        'line-height': 'lineHeight.body.sm /* 166.667% */',
+        'letter-spacing': 'letterSpacing.body.small',
+      }),
+    };
+
+    const result = await getNodeCss(node);
+
+    expect(result.css.layout).toEqual([
+      decl('gap', 'var(--spacing-0)'),
+      decl('padding', 'var(--spacing-6) var(--spacing-12)'),
+    ]);
+    expect(result.css.style).toEqual([
+      decl('border-radius', 'var(--radius-4)'),
+      decl('background', 'var(--colors-bg-primary-default)'),
+      decl('font-family', 'var(--font-family)'),
+      decl('font-size', 'var(--font-size-body-sm)'),
+      decl('font-weight', 'var(--font-weight-500)'),
+      decl('line-height', 'var(--line-height-body-sm) /* 166.667% */'),
+      decl('letter-spacing', 'var(--letter-spacing-body-small)'),
+    ]);
+  });
+
   it('degrades to a css-unavailable diagnostic when getCSSAsync is missing', async () => {
     const result = await getNodeCss({ ...baseNode });
 

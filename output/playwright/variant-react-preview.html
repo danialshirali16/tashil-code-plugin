@@ -1,0 +1,192 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Variant React generation preview</title>
+  <style>
+    :root {
+      color-scheme: light;
+      font-family: Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      color: #242424;
+      background: #e9e9eb;
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; min-height: 100vh; display: grid; place-items: center; padding: 36px; }
+    .plugin {
+      width: 460px;
+      overflow: visible;
+      border: 1px solid #c8c8ca;
+      border-radius: 14px;
+      background: #fff;
+      box-shadow: 0 18px 55px rgba(0,0,0,.16);
+    }
+    header {
+      height: 52px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 16px;
+      border-bottom: 1px solid #e5e5e5;
+    }
+    header strong { font-size: 14px; }
+    nav { display: flex; gap: 4px; }
+    nav span {
+      padding: 7px 10px;
+      border-radius: 6px;
+      font-size: 12px;
+      color: #666;
+    }
+    nav .active { color: #111; background: #f0f0f0; font-weight: 600; }
+    main { padding: 14px; }
+    .selection {
+      padding: 14px;
+      border: 1px solid #e2e2e2;
+      border-radius: 10px;
+      background: linear-gradient(145deg, #fafafa, #f3f3f5);
+    }
+    .topline { display: flex; justify-content: space-between; gap: 12px; }
+    .eyebrow { color: #777; text-transform: uppercase; letter-spacing: .08em; font-size: 9px; font-weight: 700; }
+    h1 { margin: 4px 0 12px; font-size: 19px; }
+    .pill { align-self: flex-start; border: 1px solid #cfcfcf; background: #fff; border-radius: 999px; padding: 4px 8px; font-size: 9px; font-weight: 700; }
+    .chips { display: flex; gap: 6px; flex-wrap: wrap; }
+    .chip { background: #e8def8; color: #4f378b; border-radius: 5px; padding: 4px 7px; font-size: 10px; font-weight: 600; }
+    .canvas {
+      margin-top: 10px;
+      min-height: 96px;
+      display: grid;
+      place-items: center;
+      border: 1px dashed #cfcfd2;
+      border-radius: 8px;
+      background:
+        linear-gradient(45deg, #fafafa 25%, transparent 25%) 0 0/16px 16px,
+        linear-gradient(-45deg, #fafafa 25%, transparent 25%) 0 0/16px 16px,
+        #f4f4f5;
+    }
+    .button {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      min-height: 44px;
+      padding: 0 18px;
+      border-radius: 8px;
+      color: white;
+      background: #5b39d6;
+      font-size: 14px;
+      font-weight: 650;
+      box-shadow: 0 2px 4px rgba(91,57,214,.24);
+    }
+    .icon { font-size: 15px; }
+    .card { margin-top: 10px; border: 1px solid #dfdfdf; border-radius: 9px; overflow: hidden; }
+    .card-title {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      height: 37px;
+      padding: 0 11px;
+      border-bottom: 1px solid #e7e7e7;
+      font-size: 11px;
+      font-weight: 700;
+      background: #fafafa;
+    }
+    .copy { color: #6b45e2; font-size: 10px; }
+    pre {
+      margin: 0;
+      padding: 12px;
+      overflow: hidden;
+      background: #fff;
+      color: #2f2f33;
+      font: 10.5px/1.5 "SFMono-Regular", Consolas, monospace;
+      white-space: pre-wrap;
+    }
+    .kw { color: #8d34a8; }
+    .str { color: #b35300; }
+    .type { color: #236eb4; }
+    .prop { color: #3f6f27; }
+    .note {
+      margin-top: 10px;
+      display: flex;
+      gap: 8px;
+      padding: 10px;
+      border-radius: 8px;
+      background: #f0ecff;
+      color: #4e3688;
+      font-size: 10px;
+      line-height: 1.4;
+    }
+  </style>
+</head>
+<body>
+  <section class="plugin" aria-label="Tashil Code variant generation preview">
+    <header>
+      <strong>Tashil Code</strong>
+      <nav><span>Connect</span><span class="active">Inspect Code</span></nav>
+    </header>
+    <main>
+      <section class="selection">
+        <div class="topline">
+          <div>
+            <div class="eyebrow">Generated from variants</div>
+            <h1>Button</h1>
+          </div>
+          <span class="pill">COMPONENT SET</span>
+        </div>
+        <div class="chips">
+          <span class="chip">Size · Large</span>
+          <span class="chip">Style · Primary</span>
+          <span class="chip">State · Default</span>
+          <span class="chip">Icon · Leading</span>
+        </div>
+        <div class="canvas">
+          <div class="button"><span class="icon">＋</span>Create account</div>
+        </div>
+      </section>
+
+      <section class="card">
+        <div class="card-title"><span>Button.tsx</span><span class="copy">Copy React</span></div>
+        <pre><span class="kw">type</span> <span class="type">ButtonProps</span> = {
+  size?: <span class="str">"small"</span> | <span class="str">"medium"</span> | <span class="str">"large"</span>;
+  variant?: <span class="str">"primary"</span> | <span class="str">"secondary"</span>;
+  state?: <span class="str">"default"</span> | <span class="str">"hover"</span> | <span class="str">"disabled"</span>;
+  icon?: <span class="str">"none"</span> | <span class="str">"leading"</span> | <span class="str">"trailing"</span>;
+  children: React.ReactNode;
+};
+
+<span class="kw">export function</span> <span class="type">Button</span>({
+  size = <span class="str">"large"</span>,
+  variant = <span class="str">"primary"</span>,
+  state = <span class="str">"default"</span>,
+  icon = <span class="str">"leading"</span>,
+  children,
+}: <span class="type">ButtonProps</span>) {
+  <span class="kw">return</span> &lt;ButtonRoot <span class="prop">$size</span>={size} <span class="prop">$variant</span>={variant}
+    <span class="prop">disabled</span>={state === <span class="str">"disabled"</span>}&gt;{children}&lt;/ButtonRoot&gt;;
+}</pre>
+      </section>
+
+      <section class="card">
+        <div class="card-title"><span>Layout</span><span class="copy">Copy CSS</span></div>
+        <pre>display: inline-flex;
+align-items: center;
+justify-content: center;
+gap: 8px;
+min-height: 44px;
+padding: 0 18px;</pre>
+      </section>
+
+      <section class="card">
+        <div class="card-title"><span>Style</span><span class="copy">Copy CSS</span></div>
+        <pre>background: var(--color-action-primary);
+color: var(--color-on-action);
+border-radius: 8px;</pre>
+      </section>
+
+      <div class="note">
+        <strong>↳</strong>
+        <span>Variant axes become typed React props. The selected variant supplies defaults and the visual preview.</span>
+      </div>
+    </main>
+  </section>
+</body>
+</html>

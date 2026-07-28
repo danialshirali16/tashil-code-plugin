@@ -13,6 +13,7 @@ export const CONNECTION_KEY = 'connection';
 
 import type { FrameInspection } from './inspect/types';
 import type { ReactLayoutResult } from './layout/types';
+import type { VariantLogicResult } from './layout/variant-logic';
 import type { FigmaSemanticSnapshot, SemanticConnectionRecipe } from './semantic/types';
 
 export type PropMapping = {
@@ -219,7 +220,13 @@ export type InspectCodeState =
   | { status: 'not-connected' }
   | { status: 'connection-issue'; message: string; connectionIssue: ConnectionIssue }
   | { status: 'connected'; output: InspectCodeComponentOutput }
-  | { status: 'layout'; layout: ReactLayoutResult; inspection?: FrameInspection }
+  | {
+      status: 'layout';
+      layout: ReactLayoutResult;
+      inspection?: FrameInspection;
+      showUnconnectedComponents?: boolean;
+      variantLogic?: VariantLogicResult;
+    }
   | { status: 'inspection'; inspection: FrameInspection };
 
 export type OpenExternalHandler = {
