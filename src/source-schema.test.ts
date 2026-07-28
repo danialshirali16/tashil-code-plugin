@@ -81,16 +81,16 @@ describe('source schema', () => {
       .toBe('unsupported');
   });
 
-  it('requires an explicit component when multiple prop interfaces exist', () => {
+  it('selects a stable best candidate when multiple prop interfaces exist', () => {
     const result = parseSourceComponent([{
       fileName: 'types.ts',
       contents: 'interface ButtonProps { disabled?: boolean } interface LinkProps { href: string }',
     }]);
 
-    expect(result).toEqual(expect.objectContaining({
-      message: expect.stringMatching(/multiple prop interfaces/i),
-      ok: false,
-    }));
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.snapshot.componentName).toBe('Button');
+    }
   });
 
   it('uses the only prop interface when the Figma name differs from the code name', () => {
@@ -108,19 +108,20 @@ describe('source schema', () => {
     }
   });
 
-  it('lists the interfaces it found when the requested one is ambiguous', () => {
+  it('prefers the interface whose name contains the requested component name', () => {
     const result = parseSourceComponent(
       [{
         fileName: 'types.ts',
-        contents: 'interface InfoModalProps { a?: string } interface StyleProps { b?: string }',
+        contents: 'interface StyleProps { b?: string } interface InfoModalProps { a?: string } interface DesktopHeaderProps { compact?: boolean }',
       }],
-      'Dialogbox',
+      'Modal',
     );
 
-    expect(result).toEqual(expect.objectContaining({
-      message: expect.stringContaining('InfoModalProps, StyleProps'),
-      ok: false,
-    }));
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.snapshot.componentName).toBe('InfoModal');
+      expect(result.warnings.join(' ')).toMatch(/InfoModalProps.*ModalProps/);
+    }
   });
 
   it('creates stable hashes independent of file input order', () => {

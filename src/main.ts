@@ -118,7 +118,7 @@ export default function (): void {
     return;
   }
 
-  showUI({ width: 480, height: 589 });
+  showUI({ width: 880, height: 680 });
 
   on<SaveConnectionHandler>('SAVE_CONNECTION', (payload) => {
     void saveConnection(payload.metadata, payload.targetToken, payload.operationId);

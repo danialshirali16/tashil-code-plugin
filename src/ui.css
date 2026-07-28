@@ -2284,9 +2284,10 @@ body {
   border-radius: 7px;
   color: var(--figma-color-text);
   cursor: pointer;
-  display: flex;
+  display: grid;
   font: inherit;
   gap: 9px;
+  grid-template-columns: auto minmax(0, 1fr) auto;
   padding: 8px 10px;
   text-align: left;
   width: 100%;
@@ -2308,12 +2309,15 @@ body {
 .choice:disabled { cursor: default; opacity: 0.5; }
 
 .choice-dot {
+  align-items: center;
   border: 1.5px solid var(--figma-color-text-tertiary, #7d7d7d);
   border-radius: 50%;
+  box-sizing: border-box;
+  display: inline-flex;
   flex: none;
-  height: 13px;
-  position: relative;
-  width: 13px;
+  height: 16px;
+  justify-content: center;
+  width: 16px;
 }
 
 .choice[data-on='true'] .choice-dot {
@@ -2324,11 +2328,14 @@ body {
   background: var(--figma-color-bg-brand, #0d99ff);
   border-radius: 50%;
   content: '';
-  height: 7px;
-  left: 2px;
-  position: absolute;
-  top: 2px;
-  width: 7px;
+  height: 8px;
+  width: 8px;
+}
+
+.choice-copy {
+  display: grid;
+  gap: 1px;
+  min-width: 0;
 }
 
 .choice-label {
@@ -2341,9 +2348,8 @@ body {
 .choice-detail {
   color: var(--figma-color-text-tertiary, var(--figma-color-text-secondary));
   font-size: 11px;
-  margin-left: auto;
+  line-height: 14px;
   overflow: hidden;
-  padding-left: 8px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -2404,4 +2410,490 @@ body {
   .value-mapping-row { grid-template-columns: 1fr 12px 1fr; }
 
   .mapping-card-footer { flex-wrap: wrap; }
+}
+
+/* ---- Source-and-design mapping workbench ---------------------------------
+   The approved wide layout keeps navigation and editing visible together:
+   code props are a stable queue on the left, while the focused decision,
+   value alignment, and generated result stay on the right. */
+.mapping-editor {
+  gap: 0;
+  overflow: hidden;
+  padding: 0;
+}
+
+.mapping-workbench-header {
+  align-items: center;
+  display: grid;
+  gap: 16px;
+  grid-template-columns: minmax(180px, 1fr) minmax(150px, auto) auto auto;
+  min-height: 64px;
+  padding: 12px 14px;
+}
+
+.mapping-workbench-header-semantic {
+  align-items: stretch;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-height: 0;
+}
+
+.mapping-header-source-row,
+.mapping-header-summary-row {
+  align-items: center;
+  display: flex;
+  gap: 12px;
+  justify-content: space-between;
+  min-width: 0;
+}
+
+.mapping-header-source-row {
+  border-bottom: 1px solid var(--figma-color-border);
+  padding-bottom: 10px;
+}
+
+.mapping-header-summary-row {
+  align-items: end;
+}
+
+.mapping-header-summary-row .mapping-workbench-title {
+  flex: 1;
+}
+
+.mapping-header-source-row .mapping-workbench-source > span:last-child {
+  display: grid;
+}
+
+.mapping-header-source-row .mapping-workbench-source strong,
+.mapping-header-source-row .mapping-workbench-source small {
+  max-width: 220px;
+}
+
+.mapping-workbench-title {
+  min-width: 0;
+}
+
+.mapping-workbench-source {
+  align-items: center;
+  display: flex;
+  gap: 8px;
+  min-width: 0;
+}
+
+.mapping-workbench-source > span:last-child {
+  display: grid;
+  min-width: 0;
+}
+
+.mapping-workbench-source strong,
+.mapping-workbench-source small {
+  font-size: 10px;
+  line-height: 14px;
+  max-width: 190px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mapping-workbench-source strong {
+  color: var(--figma-color-text);
+  font-size: 11px;
+}
+
+.mapping-workbench-progress {
+  align-items: baseline;
+  display: grid;
+  font-size: 10px;
+  gap: 1px 5px;
+  grid-template-columns: auto auto;
+  min-width: 76px;
+}
+
+.mapping-workbench-progress strong {
+  color: var(--figma-color-text);
+  font-size: 11px;
+}
+
+.mapping-workbench-progress > span:not(.mapping-progress-track) {
+  color: var(--figma-color-text-secondary);
+}
+
+.mapping-progress-track {
+  background: var(--figma-color-bg-secondary);
+  border-radius: 2px;
+  grid-column: 1 / -1;
+  height: 3px;
+  overflow: hidden;
+}
+
+.mapping-progress-track > span {
+  background: var(--figma-color-bg-brand, #0d99ff);
+  display: block;
+  height: 100%;
+}
+
+.mapping-workbench-notices {
+  display: grid;
+  gap: 8px;
+  padding: 0 14px 10px;
+}
+
+.mapping-workbench-notices:empty {
+  display: none;
+}
+
+.mapping-workbench-notices .coverage {
+  border-top: 0;
+  padding: 0;
+}
+
+.mapping-workbench {
+  border-top: 1px solid var(--figma-color-border);
+  display: grid;
+  grid-template-columns: minmax(230px, 31%) minmax(0, 1fr);
+  min-height: 430px;
+}
+
+.mapping-workbench-list {
+  background: var(--figma-color-bg-secondary);
+  border-right: 1px solid var(--figma-color-border);
+  min-width: 0;
+}
+
+.mapping-workbench-list-header {
+  align-items: center;
+  border-bottom: 1px solid var(--figma-color-border);
+  display: flex;
+  gap: 10px;
+  justify-content: space-between;
+  min-height: 47px;
+  padding: 8px 10px;
+}
+
+.mapping-workbench-list-header > div:first-child {
+  display: grid;
+  min-width: 0;
+}
+
+.mapping-workbench-list-header strong {
+  color: var(--figma-color-text);
+  font-size: 11px;
+  line-height: 16px;
+}
+
+.mapping-workbench-list-header span {
+  color: var(--figma-color-text-secondary);
+  font-size: 10px;
+  line-height: 14px;
+}
+
+.mapping-filter {
+  background: var(--figma-color-bg);
+  border: 1px solid var(--figma-color-border);
+  border-radius: 5px;
+  display: flex;
+  padding: 1px;
+}
+
+.mapping-filter button {
+  background: transparent;
+  border: 0;
+  border-radius: 3px;
+  color: var(--figma-color-text-secondary);
+  cursor: pointer;
+  font: inherit;
+  font-size: 10px;
+  min-height: 22px;
+  padding: 0 6px;
+}
+
+.mapping-filter button[aria-pressed='true'] {
+  background: var(--figma-color-bg-secondary);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.12);
+  color: var(--figma-color-text);
+  font-weight: 600;
+}
+
+.mapping-filter button:focus-visible {
+  outline: 2px solid var(--figma-color-border-brand-strong, #0d99ff);
+  outline-offset: 1px;
+}
+
+.mapping-workbench-list .prop-list {
+  border-top: 0;
+  max-height: 560px;
+  overflow-y: auto;
+}
+
+.mapping-workbench-list .mapping-section-label {
+  background: var(--figma-color-bg-secondary);
+  border-top: 0;
+  color: var(--figma-color-text-tertiary, var(--figma-color-text-secondary));
+  padding: 6px 10px 4px;
+}
+
+.mapping-workbench-list .prop-row {
+  background: var(--figma-color-bg);
+}
+
+.mapping-workbench-list .prop-head {
+  gap: 7px;
+  grid-template-columns: 16px minmax(0, 1fr) minmax(62px, auto) 8px;
+  padding: 9px 10px;
+}
+
+.mapping-workbench-list .prop-head[aria-expanded='true'] {
+  background: var(--figma-color-bg-brand-tertiary, rgba(13, 153, 255, 0.1));
+  box-shadow: inset 3px 0 0 var(--figma-color-bg-brand, #0d99ff);
+}
+
+.mapping-workbench-list .prop-name {
+  align-items: flex-start;
+  display: grid;
+  gap: 2px;
+}
+
+.mapping-workbench-list .prop-type {
+  justify-self: start;
+  max-width: 100%;
+  width: auto;
+}
+
+.mapping-workbench-list .prop-current {
+  display: block;
+  font-size: 10px;
+  max-width: 110px;
+  text-align: right;
+}
+
+.mapping-workbench-list .prop-caret {
+  font-size: 15px;
+  text-align: right;
+}
+
+.mapping-workbench-inspector {
+  align-content: start;
+  display: grid;
+  gap: 16px;
+  grid-auto-rows: max-content;
+  min-width: 0;
+  padding: 18px;
+}
+
+.prop-inspector {
+  align-content: start;
+  display: grid;
+  gap: 16px;
+  grid-auto-rows: max-content;
+}
+
+.prop-inspector-heading {
+  align-items: start;
+  display: flex;
+  gap: 12px;
+  justify-content: space-between;
+}
+
+.prop-inspector-heading h3 {
+  color: var(--figma-color-text);
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 20px;
+  margin: 2px 0 0;
+}
+
+.mapping-inspector-label {
+  color: var(--figma-color-text-tertiary, var(--figma-color-text-secondary));
+  display: block;
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 0.07em;
+  line-height: 14px;
+  text-transform: uppercase;
+}
+
+.mapping-mode-control {
+  min-width: 0;
+}
+
+.mapping-mode-control > div {
+  max-width: 100%;
+  width: max-content;
+}
+
+.mapping-mode-control input {
+  height: 0;
+  min-height: 0;
+  width: 0;
+}
+
+.mapping-mode-option {
+  align-items: center;
+  display: flex;
+  gap: 4px;
+  padding: 4px 8px;
+  white-space: nowrap;
+}
+
+.mapping-mode-option > div,
+.mapping-mode-option svg {
+  height: 16px;
+  width: 16px;
+}
+
+.mapping-candidate-control {
+  min-width: 0;
+}
+
+.mapping-candidate-control > div {
+  width: 100%;
+}
+
+.prop-status-icon {
+  align-items: center;
+  display: flex;
+  height: 16px;
+  justify-content: center;
+  width: 16px;
+}
+
+.prop-status-icon[data-state='done'] {
+  color: var(--figma-color-icon-success, #14ae5c);
+}
+
+.prop-status-icon[data-state='todo'] {
+  color: var(--figma-color-icon-secondary);
+}
+
+.prop-status-icon[data-state='blocked'] {
+  color: var(--figma-color-icon-danger, #f24822);
+}
+
+.prop-status-icon > div,
+.prop-status-icon svg {
+  height: 16px;
+  width: 16px;
+}
+
+.mapping-inspector-section {
+  display: grid;
+  gap: 7px;
+}
+
+.mapping-inspector-section + .mapping-inspector-section {
+  border-top: 1px solid var(--figma-color-border);
+  padding-top: 14px;
+}
+
+.mapping-workbench-inspector .choice-list {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.mapping-workbench-inspector .code-value-choice-list {
+  grid-template-columns: 1fr;
+}
+
+.mapping-workbench-inspector > ul.mapping-help {
+  margin: 0;
+  padding-left: 12px;
+}
+
+.mapping-workbench-inspector .choice-none {
+  grid-column: 1 / -1;
+}
+
+.mapping-workbench-inspector .choice {
+  min-height: 38px;
+}
+
+.mapping-workbench-inspector .value-mapping-list {
+  border: 1px solid var(--figma-color-border);
+  border-radius: 6px;
+  padding: 9px;
+}
+
+.mapping-preview {
+  border-top: 1px solid var(--figma-color-border);
+  display: grid;
+  gap: 7px;
+  padding-top: 14px;
+}
+
+.mapping-preview .generated-json-preview {
+  margin-top: 0;
+  max-height: 180px;
+}
+
+.mapping-list-empty {
+  color: var(--figma-color-text-secondary);
+  font-size: 11px;
+  line-height: 16px;
+  padding: 16px;
+}
+
+.mapping-editor > .connection-health,
+.mapping-editor > .field-error,
+.mapping-editor > .advanced-mappings,
+.mapping-editor > .mapping-card-footer {
+  margin: 10px 14px;
+}
+
+.mapping-editor > .mapping-card-footer {
+  padding-bottom: 2px;
+}
+
+.mapping-editor > .source-empty {
+  margin: 0 14px 14px;
+}
+
+@media (max-width: 800px) {
+  .mapping-workbench-header {
+    gap: 10px;
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .mapping-workbench-source {
+    grid-column: 1;
+  }
+
+  .mapping-workbench-progress {
+    grid-column: 2;
+    grid-row: 2;
+  }
+
+  .mapping-workbench-header .file-button {
+    grid-column: 2;
+    grid-row: 1;
+  }
+
+  .mapping-workbench {
+    grid-template-columns: 1fr;
+  }
+
+  .mapping-workbench-list {
+    border-bottom: 1px solid var(--figma-color-border);
+    border-right: 0;
+  }
+
+  .mapping-workbench-list .prop-list {
+    max-height: 270px;
+  }
+}
+
+@media (max-width: 460px) {
+  .mapping-workbench-inspector {
+    padding: 14px 10px;
+  }
+
+  .mapping-workbench-inspector .choice-list {
+    grid-template-columns: 1fr;
+  }
+
+  .mapping-workbench-list .prop-current {
+    grid-column: auto;
+    max-width: 70px;
+    padding-top: 0;
+  }
 }
