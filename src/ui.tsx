@@ -69,6 +69,7 @@ import { formatCssBlock } from './inspect/css-partition';
 import { formatUsageSnippet } from './inspect/usage-snippet';
 import type { FrameInspection } from './inspect/types';
 import type { ReactLayoutResult } from './layout/types';
+import type { VariantLogicResult } from './layout/variant-logic';
 
 const REFERENCE_ICONS = {
   source: 'data:image/svg+xml;base64,PHN2ZyBwcmVzZXJ2ZUFzcGVjdFJhdGlvPSJub25lIiB3aWR0aD0iMTAwJSIgaGVpZ2h0PSIxMDAlIiBvdmVyZmxvdz0idmlzaWJsZSIgc3R5bGU9ImRpc3BsYXk6IGJsb2NrOyIgdmlld0JveD0iMCAwIDE2IDE2IiBmaWxsPSJub25lIiB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciPgo8ZyBpZD0iR3JvdXAgMSI+CjxwYXRoIGlkPSJWZWN0b3IiIGQ9Ik0wLjMzNDQ5MiA4LjgwNzU1Qy0wLjExMTQ5NyA4LjM2MTU1IC0wLjExMTQ5NyA3LjYzODQ2IDAuMzM0NDkyIDcuMTkyNDZMNy4xOTI0NiAwLjMzNDQ5MkM3LjYzODQ2IC0wLjExMTQ5NyA4LjM2MTU1IC0wLjExMTQ5NyA4LjgwNzU1IDAuMzM0NDkyTDE1LjY2NTUgNy4xOTI0NkMxNi4xMTE1IDcuNjM4NDYgMTYuMTExNSA4LjM2MTU1IDE1LjY2NTUgOC44MDc1NUw4LjgwNzU1IDE1LjY2NTVDOC4zNjE1NSAxNi4xMTE1IDcuNjM4NDYgMTYuMTExNSA3LjE5MjQ2IDE1LjY2NTVMMC4zMzQ0OTIgOC44MDc1NVoiIGZpbGw9IiNFRTUxM0IiLz4KPHBhdGggaWQ9IlZlY3Rvcl8yIiBkPSJNNS43OTk0NCAxLjc0OTQzTDUuMTA0OTggMi40NDM5MUw2Ljg5ODY0IDQuMjM3NTdDNi44MjYwNyA0LjM5MzI0IDYuNzg1NTUgNC41NjY4NiA2Ljc4NTU1IDQuNzQ5OTRDNi43ODU1NSA1LjI2OTcxIDcuMTEyMTIgNS43MTMxOSA3LjU3MTI3IDUuODg2MzlWMTAuMjc0MkM3LjExMjEyIDEwLjQ0NzQgNi43ODU1NSAxMC44OTA5IDYuNzg1NTUgMTEuNDEwNkM2Ljc4NTU1IDEyLjA4MTMgNy4zMjkyMSAxMi42MjQ5IDcuOTk5ODQgMTIuNjI0OUM4LjY3MDQ3IDEyLjYyNDkgOS4yMTQxMyAxMi4wODEzIDkuMjE0MTMgMTEuNDEwNkM5LjIxNDEzIDEwLjkzOTQgOC45NDU3MyAxMC41MzA5IDguNTUzNDQgMTAuMzI5NlY1Ljg5MjM5TDEwLjI2OCA3LjYwNjk3QzEwLjE5OSA3Ljc1OTQ4IDEwLjE2MDYgNy45Mjg4IDEwLjE2MDYgOC4xMDcwOEMxMC4xNjA2IDguNzc3NzEgMTAuNzA0MiA5LjMyMTM3IDExLjM3NDkgOS4zMjEzN0MxMi4wNDU1IDkuMzIxMzcgMTIuNTg5MiA4Ljc3NzcxIDEyLjU4OTIgOC4xMDcwOEMxMi41ODkyIDcuNDM2NDUgMTIuMDQ1NSA2Ljg5Mjc5IDExLjM3NDkgNi44OTI3OUMxMS4yNDQ1IDYuODkyNzkgMTEuMTE5IDYuOTEzMzEgMTEuMDAxMyA2Ljk1MTMxTDkuMTU5OSA1LjEwOTg4QzkuMTk1MTUgNC45OTYxNiA5LjIxNDEzIDQuODc1MjUgOS4yMTQxMyA0Ljc0OTk0QzkuMjE0MTMgNC4wNzkyOSA4LjY3MDQ3IDMuNTM1NjQgNy45OTk4NCAzLjUzNTY0QzcuODc0NTIgMy41MzU2NCA3Ljc1MzY3IDMuNTU0NjMgNy42Mzk5IDMuNTg5ODhMNS43OTk0NCAxLjc0OTQzWiIgZmlsbD0id2hpdGUiLz4KPC9nPgo8L3N2Zz4=',
@@ -1755,7 +1756,14 @@ function InspectCodeView(props: {
   }
 
   if (inspectCodeState.status === 'layout') {
-    return <ReactLayoutView layout={inspectCodeState.layout} />;
+    return (
+      <ReactLayoutView
+        inspection={inspectCodeState.inspection}
+        layout={inspectCodeState.layout}
+        showUnconnectedComponents={inspectCodeState.showUnconnectedComponents}
+        variantLogic={inspectCodeState.variantLogic}
+      />
+    );
   }
 
   // status === 'connected' — a single connected component.
@@ -1799,8 +1807,31 @@ function InspectCodeView(props: {
 }
 
 /** Full selected-tree styled-components React output. */
-function ReactLayoutView(props: { layout: ReactLayoutResult }): h.JSX.Element {
-  const { layout } = props;
+function ReactLayoutView(props: {
+  inspection?: FrameInspection;
+  layout: ReactLayoutResult;
+  showUnconnectedComponents?: boolean;
+  variantLogic?: VariantLogicResult;
+}): h.JSX.Element {
+  const {
+    inspection,
+    layout,
+    showUnconnectedComponents = false,
+    variantLogic,
+  } = props;
+  const layoutCss = inspection ? formatCssBlock(inspection.css.layout) : '';
+  const styleCss = inspection ? formatCssBlock(inspection.css.style) : '';
+  const unconnectedComponents = showUnconnectedComponents
+    ? Array.from(new Set(
+        [...layout.diagnostics, ...(inspection?.diagnostics ?? [])]
+          .filter((diagnostic) => diagnostic.reason === 'unconnected-instance')
+          .map((diagnostic) => {
+            const path = diagnostic.layerPath ?? [];
+            return path[path.length - 1];
+          })
+          .filter((name): name is string => Boolean(name)),
+      ))
+    : [];
 
   return (
     <main aria-labelledby="tashil-inspect-code-heading" class="inspect-content">
@@ -1811,11 +1842,26 @@ function ReactLayoutView(props: { layout: ReactLayoutResult }): h.JSX.Element {
       <section class="layout-card" aria-labelledby="tashil-layout-name">
         <div class="layout-card-topline">
           <div>
-            <div class="eyebrow">React layout</div>
+            <div class="eyebrow">
+              {showUnconnectedComponents ? 'React frame structure' : 'React layout'}
+            </div>
             <h2 class="layout-card-name" id="tashil-layout-name">{layout.nodeName}</h2>
           </div>
           <span class="layout-status-pill">{layout.nodeType}</span>
         </div>
+        {unconnectedComponents.length > 0 ? (
+          <div
+            aria-label="Component connection status"
+            class="layout-component-list"
+          >
+            {unconnectedComponents.map((componentName) => (
+              <div class="layout-component-row" key={componentName}>
+                <span class="layout-component-name">{componentName}</span>
+                <span class="layout-connection-pill">Not connected</span>
+              </div>
+            ))}
+          </div>
+        ) : null}
         <div class="layout-summary-row">
           <span>Connected components</span>
           <span class="layout-summary-value">{layout.componentCount}</span>
@@ -1836,13 +1882,36 @@ function ReactLayoutView(props: { layout: ReactLayoutResult }): h.JSX.Element {
           <span>Omitted declarations</span>
           <span class="layout-summary-value">{layout.fidelity?.omittedDeclarations ?? 0}</span>
         </div>
+        {variantLogic ? (
+          <Fragment>
+            <div class="layout-summary-row">
+              <span>Variant axes</span>
+              <span class="layout-summary-value">{variantLogic.axisCount}</span>
+            </div>
+            <div class="layout-summary-row">
+              <span>Valid combinations</span>
+              <span class="layout-summary-value">{variantLogic.combinationCount}</span>
+            </div>
+          </Fragment>
+        ) : null}
       </section>
+
+      {layoutCss ? <CodeBlock code={layoutCss} title="Layout" copyLabel="Copy Layout CSS" /> : null}
+      {styleCss ? <CodeBlock code={styleCss} title="Style" copyLabel="Copy Style CSS" /> : null}
 
       <CodeBlock
         code={layout.tsx}
         copyLabel="Copy generated React"
         title={`${layout.componentName}.tsx`}
       />
+
+      {variantLogic ? (
+        <CodeBlock
+          code={variantLogic.code}
+          copyLabel="Copy variant logic"
+          title="Variant logic"
+        />
+      ) : null}
 
       {(layout.runtimeRequirements?.length ?? 0) > 0 ? (
         <CodeBlock

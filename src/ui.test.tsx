@@ -1144,14 +1144,23 @@ describe('Plugin rendered interactions', () => {
     renderPlugin();
     receive('INSPECT_CODE_STATE', {
       status: 'layout',
+      showUnconnectedComponents: true,
       layout: {
         componentCount: 1,
         componentName: 'PaymentForm',
-        diagnostics: [{
-          severity: 'warning',
-          reason: 'unsupported-paint',
-          message: 'A visual layer needs review.',
-        }],
+        diagnostics: [
+          {
+            severity: 'info',
+            reason: 'unconnected-instance',
+            message: 'The button is not connected.',
+            layerPath: ['Payment form', 'Submit button'],
+          },
+          {
+            severity: 'warning',
+            reason: 'unsupported-paint',
+            message: 'A visual layer needs review.',
+          },
+        ],
         fidelity: {
           unresolvedComponents: 0,
           unsupportedAssets: 1,
@@ -1177,7 +1186,9 @@ describe('Plugin rendered interactions', () => {
     } as InspectCodeState);
     fireEvent.click(screen.getByRole('tab', { name: 'Inspect Code' }));
 
-    expect(screen.getByText('React layout')).toBeTruthy();
+    expect(screen.getByText('React frame structure')).toBeTruthy();
+    expect(screen.getByText('Not connected')).toBeTruthy();
+    expect(screen.getByText('Submit button')).toBeTruthy();
     expect(screen.getByRole('heading', { name: 'Payment form', level: 2 })).toBeTruthy();
     expect(screen.getByText('PaymentForm.tsx')).toBeTruthy();
     expect(screen.getByRole('button', { name: /Copy generated React/ })).toBeTruthy();

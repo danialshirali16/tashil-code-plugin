@@ -6,7 +6,15 @@ import {
 import { generateLayout } from './generate-layout';
 import type { ReactLayoutResult } from './types';
 
-const SUPPORTED_ROOT_TYPES = new Set(['FRAME', 'GROUP', 'SECTION', 'TEXT']);
+const SUPPORTED_ROOT_TYPES = new Set([
+  'COMPONENT',
+  'COMPONENT_SET',
+  'FRAME',
+  'GROUP',
+  'INSTANCE',
+  'SECTION',
+  'TEXT',
+]);
 
 /** Whether a selection can produce a meaningful full React tree. */
 export function supportsReactLayout(node: { type: string }): boolean {
@@ -23,7 +31,7 @@ export async function generateReactLayout(
 
   return {
     ...generated,
-    nodeName: node.name,
+    nodeName: options.rootName?.trim() || node.name,
     nodeType: node.type,
   };
 }

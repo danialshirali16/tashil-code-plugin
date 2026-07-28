@@ -1837,6 +1837,269 @@ describe('persisted metadata reads', () => {
 });
 
 describe('Dev Mode inspection codegen', () => {
+  it('generates React, Layout, and Style for an unconnected component', async () => {
+    const { codegenEvents, selection } = await startPlugin();
+    const component = createComponent('c-unconnected-card', 'Account card');
+    Object.assign(component, {
+      children: [],
+      getCSSAsync: vi.fn(() => Promise.resolve({
+        display: 'flex',
+        'flex-direction': 'column',
+        'background-color': 'var(--color-surface)',
+      })),
+      itemSpacing: 0,
+      layoutMode: 'VERTICAL',
+      paddingBottom: 0,
+      paddingLeft: 0,
+      paddingRight: 0,
+      paddingTop: 0,
+    });
+
+    const blocks = await codegenEvents.get('generate')?.({ node: component });
+
+    expect(blocks?.find((block) => block.title === 'AccountCard.tsx')).toMatchObject({
+      language: 'TYPESCRIPT',
+      code: expect.stringContaining('export function AccountCard()'),
+    });
+    expect(blocks?.find((block) => block.title === 'Layout')?.code).toBe(
+      'display: flex;\nflex-direction: column;',
+    );
+    expect(blocks?.find((block) => block.title === 'Style')?.code).toBe(
+      'background-color: var(--color-surface);',
+    );
+
+    selection.push(component);
+    utilityMocks.handlers.get('REFRESH_SELECTION')?.(undefined);
+
+    await vi.waitFor(() => {
+      expect(emittedPayloads<InspectCodeState>('INSPECT_CODE_STATE')).toContainEqual(
+        expect.objectContaining({
+          inspection: expect.objectContaining({
+            css: {
+              layout: expect.arrayContaining([
+                { property: 'display', value: 'flex' },
+              ]),
+              style: expect.arrayContaining([
+                {
+                  property: 'background-color',
+                  value: 'var(--color-surface)',
+                },
+              ]),
+            },
+          }),
+          layout: expect.objectContaining({
+            componentName: 'AccountCard',
+            tsx: expect.stringContaining('export function AccountCard()'),
+          }),
+          status: 'layout',
+        }),
+      );
+    });
+  });
+
+  it('uses the visible tree when the unconnected selection is an instance', async () => {
+    const { codegenEvents, selection } = await startPlugin();
+    const mainComponent = createComponent('c-unconnected-banner', 'Banner');
+    const instance = createInstance(
+      'i-unconnected-banner',
+      Promise.resolve(mainComponent),
+    );
+    Object.assign(instance, {
+      children: [],
+      getCSSAsync: vi.fn(() => Promise.resolve({
+        display: 'flex',
+        'border-radius': '8px',
+      })),
+      itemSpacing: 0,
+      layoutMode: 'HORIZONTAL',
+      name: 'Promo banner',
+      paddingBottom: 0,
+      paddingLeft: 0,
+      paddingRight: 0,
+      paddingTop: 0,
+      parent: {
+        parent: { type: 'PAGE' },
+        type: 'FRAME',
+      },
+    });
+
+    const blocks = await codegenEvents.get('generate')?.({ node: instance });
+
+    expect(blocks?.find((block) => block.title === 'PromoBanner.tsx')?.code)
+      .toContain('export function PromoBanner()');
+    expect(blocks?.find((block) => block.title === 'Layout')?.code)
+      .toBe('display: flex;');
+    expect(blocks?.find((block) => block.title === 'Style')?.code)
+      .toBe('border-radius: 8px;');
+
+    selection.push(instance);
+    utilityMocks.handlers.get('REFRESH_SELECTION')?.(undefined);
+    await vi.waitFor(() => {
+      expect(emittedPayloads<InspectCodeState>('INSPECT_CODE_STATE')).toContainEqual(
+        expect.objectContaining({
+          inspection: expect.objectContaining({
+            diagnostics: expect.arrayContaining([
+              expect.objectContaining({
+                reason: 'unconnected-instance',
+              }),
+            ]),
+          }),
+          layout: expect.objectContaining({
+            componentName: 'PromoBanner',
+            tsx: expect.stringContaining('export function PromoBanner()'),
+          }),
+          showUnconnectedComponents: true,
+          status: 'layout',
+        }),
+      );
+    });
+  });
+
+  it('generates full React without a badge for a selection inside a main component', async () => {
+    const { selection } = await startPlugin();
+    const mainComponent = createComponent('c-main-banner', 'Banner');
+    const iconComponent = createComponent('c-main-banner-icon', 'Banner icon');
+    const nestedInstance = createInstance(
+      'i-main-banner-icon',
+      Promise.resolve(iconComponent),
+    );
+    Object.assign(nestedInstance, {
+      children: [],
+      getCSSAsync: vi.fn(() => Promise.resolve({
+        display: 'flex',
+        padding: 'spacing.6',
+      })),
+      itemSpacing: 0,
+      layoutMode: 'HORIZONTAL',
+      name: 'Banner icon',
+      paddingBottom: 0,
+      paddingLeft: 0,
+      paddingRight: 0,
+      paddingTop: 0,
+      parent: mainComponent,
+    });
+
+    selection.push(nestedInstance);
+    utilityMocks.handlers.get('REFRESH_SELECTION')?.(undefined);
+
+    await vi.waitFor(() => {
+      expect(emittedPayloads<InspectCodeState>('INSPECT_CODE_STATE')).toContainEqual(
+        expect.objectContaining({
+          layout: expect.objectContaining({
+            componentName: 'BannerIcon',
+            tsx: expect.stringContaining('export function BannerIcon()'),
+          }),
+          status: 'layout',
+        }),
+      );
+    });
+
+    const layoutState = emittedPayloads<InspectCodeState>('INSPECT_CODE_STATE')
+      .find((state) => state.status === 'layout');
+    expect(layoutState).not.toHaveProperty('showUnconnectedComponents');
+  });
+
+  it('shows typed variant logic when a main variant component is selected', async () => {
+    const { codegenEvents, selection } = await startPlugin();
+    const variants: ComponentNode[] = [];
+    const componentSet = {
+      children: variants,
+      componentProperties: {},
+      componentPropertyDefinitions: {
+        Size: {
+          defaultValue: 'Small',
+          type: 'VARIANT',
+          variantOptions: ['Small', 'Large'],
+        },
+        Style: {
+          defaultValue: 'Secondary',
+          type: 'VARIANT',
+          variantOptions: ['Primary', 'Secondary'],
+        },
+      },
+      defaultVariant: undefined,
+      getSharedPluginData: vi.fn(() => ''),
+      id: 'set-button',
+      name: 'Button',
+      parent: { type: 'PAGE' },
+      remote: false,
+      setSharedPluginData: vi.fn(),
+      type: 'COMPONENT_SET',
+    } as unknown as ComponentSetNode;
+    const selectedVariant = createComponent(
+      'button-large-primary',
+      'Style=Solid, Size=Small, State=Rest, Single icon=Yes',
+    );
+    const secondaryVariant = createComponent('button-small-secondary', 'Small, Secondary');
+    Object.assign(selectedVariant, {
+      children: [],
+      getCSSAsync: vi.fn(() => Promise.resolve({
+        display: 'inline-flex',
+        gap: 'spacing.0',
+        padding: 'spacing.6 spacing.12',
+        'border-radius': 'radius.4',
+        background: 'colors.bg.primary.default',
+      })),
+      itemSpacing: 0,
+      layoutMode: 'HORIZONTAL',
+      paddingBottom: 0,
+      paddingLeft: 0,
+      paddingRight: 0,
+      paddingTop: 0,
+      parent: componentSet,
+      variantProperties: { Size: 'Large', Style: 'Primary' },
+    });
+    Object.assign(secondaryVariant, {
+      parent: componentSet,
+      variantProperties: { Size: 'Small', Style: 'Secondary' },
+    });
+    variants.push(selectedVariant, secondaryVariant);
+    Object.assign(componentSet, { defaultVariant: secondaryVariant });
+
+    const blocks = await codegenEvents.get('generate')?.({ node: selectedVariant });
+    const react = blocks?.find((block) => block.title === 'Button.tsx');
+    const logic = blocks?.find((block) => block.title === 'Variant logic');
+
+    expect(react?.code).toContain('const ButtonRoot = styled.div`');
+    expect(react?.code).toContain('export function Button()');
+    expect(react?.code).not.toContain('StyleSolidSizeSmallStateRestSingleIconYesRoot');
+    expect(react?.code).toContain('gap: var(--spacing-0);');
+    expect(react?.code).toContain(
+      'padding: var(--spacing-6) var(--spacing-12);',
+    );
+    expect(react?.code).toContain('border-radius: var(--radius-4);');
+    expect(react?.code).toContain('background: ${colors.bg.primary.default};');
+    expect(logic).toMatchObject({ language: 'TYPESCRIPT' });
+    expect(logic?.code).toContain('export type ButtonVariantProps');
+    expect(logic?.code).toContain('size?: "Small" | "Large";');
+    expect(logic?.code).toContain('style?: "Primary" | "Secondary";');
+    expect(logic?.code).toContain('size: "Large"');
+    expect(logic?.code).toContain('style: "Primary"');
+    expect(logic?.code).toContain('export function resolveButtonVariant');
+
+    selection.push(selectedVariant);
+    utilityMocks.handlers.get('REFRESH_SELECTION')?.(undefined);
+    await vi.waitFor(() => {
+      expect(emittedPayloads<InspectCodeState>('INSPECT_CODE_STATE')).toContainEqual(
+        expect.objectContaining({
+          status: 'layout',
+          layout: expect.objectContaining({
+            componentName: 'Button',
+            nodeName: 'Button',
+          }),
+          variantLogic: expect.objectContaining({
+            axisCount: 2,
+            combinationCount: 2,
+            code: expect.stringContaining('resolveButtonVariant'),
+          }),
+        }),
+      );
+    });
+    const layoutState = emittedPayloads<InspectCodeState>('INSPECT_CODE_STATE')
+      .find((state) => state.status === 'layout');
+    expect(layoutState).not.toHaveProperty('connectionStatus');
+  });
+
   it('returns the same generated TSX through Dev Mode and Inspect Code', async () => {
     const metadata: ConnectionMetadata = {
       schemaVersion: CURRENT_SCHEMA_VERSION,
@@ -2109,6 +2372,37 @@ describe('Inspect Code inspection state', () => {
     expect(state.layout.tsx).toContain('<Button');
     expect(state.layout.tsx).toContain('const PaymentFormRoot = styled.div`');
     expect(state.layout.tsx).toContain('gap: 16px;');
+    expect(state.showUnconnectedComponents).toBe(true);
+  });
+
+  it('does not mark a generated layer inside a main component as unconnected', async () => {
+    const { selection } = await startPlugin();
+    const mainComponent = createComponent('c-card', 'Card');
+    const contentFrame = createFrame('f-card-content', 'Card content', [], {
+      css: { display: 'flex' },
+    });
+    Object.assign(contentFrame, { parent: mainComponent });
+    Object.assign(mainComponent, { children: [contentFrame] });
+    selection.push(contentFrame);
+
+    utilityMocks.handlers.get('REFRESH_SELECTION')?.(undefined);
+
+    await vi.waitFor(() => {
+      expect(emittedPayloads<InspectCodeState>('INSPECT_CODE_STATE')).toContainEqual(
+        expect.objectContaining({
+          layout: expect.objectContaining({
+            nodeName: 'Card content',
+            tsx: expect.stringContaining('export function CardContent()'),
+          }),
+          status: 'layout',
+        }),
+      );
+    });
+
+    const state = emittedPayloads<InspectCodeState>('INSPECT_CODE_STATE')
+      .find((item) =>
+        item.status === 'layout' && item.layout.nodeName === 'Card content');
+    expect(state).not.toHaveProperty('showUnconnectedComponents');
   });
 
   it('keeps a connected component emitting { status: connected, output }', async () => {

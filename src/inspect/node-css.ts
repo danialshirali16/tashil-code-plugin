@@ -4,7 +4,8 @@
  * Wraps `node.getCSSAsync()` — the same CSS Figma's native inspect panel
  * shows, including variable-backed values like `var(--spacer-3, 1rem)` — and
  * partitions the result into Layout and Style sections. The CSS is passed
- * through unmodified; this module never reformats values.
+ * normalized only when Figma returns a bare design-token path that is not
+ * valid CSS by itself.
  *
  * Never throws: a missing or failing `getCSSAsync` yields empty sections plus
  * a `css-unavailable` diagnostic so the caller can still render the
@@ -12,6 +13,7 @@
  */
 
 import { partitionCss } from './css-partition';
+import { normalizeCssValue } from '../css-values';
 import type { GenerationContext } from '../layout/generation-context';
 import type { CssDeclaration, InspectionDiagnostic, NodeCss } from './types';
 
@@ -57,7 +59,10 @@ export async function getNodeCss(
   }
 
   const declarations: CssDeclaration[] = Object.entries(raw ?? {}).map(
-    ([property, value]) => ({ property, value: String(value) }),
+    ([property, value]) => ({
+      property,
+      value: normalizeCssValue(String(value)),
+    }),
   );
 
   return { css: partitionCss(declarations), diagnostics: [] };

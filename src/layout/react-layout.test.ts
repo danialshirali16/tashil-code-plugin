@@ -792,6 +792,31 @@ describe('full React layout generation', () => {
     ]);
   });
 
+  it('expands the visible tree of an unconnected nested instance', async () => {
+    const main = component('c:icon', 'C Icon');
+    const icon = instance('i:icon', 'C Icon', main);
+    Object.assign(icon, {
+      children: [text('t:glyph', 'Glyph', '+')],
+      itemSpacing: 0,
+      layoutMode: 'HORIZONTAL',
+      paddingBottom: 0,
+      paddingLeft: 0,
+      paddingRight: 0,
+      paddingTop: 0,
+    });
+    const generated = await generate(frame('f:button', 'Button', [icon]));
+
+    expect(generated.tsx).toContain('const CIcon = styled.div`');
+    expect(generated.tsx).toContain('<CIcon>');
+    expect(generated.tsx).toContain('+');
+    expect(generated.tsx).not.toContain('{/* FRAME: C Icon */}');
+    expect(generated.diagnostics).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ reason: 'unconnected-instance' }),
+      ]),
+    );
+  });
+
   it('is deterministic', async () => {
     const first = await generate(verticalForm());
     const second = await generate(verticalForm());

@@ -109,6 +109,10 @@ declare const styles: {
   readonly "layout-card": string;
   readonly "layout-card-name": string;
   readonly "layout-card-topline": string;
+  readonly "layout-component-list": string;
+  readonly "layout-component-name": string;
+  readonly "layout-component-row": string;
+  readonly "layout-connection-pill": string;
   readonly "layout-diagnostic": string;
   readonly "layout-diagnostic-error": string;
   readonly "layout-diagnostic-icon": string;
