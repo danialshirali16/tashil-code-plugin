@@ -11,10 +11,14 @@
  */
 
 import * as ts from 'typescript';
+import {
+  collectSourcePropsMembers,
+  selectSourcePropsDeclaration,
+  type ParsedSourceFile,
+} from '../source-props';
 import type { SourcePropValue } from '../types';
 import {
   createSourceContentHash,
-  selectSourcePropsInterface,
   type SourceFileInput,
 } from '../source-schema';
 import { SEMANTIC_LIMITS } from './types';
@@ -26,6 +30,22 @@ export type SourceTargetKind =
   | 'event'
   /** React node slot (children or render prop). */
   | 'node'
+  /** Array, tuple, set, or other collection supplied by application data. */
+  | 'array'
+  /** Object/record value that must be assembled by application code. */
+  | 'record'
+  /** Date-like value supplied by application code. */
+  | 'date'
+  /** Browser file/blob value supplied by application code. */
+  | 'file'
+  /** Render function or component type supplied by application code. */
+  | 'render'
+  /** Framework styling/system value kept out of design-value mapping. */
+  | 'styling'
+  /** State value paired with a public change/close callback. */
+  | 'controlled'
+  /** Framework or host value such as a theme, anchor, or MUI slot config. */
+  | 'environment'
   /** Excluded by policy (className, style, ref, ...). */
   | 'excluded'
   /** Type the parser cannot model; kept visible with its type text. */
@@ -44,12 +64,38 @@ export type SourceTargetDescriptor = {
   insideOptionalObject?: boolean;
   values?: SourcePropValue[];
   defaultValue?: SourcePropValue;
+  /** Bounded item/key/value schemas for application-provided collections. */
+  itemSchemas?: SourceCollectionItemSchema[];
+  /** Companion callback that updates this controlled value. */
+  controlledBy?: string[];
 };
+
+export type SourceCollectionItemSchema = {
+  kind: SourceTargetKind;
+  role: 'item' | 'key' | 'value';
+  /** Nested field within an object-valued item, e.g. `component`. */
+  path?: string[];
+  typeName: string;
+  values?: SourcePropValue[];
+};
+
+export function isRuntimeSourceTargetKind(kind: SourceTargetKind): boolean {
+  return kind === 'event'
+    || kind === 'array'
+    || kind === 'record'
+    || kind === 'date'
+    || kind === 'file'
+    || kind === 'render'
+    || kind === 'styling'
+    || kind === 'controlled'
+    || kind === 'environment';
+}
 
 export type SourceContract = {
   componentName: string;
   fileName: string;
   contentHash: string;
+  propsTypeName?: string;
   targets: SourceTargetDescriptor[];
 };
 
@@ -80,7 +126,7 @@ export function extractSourceContract(
     };
   }
 
-  const parsedFiles = files.map((file) => ({
+  const parsedFiles: ParsedSourceFile[] = files.map((file) => ({
     ...file,
     sourceFile: ts.createSourceFile(
       file.fileName,
@@ -91,25 +137,11 @@ export function extractSourceContract(
     ),
   }));
 
-  const candidates = parsedFiles.flatMap((file) => {
-    return file.sourceFile.statements
-      .filter(ts.isInterfaceDeclaration)
-      .filter((declaration) => declaration.name.text.endsWith('Props'))
-      .map((declaration) => ({ declaration, file }));
-  });
-  const expectedInterfaceName = requestedComponentName
-    ? `${requestedComponentName}Props`
-    : undefined;
-  const exactMatch = expectedInterfaceName
-    ? candidates.find(({ declaration }) => declaration.name.text === expectedInterfaceName)
-    : undefined;
-  // Keep this selection aligned with `parseSourceComponent` so the visual and
-  // semantic editors always describe the same interface.
-  const selected = exactMatch ?? selectSourcePropsInterface(candidates, requestedComponentName);
+  const selected = selectSourcePropsDeclaration(parsedFiles, requestedComponentName);
 
   if (!selected) {
     return {
-      message: 'Could not find an interface whose name ends with Props.',
+      message: 'Could not resolve a props interface or type alias for this component.',
       ok: false,
     };
   }
@@ -117,31 +149,38 @@ export function extractSourceContract(
   const symbols = buildSymbolTable(parsedFiles);
   const aliases = symbols.aliases;
   const warnings: string[] = [];
-
-  if (expectedInterfaceName && !exactMatch) {
+  const expectedPropsName = requestedComponentName
+    ? `${requestedComponentName}Props`
+    : undefined;
+  if (
+    expectedPropsName
+    && selected.declaration.name.text !== expectedPropsName
+  ) {
     warnings.push(
-      `Used ${selected.declaration.name.text} because no ${expectedInterfaceName} was found.`,
+      `Used ${selected.declaration.name.text} because no ${expectedPropsName} was found.`,
     );
   }
   const targets: SourceTargetDescriptor[] = [];
 
-  const members = collectInterfaceMembers(
-    selected.declaration,
-    selected.file.sourceFile,
-    symbols,
-    new Set(),
-    warnings,
-  );
+  const members = collectSourcePropsMembers(selected, parsedFiles, warnings);
 
-  for (const { member, sourceFile } of members) {
+  for (const {
+    member,
+    required: checkedRequired,
+    sourceFile,
+    typeName: checkedTypeName,
+    typeNode: checkedTypeNode,
+  } of members) {
     const name = getPropertyName(member.name);
     if (!name) {
       warnings.push('Skipped a computed prop name that cannot be mapped safely.');
       continue;
     }
 
-    const required = member.questionToken === undefined;
-    const typeName = member.type?.getText(sourceFile) ?? 'unknown';
+    const required = checkedRequired ?? member.questionToken === undefined;
+    const typeName = checkedTypeName ?? member.type?.getText(sourceFile) ?? 'unknown';
+    const typeNode = checkedTypeNode ?? member.type;
+    const typeSourceFile = checkedTypeNode?.getSourceFile() ?? sourceFile;
 
     if (EXCLUDED_PROPS.has(name)) {
       targets.push({ kind: 'excluded', ownerProp: name, path: [name], required, typeName });
@@ -149,10 +188,21 @@ export function extractSourceContract(
     }
 
     // Object-shaped prop (type literal, interface ref, or Omit/Pick of one):
-    // flatten one level into nested targets like `submitProps.variant`.
-    const objectMembers = resolveObjectMembers(member.type, symbols, warnings);
+    // recursively flatten safe leaves into paths like
+    // `submitProps.button.appearance.variant`.
+    const objectMembers = resolveObjectMembers(typeNode, symbols, warnings);
     if (objectMembers.length > 0) {
-      const leaves = extractObjectLeaves(name, required, objectMembers, symbols, aliases, warnings);
+      const leaves = extractObjectLeaves(
+        name,
+        required,
+        objectMembers,
+        symbols,
+        aliases,
+        warnings,
+        [name],
+        !required,
+        createObjectTypeTrail(typeNode, typeSourceFile),
+      );
       if (leaves.length > 0) {
         targets.push(...leaves);
         continue;
@@ -161,8 +211,17 @@ export function extractSourceContract(
       continue;
     }
 
-    const typeNode = dealias(member.type, aliases, new Set());
-    const leaf = resolveLeafType(name, typeNode, sourceFile);
+    const resolvedTypeNode = dealias(typeNode, aliases, new Set());
+    const leaf = resolveLeafType(name, resolvedTypeNode, typeSourceFile);
+    const itemSchemas = leaf.kind === 'array'
+      ? resolveCollectionItemSchemas(
+          resolvedTypeNode,
+          typeSourceFile,
+          symbols,
+          aliases,
+          warnings,
+        )
+      : [];
     targets.push({
       kind: leaf.kind,
       ownerProp: name,
@@ -170,21 +229,129 @@ export function extractSourceContract(
       required,
       typeName,
       ...(leaf.values ? { values: leaf.values } : {}),
+      ...(itemSchemas.length > 0 ? { itemSchemas } : {}),
     });
   }
 
-  const componentName = selected.declaration.name.text.replace(/Props$/, '');
+  const classifiedTargets = classifyControlledTargets(
+    classifyFrameworkTargets(targets),
+  );
+  const componentName = selected.reason === 'name-affinity'
+    ? selected.declaration.name.text
+      .replace(/Props(?:Type)?$/i, '')
+      .replace(/^I(?=[A-Z])/, '')
+    : requestedComponentName
+      ?? selected.declaration.name.text
+        .replace(/Props(?:Type)?$/i, '')
+        .replace(/^I(?=[A-Z])/, '');
 
   return {
     contract: {
       componentName,
       contentHash: createSourceContentHash(files),
       fileName: selected.file.fileName,
-      targets,
+      propsTypeName: selected.declaration.name.text,
+      targets: classifiedTargets,
     },
     ok: true,
     warnings,
   };
+}
+
+function classifyFrameworkTargets(
+  targets: readonly SourceTargetDescriptor[],
+): SourceTargetDescriptor[] {
+  return targets.map((target) => {
+    if (target.kind !== 'unsupported') {
+      return target;
+    }
+
+    const leafName = target.path[target.path.length - 1] ?? target.ownerProp;
+    if (/Component$/.test(leafName)) {
+      return { ...target, kind: 'render' };
+    }
+    if (
+      /^(?:theme|typography|anchorEl|container|portalContainer|transitionDuration|PaperProps|TransitionProps)$/
+        .test(leafName)
+      || target.path[0] === 'componentsProps'
+      || target.path[0] === 'slotProps'
+    ) {
+      return { ...target, kind: 'environment' };
+    }
+    return target;
+  });
+}
+
+function classifyControlledTargets(
+  targets: readonly SourceTargetDescriptor[],
+): SourceTargetDescriptor[] {
+  const callbacks = targets.filter(
+    (target) => target.kind === 'event' && target.path.length === 1,
+  );
+  const candidates = targets.filter(
+    (target) => target.path.length === 1 && isControlledValueName(target.ownerProp),
+  );
+  const controlledBy = new Map<string, SourceTargetDescriptor>();
+
+  for (const callback of callbacks) {
+    const matches = candidates
+      .filter((candidate) => controlsValue(callback.ownerProp, candidate.ownerProp))
+      .sort((left, right) => (
+        controlledValuePriority(left.ownerProp) - controlledValuePriority(right.ownerProp)
+      ));
+    const controlled = matches[0];
+    if (controlled !== undefined && !controlledBy.has(controlled.ownerProp)) {
+      controlledBy.set(controlled.ownerProp, callback);
+    }
+  }
+
+  return targets.map((target) => {
+    if (target.path.length !== 1 || !isControlledValueName(target.ownerProp)) {
+      return target;
+    }
+
+    const callback = controlledBy.get(target.ownerProp);
+    return callback === undefined
+      ? target
+      : {
+          ...target,
+          controlledBy: [...callback.path],
+          kind: 'controlled',
+        };
+  });
+}
+
+function controlledValuePriority(name: string): number {
+  return [
+    'value',
+    'checked',
+    'selectedValue',
+    'selected',
+    'selection',
+    'inputValue',
+    'expanded',
+    'activeStep',
+    'open',
+    'isOpen',
+  ].indexOf(name);
+}
+
+function isControlledValueName(name: string): boolean {
+  return /^(?:value|inputValue|checked|selected|selectedValue|selection|open|isOpen|expanded|activeStep)$/
+    .test(name);
+}
+
+function controlsValue(callbackName: string, valueName: string): boolean {
+  if (callbackName === 'onChange') {
+    return valueName !== 'open' && valueName !== 'isOpen';
+  }
+  if (valueName === 'open' || valueName === 'isOpen') {
+    return callbackName === 'onOpenChange' || callbackName === 'onClose';
+  }
+  const stem = valueName.startsWith('is') && valueName.length > 2
+    ? valueName.slice(2)
+    : valueName;
+  return callbackName === `on${stem[0]?.toUpperCase() ?? ''}${stem.slice(1)}Change`;
 }
 
 function extractObjectLeaves(
@@ -194,6 +361,9 @@ function extractObjectLeaves(
   symbols: SymbolTable,
   aliases: ReadonlyMap<string, ts.TypeNode>,
   warnings: string[],
+  parentPath: readonly string[] = [ownerProp],
+  insideOptionalObject = !ownerRequired,
+  objectTypeTrail: ReadonlySet<string> = new Set(),
 ): SourceTargetDescriptor[] {
   const leaves: SourceTargetDescriptor[] = [];
 
@@ -212,33 +382,237 @@ function extractObjectLeaves(
 
     const memberRequired = member.questionToken === undefined;
     const typeName = member.type?.getText(sourceFile) ?? 'unknown';
-    const path = [ownerProp, name];
+    const path = [...parentPath, name];
     const required = ownerRequired && memberRequired;
 
     if (EXCLUDED_PROPS.has(name)) {
-      leaves.push({ insideOptionalObject: !ownerRequired, kind: 'excluded', ownerProp, path, required, typeName });
+      leaves.push({
+        insideOptionalObject,
+        kind: 'excluded',
+        ownerProp,
+        path,
+        required,
+        typeName,
+      });
       continue;
     }
 
-    // v1 supports one nested level only; deeper objects stay unsupported.
-    if (resolveObjectMembers(member.type, symbols, warnings).length > 0) {
-      leaves.push({ insideOptionalObject: !ownerRequired, kind: 'unsupported', ownerProp, path, required, typeName });
+    const nestedMembers = resolveObjectMembers(member.type, symbols, warnings);
+    const nestedTypeIdentity = getObjectTypeIdentity(member.type, sourceFile);
+    const repeatsObjectType = nestedTypeIdentity !== undefined
+      && objectTypeTrail.has(nestedTypeIdentity);
+    if (
+      nestedMembers.length > 0
+      && path.length < SEMANTIC_LIMITS.maxTargetPathDepth
+      && !repeatsObjectType
+    ) {
+      const nextTypeTrail = new Set(objectTypeTrail);
+      if (nestedTypeIdentity !== undefined) {
+        nextTypeTrail.add(nestedTypeIdentity);
+      }
+      const nestedLeaves = extractObjectLeaves(
+        ownerProp,
+        required,
+        nestedMembers,
+        symbols,
+        aliases,
+        warnings,
+        path,
+        insideOptionalObject || !memberRequired,
+        nextTypeTrail,
+      );
+      leaves.push(...nestedLeaves);
       continue;
     }
 
-    const leaf = resolveLeafType(name, dealias(member.type, aliases, new Set()), sourceFile);
+    // At the bounded depth, preserve the remaining object as one explicit
+    // runtime record instead of silently dropping its public API.
+    if (nestedMembers.length > 0) {
+      leaves.push({
+        insideOptionalObject,
+        kind: 'record',
+        ownerProp,
+        path,
+        required,
+        typeName,
+      });
+      continue;
+    }
+
+    const resolvedMemberType = dealias(member.type, aliases, new Set());
+    const leaf = resolveLeafType(name, resolvedMemberType, sourceFile);
+    const itemSchemas = leaf.kind === 'array'
+      ? resolveCollectionItemSchemas(
+          resolvedMemberType,
+          sourceFile,
+          symbols,
+          aliases,
+          warnings,
+        )
+      : [];
     leaves.push({
-      insideOptionalObject: !ownerRequired,
+      insideOptionalObject,
       kind: leaf.kind,
       ownerProp,
       path,
       required,
       typeName,
       ...(leaf.values ? { values: leaf.values } : {}),
+      ...(itemSchemas.length > 0 ? { itemSchemas } : {}),
     });
   }
 
   return leaves;
+}
+
+function createObjectTypeTrail(
+  node: ts.TypeNode | undefined,
+  sourceFile: ts.SourceFile,
+): ReadonlySet<string> {
+  const identity = getObjectTypeIdentity(node, sourceFile);
+  return identity === undefined ? new Set() : new Set([identity]);
+}
+
+function getObjectTypeIdentity(
+  node: ts.TypeNode | undefined,
+  sourceFile: ts.SourceFile,
+): string | undefined {
+  if (!node) {
+    return undefined;
+  }
+  if (ts.isTypeReferenceNode(node)) {
+    return node.typeName.getText(sourceFile);
+  }
+  return undefined;
+}
+
+function resolveCollectionItemSchemas(
+  node: ts.TypeNode | undefined,
+  sourceFile: ts.SourceFile,
+  symbols: SymbolTable,
+  aliases: ReadonlyMap<string, ts.TypeNode>,
+  warnings: string[],
+): SourceCollectionItemSchema[] {
+  if (!node) {
+    return [];
+  }
+
+  if (ts.isArrayTypeNode(node)) {
+    return createCollectionItemSchemas(
+      'item',
+      node.elementType,
+      sourceFile,
+      symbols,
+      aliases,
+      warnings,
+    );
+  }
+
+  if (ts.isTupleTypeNode(node)) {
+    return node.elements.slice(0, 16).flatMap((element) => createCollectionItemSchemas(
+      'item',
+      unwrapTupleElement(element),
+      sourceFile,
+      symbols,
+      aliases,
+      warnings,
+    )).slice(0, 16);
+  }
+
+  if (!ts.isTypeReferenceNode(node)) {
+    return [];
+  }
+
+  const typeName = node.typeName.getText(sourceFile);
+  const typeArguments = node.typeArguments ?? [];
+  if (/^(?:Array|ReadonlyArray|Set|ReadonlySet)$/.test(typeName)) {
+    const itemType = typeArguments[0];
+    return itemType === undefined
+      ? []
+      : createCollectionItemSchemas(
+          'item',
+          itemType,
+          sourceFile,
+          symbols,
+          aliases,
+          warnings,
+        );
+  }
+
+  if (/^(?:Map|ReadonlyMap)$/.test(typeName) && typeArguments.length >= 2) {
+    return [
+      ...createCollectionItemSchemas(
+        'key',
+        typeArguments[0],
+        sourceFile,
+        symbols,
+        aliases,
+        warnings,
+      ),
+      ...createCollectionItemSchemas(
+        'value',
+        typeArguments[1],
+        sourceFile,
+        symbols,
+        aliases,
+        warnings,
+      ),
+    ];
+  }
+
+  return [];
+}
+
+function createCollectionItemSchemas(
+  role: SourceCollectionItemSchema['role'],
+  node: ts.TypeNode,
+  sourceFile: ts.SourceFile,
+  symbols: SymbolTable,
+  aliases: ReadonlyMap<string, ts.TypeNode>,
+  warnings: string[],
+): SourceCollectionItemSchema[] {
+  const resolvedNode = dealias(node, aliases, new Set());
+  const objectMembers = resolveObjectMembers(resolvedNode, symbols, warnings);
+  if (objectMembers.length > 0) {
+    const leaves = extractObjectLeaves(
+      'item',
+      true,
+      objectMembers,
+      symbols,
+      aliases,
+      warnings,
+      ['item'],
+      false,
+      createObjectTypeTrail(resolvedNode, sourceFile),
+    );
+    if (leaves.some((leaf) => leaf.kind === 'node')) {
+      return leaves.slice(0, 16).map((leaf) => ({
+        kind: leaf.kind,
+        path: leaf.path.slice(1),
+        role,
+        typeName: leaf.typeName,
+        ...(leaf.values ? { values: leaf.values } : {}),
+      }));
+    }
+    return [{ kind: 'record', role, typeName: node.getText(sourceFile) }];
+  }
+  const leaf = resolveLeafType('item', resolvedNode, sourceFile);
+  return [{
+    kind: leaf.kind,
+    role,
+    typeName: node.getText(sourceFile),
+    ...(leaf.values ? { values: leaf.values } : {}),
+  }];
+}
+
+function unwrapTupleElement(node: ts.TypeNode): ts.TypeNode {
+  if (ts.isNamedTupleMember(node)) {
+    return node.type;
+  }
+  if (ts.isOptionalTypeNode(node) || ts.isRestTypeNode(node)) {
+    return node.type;
+  }
+  return node;
 }
 
 /**
@@ -264,8 +638,14 @@ function resolveLeafType(
     return { kind: 'unsupported' };
   }
 
+  if (/^(?:sx|classes|slotProps|componentsProps)$/.test(name)) {
+    return { kind: 'styling' };
+  }
+
   if (ts.isFunctionTypeNode(node)) {
-    return { kind: 'event' };
+    return /^(?:render[A-Z].*|.*Renderer|.*Component)$/.test(name)
+      ? { kind: 'render' }
+      : { kind: 'event' };
   }
 
   if (/^on[A-Z]/.test(name)) {
@@ -291,6 +671,17 @@ function resolveLeafType(
     if (meaningful.some((member) => member.kind === ts.SyntaxKind.StringKeyword)) {
       return { kind: 'visual' };
     }
+    const resolvedKinds = meaningful.map(
+      (member) => resolveLeafType(name, member, sourceFile).kind,
+    );
+    const firstKind = resolvedKinds[0];
+    if (
+      firstKind !== undefined
+      && firstKind !== 'unsupported'
+      && resolvedKinds.every((kind) => kind === firstKind)
+    ) {
+      return { kind: firstKind };
+    }
     return { kind: 'unsupported' };
   }
 
@@ -302,15 +693,51 @@ function resolveLeafType(
     return { kind: 'visual' };
   }
 
+  if (ts.isArrayTypeNode(node) || ts.isTupleTypeNode(node)) {
+    return { kind: 'array' };
+  }
+
+  if (node.kind === ts.SyntaxKind.ObjectKeyword || ts.isTypeLiteralNode(node)) {
+    return { kind: 'record' };
+  }
+
   if (ts.isTypeReferenceNode(node)) {
     const typeName = node.typeName.getText(sourceFile);
 
-    if (/ReactNode|ReactElement|JSX\.Element/.test(typeName)) {
+    if (typeName === 'Node' || /ReactNode|ReactElement|JSX\.Element/.test(typeName)) {
       return { kind: 'node' };
     }
 
     if (/Handler$|EventHandler$/.test(typeName)) {
       return { kind: 'event' };
+    }
+
+    if (/^(?:Array|ReadonlyArray|Set|ReadonlySet|Map|ReadonlyMap)$/.test(typeName)) {
+      return { kind: 'array' };
+    }
+
+    if (/^(?:Record|Object|WeakMap|WeakSet)$/.test(typeName)) {
+      return { kind: 'record' };
+    }
+
+    if (/^(?:Date|Dayjs|Moment)$/.test(typeName) || /Date$/.test(typeName)) {
+      return { kind: 'date' };
+    }
+
+    if (/^(?:File|FileList|Blob|FormData|DataTransfer)$/.test(typeName)) {
+      return { kind: 'file' };
+    }
+
+    if (
+      /(?:ComponentType|ElementType|FunctionComponent|React\.FC|Renderer)$/.test(typeName)
+    ) {
+      return { kind: 'render' };
+    }
+
+    if (
+      /(?:SxProps|SystemStyleObject|CSSProperties|ClassNameMap|Classes)$/.test(typeName)
+    ) {
+      return { kind: 'styling' };
     }
   }
 

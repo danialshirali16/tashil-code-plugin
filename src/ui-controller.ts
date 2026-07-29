@@ -15,8 +15,10 @@ import {
 } from './mapping-editor';
 import { mergePropMappingsJson } from './prop-mappings';
 import { parseSourceComponent } from './source-schema';
+import { collectSourceUploadInputs } from './source-upload';
 import {
   createRecipeDraft,
+  setRepeatedTargetInstances,
   setTargetOption,
   setTargetValueMapping,
 } from './semantic/authoring';
@@ -145,6 +147,10 @@ export type ConnectionController = {
     targetPath: readonly string[],
     optionId: string,
     staticValue?: SourcePropValue,
+  ) => void;
+  setSemanticRepeatedInstances: (
+    targetPath: readonly string[],
+    orderedOptionIds: readonly string[],
   ) => void;
   setSemanticValueMapping: (
     targetPath: readonly string[],
@@ -705,6 +711,18 @@ export function useConnectionController(): ConnectionController {
     setFormField('semanticRecipe', JSON.stringify(updated));
   }
 
+  function setSemanticRepeatedInstances(
+    targetPath: readonly string[],
+    orderedOptionIds: readonly string[],
+  ): void {
+    const recipe = readSemanticRecipe();
+    if (!recipe) {
+      return;
+    }
+    const updated = setRepeatedTargetInstances(recipe, targetPath, orderedOptionIds);
+    setFormField('semanticRecipe', JSON.stringify(updated));
+  }
+
   /**
    * Export a redacted debug bundle for the current connection. The bundle is
    * assembled from the working recipe and current health, then downloaded as
@@ -933,10 +951,13 @@ export function useConnectionController(): ConnectionController {
     setStatusMessage('Analyzing source files…');
 
     try {
-      const inputs = await Promise.all(files.map(async (file) => ({
-        contents: await file.text(),
-        fileName: file.name,
-      })));
+      const collected = await collectSourceUploadInputs(files);
+      if (!collected.ok) {
+        setStatusMessage('');
+        setErrorMessage(collected.message);
+        return;
+      }
+      const inputs = collected.inputs;
       const result = parseSourceComponent(
         inputs,
         formValuesRef.current.componentName.trim() || currentTarget.componentName,
@@ -1351,6 +1372,7 @@ export function useConnectionController(): ConnectionController {
     setCustomPropMappings,
     setFormField,
     setSemanticOption,
+    setSemanticRepeatedInstances,
     setSemanticValueMapping,
     setMappedProperty,
     setMappedValue,

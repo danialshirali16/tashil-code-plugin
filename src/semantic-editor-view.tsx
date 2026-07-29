@@ -18,6 +18,7 @@ import {
 import { renderImportLines } from './layout/imports';
 import {
   OPTION_OMITTED,
+  OPTION_REPEATED,
   OPTION_RUNTIME,
   OPTION_STATIC,
   SECTION_LABELS,
@@ -36,7 +37,11 @@ import {
   type ReconciliationProposal,
 } from './semantic/reconcile';
 import type { SemanticConnectionRecipe } from './semantic/types';
-import type { SourceTargetDescriptor } from './semantic/source-contract';
+import {
+  isRuntimeSourceTargetKind,
+  type SourceTargetDescriptor,
+} from './semantic/source-contract';
+import { configureDirectoryInput } from './source-upload';
 import type { FigmaComponentSnapshot, SourcePropValue } from './types';
 
 export type SemanticMappingViewProps = {
@@ -61,6 +66,10 @@ export type SemanticMappingViewProps = {
     targetPath: readonly string[],
     optionId: string,
     staticValue?: SourcePropValue,
+  ) => void;
+  onRepeatedInstancesChange?: (
+    targetPath: readonly string[],
+    orderedOptionIds: readonly string[],
   ) => void;
 };
 
@@ -139,25 +148,51 @@ export function SemanticMappingView(props: SemanticMappingViewProps): h.JSX.Elem
           <div class="mapping-workbench-source">
             <span class="source-icon" aria-hidden="true">{'</>'}</span>
             <span>
-              <strong>{contract.componentName}</strong>
+              <strong>
+                {contract.componentName}
+                {contract.propsTypeName
+                  ? ` → ${contract.propsTypeName}`
+                  : ''}
+              </strong>
               <small class="source-file">{contract.fileName}</small>
             </span>
           </div>
           {props.onFilesSelected ? (
-            <label class={uploadDisabled ? 'file-button file-button-disabled' : 'file-button'}>
-              {props.sourceUploading ? 'Analyzing…' : 'Replace source'}
-              <input
-                accept=".ts,.tsx"
-                disabled={uploadDisabled}
-                multiple
-                onInput={(event) => {
-                  const files = Array.from(event.currentTarget.files ?? []);
-                  submitFiles(files);
-                  event.currentTarget.value = '';
-                }}
-                type="file"
-              />
-            </label>
+            <div class="source-upload-actions">
+              <label class={uploadDisabled ? 'file-button file-button-disabled' : 'file-button'}>
+                {props.sourceUploading ? 'Analyzing…' : 'Replace source'}
+                <input
+                  accept=".ts,.tsx,.d.ts"
+                  disabled={uploadDisabled}
+                  multiple
+                  onInput={(event) => {
+                    const files = Array.from(event.currentTarget.files ?? []);
+                    submitFiles(files);
+                    event.currentTarget.value = '';
+                  }}
+                  type="file"
+                />
+              </label>
+              <label
+                class={uploadDisabled
+                  ? 'file-button file-button-secondary file-button-disabled'
+                  : 'file-button file-button-secondary'}
+                title="Upload a source folder with dependency declarations"
+              >
+                Folder
+                <input
+                  disabled={uploadDisabled}
+                  multiple
+                  onInput={(event) => {
+                    const files = Array.from(event.currentTarget.files ?? []);
+                    submitFiles(files);
+                    event.currentTarget.value = '';
+                  }}
+                  ref={configureDirectoryInput}
+                  type="file"
+                />
+              </label>
+            </div>
           ) : null}
         </div>
         <div class="mapping-header-summary-row">
@@ -281,6 +316,12 @@ export function SemanticMappingView(props: SemanticMappingViewProps): h.JSX.Elem
                 setActivePath(focusedRow.targetPath);
                 props.onOptionChange(...args);
               }}
+              onRepeatedInstancesChange={props.onRepeatedInstancesChange
+                ? (targetPath, orderedOptionIds) => {
+                    setActivePath(focusedRow.targetPath);
+                    props.onRepeatedInstancesChange?.(targetPath, orderedOptionIds);
+                  }
+                : undefined}
               onValueMappingChange={props.onValueMappingChange
                 ? (...args) => {
                     setActivePath(focusedRow.targetPath);
@@ -384,7 +425,10 @@ function targetState(row: SemanticTargetRow): 'done' | 'todo' | 'blocked' {
   if (row.optionId !== '') {
     return 'done';
   }
-  return row.target.required && row.target.kind === 'visual' ? 'blocked' : 'todo';
+  return row.target.required
+    && (row.target.kind === 'visual' || isRuntimeSourceTargetKind(row.target.kind))
+    ? 'blocked'
+    : 'todo';
 }
 
 /** One-line answer to "what does this prop resolve to right now?". */
@@ -397,6 +441,9 @@ function describeRowValue(row: SemanticTargetRow): string {
   }
   if (row.optionId === OPTION_STATIC) {
     return `static · ${String(row.staticValue ?? '')}`;
+  }
+  if (row.optionId === OPTION_REPEATED) {
+    return `${row.repeatedOptionIds?.length ?? 0} connected`;
   }
   const option = row.options.find((candidate) => candidate.id === row.optionId);
   return option ? option.label : 'not mapped';
@@ -526,13 +573,16 @@ function TargetStatusIcon(props: {
 function PropInspector(props: {
   disabled: boolean;
   onOptionChange: SemanticMappingViewProps['onOptionChange'];
+  onRepeatedInstancesChange?: SemanticMappingViewProps['onRepeatedInstancesChange'];
   onValueMappingChange?: SemanticMappingViewProps['onValueMappingChange'];
   row: SemanticTargetRow;
 }): h.JSX.Element {
   const { row } = props;
   const target = row.target;
   const allowedValues = allowedStaticValues(target);
-  const mappable = target.kind === 'visual' || target.kind === 'node';
+  const repeatedSlot = target.kind === 'array'
+    && target.itemSchemas?.some((item) => item.role === 'item' && item.kind === 'node') === true;
+  const mappable = target.kind === 'visual' || target.kind === 'node' || repeatedSlot;
   const mode = row.optionId === OPTION_RUNTIME || row.optionId === OPTION_STATIC
     ? 'code'
     : row.optionId === OPTION_OMITTED
@@ -578,7 +628,7 @@ function PropInspector(props: {
               onValueChange={(value) => {
                 if (value === 'figma') {
                   choose(row.optionId && ![
-                    OPTION_RUNTIME, OPTION_STATIC, OPTION_OMITTED,
+                    OPTION_RUNTIME, OPTION_STATIC, OPTION_OMITTED, OPTION_REPEATED,
                   ].includes(row.optionId) ? row.optionId : row.options[0]?.id ?? '');
                 } else if (value === 'code') {
                   choose(row.optionId === OPTION_STATIC ? OPTION_STATIC : OPTION_RUNTIME);
@@ -632,6 +682,14 @@ function PropInspector(props: {
                 <p class="choice-none">
                   No component or nested-instance properties can feed a {target.typeName} prop.
                 </p>
+              ) : repeatedSlot ? (
+                <RepeatedSlotEditor
+                  disabled={props.disabled}
+                  onChange={(orderedOptionIds) => {
+                    props.onRepeatedInstancesChange?.(target.path, orderedOptionIds);
+                  }}
+                  row={row}
+                />
               ) : (
                 <div class="mapping-candidate-control">
                   <Dropdown
@@ -734,6 +792,97 @@ function PropInspector(props: {
         </Fragment>
       )}
     </section>
+  );
+}
+
+function RepeatedSlotEditor(props: {
+  disabled: boolean;
+  onChange: (orderedOptionIds: readonly string[]) => void;
+  row: SemanticTargetRow;
+}): h.JSX.Element {
+  const compatible = props.row.options.filter((option) => option.needsCheck !== true);
+  const selected = props.row.repeatedOptionIds ?? [];
+
+  return (
+    <div class="repeated-slot-editor">
+      <div
+        aria-label={`Connected components for ${props.row.targetPath}`}
+        class="repeated-slot-options"
+        role="group"
+      >
+        {compatible.map((option) => {
+          const checked = selected.includes(option.id);
+          return (
+            <label class="repeated-slot-option" key={option.id}>
+              <input
+                checked={checked}
+                disabled={props.disabled}
+                onChange={() => props.onChange(
+                  checked
+                    ? selected.filter((id) => id !== option.id)
+                    : [...selected, option.id],
+                )}
+                type="checkbox"
+              />
+              <span>{option.label}</span>
+              {option.detail ? <small>{option.detail}</small> : null}
+            </label>
+          );
+        })}
+      </div>
+
+      {selected.length > 0 ? (
+        <ol class="repeated-slot-order" aria-label={`Order for ${props.row.targetPath}`}>
+          {selected.map((optionId, index) => {
+            const option = props.row.options.find((candidate) => candidate.id === optionId);
+            const label = option?.label ?? 'Connected component';
+            return (
+              <li key={optionId}>
+                <span>{label}</span>
+                <div>
+                  <button
+                    aria-label={`Move ${label} up`}
+                    disabled={props.disabled || index === 0}
+                    onClick={() => {
+                      const next = [...selected];
+                      [next[index - 1], next[index]] = [next[index], next[index - 1]];
+                      props.onChange(next);
+                    }}
+                    type="button"
+                  >
+                    ↑
+                  </button>
+                  <button
+                    aria-label={`Move ${label} down`}
+                    disabled={props.disabled || index === selected.length - 1}
+                    onClick={() => {
+                      const next = [...selected];
+                      [next[index], next[index + 1]] = [next[index + 1], next[index]];
+                      props.onChange(next);
+                    }}
+                    type="button"
+                  >
+                    ↓
+                  </button>
+                  <button
+                    aria-label={`Remove ${label}`}
+                    disabled={props.disabled}
+                    onClick={() => props.onChange(
+                      selected.filter((id) => id !== optionId),
+                    )}
+                    type="button"
+                  >
+                    Remove
+                  </button>
+                </div>
+              </li>
+            );
+          })}
+        </ol>
+      ) : (
+        <p class="mapping-help">Choose one or more components. Their order is preserved in code.</p>
+      )}
+    </div>
   );
 }
 

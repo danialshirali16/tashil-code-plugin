@@ -34,6 +34,43 @@ describe('validateSemanticRecipe', () => {
     expect(validateSemanticRecipe(asUnknown(createRecipe()))).toMatchObject({ ok: true });
   });
 
+  it('accepts every explicit complex source target kind', () => {
+    const value = asUnknown(createRecipe());
+    value.sourceContract = {
+      componentName: 'DataView',
+      contentHash: 'complex-contract',
+      fileName: 'data-view.tsx',
+      targets: [
+        'array',
+        'record',
+        'date',
+        'file',
+        'render',
+        'styling',
+        'controlled',
+        'environment',
+      ].map(
+        (kind, index) => ({
+          kind,
+          ...(kind === 'array'
+            ? {
+                itemSchemas: [
+                  { kind: 'record', role: 'item', typeName: 'Item' },
+                ],
+              }
+            : {}),
+          ...(kind === 'controlled' ? { controlledBy: ['onChange'] } : {}),
+          ownerProp: `value${index}`,
+          path: [`value${index}`],
+          required: true,
+          typeName: `ComplexType${index}`,
+        }),
+      ),
+    };
+
+    expect(validateSemanticRecipe(value)).toMatchObject({ ok: true });
+  });
+
   it('rejects newer schema versions with an update message', () => {
     const value = asUnknown(createRecipe());
     value.schemaVersion = SEMANTIC_RECIPE_SCHEMA_VERSION + 1;
@@ -57,7 +94,10 @@ describe('validateSemanticRecipe', () => {
 
   it('rejects target paths deeper than the supported nesting level', () => {
     const value = asUnknown(createRecipe());
-    (value.bindings as Array<{ target: { path: string[] } }>)[0].target.path = ['a', 'b', 'c'];
+    (value.bindings as Array<{ target: { path: string[] } }>)[0].target.path = Array.from(
+      { length: SEMANTIC_LIMITS.maxTargetPathDepth + 1 },
+      (_, index) => `level${index}`,
+    );
 
     expect(validateSemanticRecipe(value).ok).toBe(false);
   });

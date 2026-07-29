@@ -9,7 +9,9 @@
  */
 
 import { CONNECTION_KEY, CONNECTION_NAMESPACE } from '../types';
+import { validateSemanticRecipe } from './schema';
 import { SEMANTIC_LIMITS } from './types';
+import type { SemanticConnectionRecipe } from './types';
 import type { SemanticNodeLike } from './figma-extractor';
 
 /**
@@ -53,9 +55,16 @@ async function convertNode(
         converted.hasOwnConnection = true;
         converted.connectedComponentName = connection.componentName;
         converted.connectedImportPath = connection.importPath;
+        if (connection.semanticRecipe !== undefined) {
+          converted.connectedRecipe = connection.semanticRecipe;
+        }
       }
     }
     converted.componentProperties = readInstanceProperties(node);
+    const instanceSwaps = await readInstanceSwaps(node);
+    if (Object.keys(instanceSwaps).length > 0) {
+      converted.instanceSwaps = instanceSwaps;
+    }
   }
 
   if (depth >= SEMANTIC_LIMITS.maxLocatorDepth || budget.remaining <= 0) {
@@ -102,7 +111,11 @@ function readComponentKey(mainComponent: ComponentNode): string | undefined {
  */
 function readOwnConnection(
   mainComponent: ComponentNode,
-): { componentName: string; importPath: string } | undefined {
+): {
+  componentName: string;
+  importPath: string;
+  semanticRecipe?: SemanticConnectionRecipe;
+} | undefined {
   let raw: string;
   try {
     const owner = mainComponent.parent?.type === 'COMPONENT_SET'
@@ -129,7 +142,14 @@ function readOwnConnection(
         componentName: string;
         importPath: string;
       };
-      return { componentName, importPath };
+      const recipeValidation = validateSemanticRecipe(
+        (parsed as { semanticRecipe?: unknown }).semanticRecipe,
+      );
+      return {
+        componentName,
+        importPath,
+        ...(recipeValidation.ok ? { semanticRecipe: recipeValidation.recipe } : {}),
+      };
     }
   } catch (_error) {
     // A malformed child connection simply yields no component identity.
@@ -152,6 +172,39 @@ function readInstanceProperties(node: InstanceNode): Record<string, string | boo
   }
 
   return properties;
+}
+
+async function readInstanceSwaps(
+  node: InstanceNode,
+): Promise<Record<string, { componentId: string; componentName: string }>> {
+  const swaps = Object.create(null) as Record<
+    string,
+    { componentId: string; componentName: string }
+  >;
+
+  try {
+    for (const [rawName, property] of Object.entries(node.componentProperties)) {
+      if (property.type !== 'INSTANCE_SWAP' || typeof property.value !== 'string') {
+        continue;
+      }
+      let component: BaseNode | null;
+      try {
+        component = await figma.getNodeByIdAsync(property.value);
+      } catch (_error) {
+        continue;
+      }
+      if (component?.type === 'COMPONENT') {
+        swaps[normalizePropertyName(rawName)] = {
+          componentId: component.id,
+          componentName: component.name,
+        };
+      }
+    }
+  } catch (_error) {
+    // Detached or inaccessible instances expose no resolved swap identities.
+  }
+
+  return swaps;
 }
 
 /** Strip the `#id` suffix Figma appends to non-variant property names. */

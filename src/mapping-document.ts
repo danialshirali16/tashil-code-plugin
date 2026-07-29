@@ -97,6 +97,10 @@ function isSourceComponentSnapshot(value: unknown): value is SourceComponentSnap
     && value.contentHash.length > 0
     && typeof value.fileName === 'string'
     && value.fileName.length > 0
+    && (value.propsTypeName === undefined || (
+      typeof value.propsTypeName === 'string'
+      && value.propsTypeName.length > 0
+    ))
     && Array.isArray(value.props)
     && value.props.every(isSourcePropDescriptor);
 }

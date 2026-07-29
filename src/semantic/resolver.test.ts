@@ -18,6 +18,96 @@ function resolveDialog() {
 }
 
 describe('resolveSemanticUsage', () => {
+  it('connects the standalone Icon and validates its name against IconNames', () => {
+    const recipe: SemanticConnectionRecipe = {
+      bindings: [{
+        id: 'binding-icon-name',
+        requirement: 'required',
+        source: {
+          kind: 'component-property',
+          propertyId: 'icon-name',
+          propertyName: 'name',
+        },
+        target: { path: ['name'], typeName: 'IconNames' },
+      }],
+      figmaSnapshot: {
+        componentId: 'icon',
+        componentName: 'Icon',
+        nestedSources: [],
+      },
+      revision: 1,
+      schemaVersion: 1,
+      sourceContract: {
+        componentName: 'Icon',
+        contentHash: 'icon-source',
+        fileName: 'icon/Icon.types.ts',
+        propsTypeName: 'IconProps',
+        targets: [{
+          kind: 'visual',
+          ownerProp: 'name',
+          path: ['name'],
+          required: true,
+          typeName: 'IconNames',
+          values: ['', 'plus', 'trash'],
+        }],
+      },
+    };
+
+    const valid = resolveSemanticUsage(
+      'Icon',
+      '@tashilcar/swiss-army-knife',
+      recipe,
+      { componentProperties: { name: 'trash' } },
+    );
+    const invalid = resolveSemanticUsage(
+      'Icon',
+      '@tashilcar/swiss-army-knife',
+      recipe,
+      { componentProperties: { name: 'fictional-icon' } },
+    );
+
+    expect(valid.issues).toEqual([]);
+    expect(valid.usage.jsx).toBe('<Icon name={"trash"} />');
+    expect(invalid.usage.jsx).toBe('<Icon />');
+    expect(invalid.issues).toEqual([
+      'Required value "name" could not be resolved: Icon name "fictional-icon" is not declared by IconNames.',
+    ]);
+  });
+
+  it('keeps arbitrary fixed values available for non-Icon component props', () => {
+    const recipe = createDialogRecipe();
+    recipe.bindings = [{
+      id: 'binding-variant',
+      requirement: 'required',
+      source: { kind: 'static', value: 'custom-variant' },
+      target: { path: ['variant'], typeName: 'ButtonVariantType' },
+    }];
+    recipe.sourceContract = {
+      componentName: 'Button',
+      contentHash: 'button-source',
+      fileName: 'button/types.ts',
+      propsTypeName: 'ButtonProps',
+      targets: [{
+        kind: 'visual',
+        ownerProp: 'variant',
+        path: ['variant'],
+        required: true,
+        typeName: 'ButtonVariantType',
+        values: ['solid', 'outline', 'ghost'],
+      }],
+    };
+
+    const result = resolveSemanticUsage(
+      'Button',
+      '@tashilcar/swiss-army-knife',
+      recipe,
+      { componentProperties: {} },
+    );
+
+    expect(result.issues).toEqual([]);
+    expect(result.usage.jsx).toBe('<Button variant={"custom-variant"} />');
+  });
+
   it('generates the approved ConfirmationDialog usage from a mismatched Figma structure', () => {
     const result = resolveDialog();
 
@@ -36,7 +126,7 @@ describe('resolveSemanticUsage', () => {
         '  description={"This action cannot be undone."}',
         '  cancelAction={{ label: "Cancel" }}',
         '  confirmAction={{ label: "Delete" }}',
-        '  onConfirm={undefined /* Set in application. */}',
+        '  onConfirm={onConfirm /* Set in application. */}',
         '/>',
       ].join('\n'),
     );
@@ -54,9 +144,190 @@ describe('resolveSemanticUsage', () => {
     const result = resolveDialog();
 
     expect(result.runtimeRequirements).toEqual([
-      { targetPath: 'onConfirm', typeName: '() => void' },
+      { placeholder: 'onConfirm', targetPath: 'onConfirm', typeName: '() => void' },
     ]);
     expect(result.issues).toEqual([]);
+  });
+
+  it('renders complex runtime targets as actionable, type-preserving placeholders', () => {
+    const recipe = createDialogRecipe();
+    recipe.bindings = [
+      {
+        id: 'binding-items',
+        requirement: 'runtime',
+        source: { kind: 'runtime' },
+        target: { path: ['items'], typeName: 'Item[]' },
+      },
+      {
+        id: 'binding-render-item',
+        requirement: 'runtime',
+        source: { kind: 'runtime' },
+        target: { path: ['renderItem'], typeName: '(item: Item) => ReactNode' },
+      },
+    ];
+
+    const result = resolveSemanticUsage('DataView', '@tashilcar/ui', recipe, {
+      componentProperties: {},
+      root: { name: 'DataView', type: 'INSTANCE' },
+    });
+
+    expect(result.issues).toEqual([]);
+    expect(result.usage.jsx).toContain('items={items /* Set in application. */}');
+    expect(result.usage.jsx).toContain('renderItem={renderItem /* Set in application. */}');
+    expect(result.runtimeRequirements).toEqual([
+      { placeholder: 'items', targetPath: 'items', typeName: 'Item[]' },
+      {
+        placeholder: 'renderItem',
+        targetPath: 'renderItem',
+        typeName: '(item: Item) => ReactNode',
+      },
+    ]);
+  });
+
+  it('does not emit a connected child that violates an explicit ReactElement type', () => {
+    const recipe = createDialogRecipe();
+    recipe.bindings = [{
+      id: 'binding-action',
+      requirement: 'required',
+      source: {
+        componentName: 'Avatar',
+        importPath: '@tashilcar/ui',
+        kind: 'instance',
+        locator: {
+          componentKey: 'avatar-key',
+          fragile: false,
+          namePath: ['Action'],
+        },
+      },
+      target: {
+        path: ['action'],
+        typeName: 'ReactElement<ButtonProps, typeof Button>',
+      },
+    }];
+
+    const result = resolveSemanticUsage('Card', '@tashilcar/ui', recipe, {
+      componentProperties: {},
+    });
+
+    expect(result.usage.jsx).toBe('<Card />');
+    expect(result.issues).toEqual([
+      'Required value "action" could not be resolved: Avatar is incompatible with ReactElement<ButtonProps, typeof Button>; expected Button.',
+    ]);
+    expect(result.explanations).toContainEqual({
+      outcome: 'unresolved',
+      reason: 'Avatar is incompatible with ReactElement<ButtonProps, typeof Button>; expected Button.',
+      targetPath: 'action',
+    });
+  });
+
+  it('assembles recursively mapped object leaves into nested object literals', () => {
+    const recipe = createDialogRecipe();
+    recipe.bindings = [
+      {
+        id: 'binding-primary',
+        requirement: 'required',
+        source: { kind: 'static', value: '#0057b8' },
+        target: {
+          path: ['config', 'theme', 'palette', 'primary'],
+          typeName: 'string',
+        },
+      },
+      {
+        id: 'binding-dense',
+        requirement: 'required',
+        source: { kind: 'static', value: true },
+        target: {
+          path: ['config', 'theme', 'dense'],
+          typeName: 'boolean',
+        },
+      },
+    ];
+
+    const result = resolveSemanticUsage('Widget', '@tashilcar/ui', recipe, {
+      componentProperties: {},
+      root: { name: 'Widget', type: 'INSTANCE' },
+    });
+
+    expect(result.issues).toEqual([]);
+    expect(result.usage.jsx).toContain(
+      'config={{ theme: { palette: { primary: "#0057b8" }, dense: true } }}',
+    );
+  });
+
+  it('allocates safe, collision-free identifiers for nested runtime values', () => {
+    const recipe = createDialogRecipe();
+    recipe.bindings = [
+      {
+        id: 'binding-nested-theme',
+        requirement: 'runtime',
+        source: { kind: 'runtime' },
+        target: { path: ['config', 'theme'], typeName: 'ThemeConfig' },
+      },
+      {
+        id: 'binding-flat-theme',
+        requirement: 'runtime',
+        source: { kind: 'runtime' },
+        target: { path: ['configTheme'], typeName: 'ThemeConfig' },
+      },
+      {
+        id: 'binding-reserved',
+        requirement: 'runtime',
+        source: { kind: 'runtime' },
+        target: { path: ['default'], typeName: 'string' },
+      },
+    ];
+
+    const result = resolveSemanticUsage('Widget', '@tashilcar/ui', recipe, {
+      componentProperties: {},
+      root: { name: 'Widget', type: 'INSTANCE' },
+    });
+
+    expect(result.usage.jsx).toContain(
+      'config={{ theme: configTheme /* Set in application. */ }}',
+    );
+    expect(result.usage.jsx).toContain(
+      'configTheme={configTheme2 /* Set in application. */}',
+    );
+    expect(result.usage.jsx).toContain(
+      'default={runtimeDefault /* Set in application. */}',
+    );
+  });
+
+  it('generates named collection, controlled-state, and callback placeholders together', () => {
+    const recipe = createDialogRecipe();
+    recipe.bindings = [
+      {
+        id: 'binding-options',
+        requirement: 'runtime',
+        source: { kind: 'runtime' },
+        target: { path: ['options'], typeName: 'Option[]' },
+      },
+      {
+        id: 'binding-value',
+        requirement: 'runtime',
+        source: { kind: 'runtime' },
+        target: { path: ['value'], typeName: 'Option | null' },
+      },
+      {
+        id: 'binding-change',
+        requirement: 'runtime',
+        source: { kind: 'runtime' },
+        target: { path: ['onChange'], typeName: '(value: Option | null) => void' },
+      },
+    ];
+
+    const result = resolveSemanticUsage('TashilDropdown', '@tashilcar/ui', recipe, {
+      componentProperties: {},
+      root: { name: 'TashilDropdown', type: 'INSTANCE' },
+    });
+
+    expect(result.usage.jsx).toBe(
+      '<TashilDropdown options={options /* Set in application. */} '
+      + 'value={value /* Set in application. */} '
+      + 'onChange={onChange /* Set in application. */} />',
+    );
+    expect(result.runtimeRequirements.map(({ placeholder }) => placeholder))
+      .toEqual(['options', 'value', 'onChange']);
   });
 
   it('explains every target', () => {
@@ -194,6 +465,85 @@ describe('resolveSemanticUsage', () => {
     });
 
     expect(result.deprecation).toBeUndefined();
+  });
+
+  it('resolves Button icon slots from paired visibility and instance-swap properties', () => {
+    const recipe = createDialogRecipe();
+    recipe.bindings = [
+      {
+        id: 'binding-left-icon',
+        requirement: 'optional',
+        source: {
+          kind: 'component-property',
+          propertyId: 'has-leading-icon',
+          propertyName: 'hasLeadingIcon',
+        },
+        target: { path: ['renderLeftIcon'], typeName: 'ReactNode' },
+      },
+      {
+        id: 'binding-right-icon',
+        requirement: 'optional',
+        source: {
+          kind: 'component-property',
+          propertyId: 'trailing-icon',
+          propertyName: 'trailingIcon',
+        },
+        target: { path: ['renderRightIcon'], typeName: 'ReactNode' },
+      },
+    ];
+
+    const result = resolveSemanticUsage(
+      'Button',
+      '@tashilcar/swiss-army-knife',
+      recipe,
+      {
+        componentProperties: {
+          hasLeadingIcon: true,
+          trailingIcon: 'chevron-left-id',
+        },
+        instanceSwaps: {
+          leadingIcon: { componentId: 'plus-id', componentName: 'Icon / Trash' },
+          trailingIcon: { componentId: 'chevron-left-id', componentName: 'ChevronLeft' },
+        },
+      },
+    );
+
+    expect(result.issues).toEqual([]);
+    expect(result.usage.jsx).toContain('renderLeftIcon={<Icon name={"trash"} />}');
+    expect(result.usage.jsx).toContain('renderRightIcon={<Icon name={"chevron-left"} />}');
+    expect(result.usage.imports).toContainEqual({
+      importedName: 'Icon',
+      localName: 'Icon',
+      modulePath: '@tashilcar/swiss-army-knife',
+    });
+  });
+
+  it('omits a hidden Button icon instead of emitting a bare boolean prop', () => {
+    const recipe = createDialogRecipe();
+    recipe.bindings = [{
+      id: 'binding-left-icon',
+      requirement: 'optional',
+      source: {
+        kind: 'component-property',
+        propertyId: 'has-leading-icon',
+        propertyName: 'hasLeadingIcon',
+      },
+      target: { path: ['renderLeftIcon'], typeName: 'ReactNode' },
+    }];
+
+    const result = resolveSemanticUsage(
+      'Button',
+      '@tashilcar/swiss-army-knife',
+      recipe,
+      {
+        componentProperties: { hasLeadingIcon: false },
+        instanceSwaps: {
+          leadingIcon: { componentId: 'plus-id', componentName: 'Plus' },
+        },
+      },
+    );
+
+    expect(result.usage.jsx).not.toContain('renderLeftIcon');
   });
 });
 

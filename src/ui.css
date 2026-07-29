@@ -1121,6 +1121,16 @@ body {
   background: var(--figma-color-bg-brand-hover);
 }
 
+.file-button-secondary {
+  background: var(--figma-color-bg-secondary);
+  box-shadow: inset 0 0 0 1px var(--figma-color-border);
+  color: var(--figma-color-text);
+}
+
+.file-button-secondary:hover {
+  background: var(--figma-color-bg-hover);
+}
+
 .file-button:focus-within {
   outline: 2px solid var(--figma-color-border-brand-strong, currentColor);
   outline-offset: 2px;
@@ -1137,6 +1147,13 @@ body {
   overflow: hidden;
   position: absolute;
   width: 1px;
+}
+
+.source-upload-actions {
+  align-items: center;
+  display: flex;
+  flex: none;
+  gap: 6px;
 }
 
 .source-summary {
@@ -2750,6 +2767,55 @@ body {
   width: 100%;
 }
 
+.repeated-slot-editor {
+  display: grid;
+  gap: 12px;
+}
+
+.repeated-slot-options {
+  display: grid;
+  gap: 6px;
+}
+
+.repeated-slot-option {
+  align-items: center;
+  border: 1px solid var(--figma-color-border);
+  border-radius: 6px;
+  cursor: pointer;
+  display: grid;
+  gap: 8px;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  min-height: 36px;
+  padding: 6px 10px;
+}
+
+.repeated-slot-option small {
+  color: var(--figma-color-text-secondary);
+}
+
+.repeated-slot-order {
+  display: grid;
+  gap: 6px;
+  list-style-position: inside;
+  margin: 0;
+  padding: 0;
+}
+
+.repeated-slot-order li {
+  align-items: center;
+  background: var(--figma-color-bg-secondary);
+  border-radius: 6px;
+  display: flex;
+  justify-content: space-between;
+  min-height: 36px;
+  padding: 6px 8px;
+}
+
+.repeated-slot-order li div {
+  display: flex;
+  gap: 4px;
+}
+
 .prop-status-icon {
   align-items: center;
   display: flex;
@@ -2863,7 +2929,7 @@ body {
     grid-row: 2;
   }
 
-  .mapping-workbench-header .file-button {
+  .mapping-workbench-header > .source-upload-actions {
     grid-column: 2;
     grid-row: 1;
   }

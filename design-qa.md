@@ -149,3 +149,13 @@ final result: passed
 - Radio indicators now use a 16×16 border-box with an optically centered 8×8 selected dot.
 - The source summary header stays in exactly two rows at every viewport: source/action first, mapping summary/progress second.
 - Verified in the browser at 973×814 in the selected “In the app” state.
+## Pass 15 — Save loading feedback
+
+- The primary Save button uses the existing button loading indicator while a save mutation is pending.
+- The label changes to “Saving…”, the spinner remains visible, and the disabled state prevents duplicate submissions until the matching result returns.
+## Pass 16 — Nested icon identity in Inspect Code
+
+- ReactNode icon slots now preserve the mapped nested icon instance and its selected `name` property.
+- Exposed nested `name` and `iconName` properties are reconstructed with the design-system `Icon` export, so Volkswagen Button receives a React node rather than the plain string `"trash"`.
+- Inspect Code renders the complete slot value, for example `renderLeftIcon={<Icon name={"trash"} />}`, and imports `Icon` beside `Button` from the same package while non-icon nested properties keep their existing output.
+- Browser verification at 789×730 confirms the nested “Leading icon: name - trash” source resolves into the generated usage preview.

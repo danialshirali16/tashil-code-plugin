@@ -15,13 +15,22 @@ import type {
   FigmaPropertyDescriptor,
   SourcePropValue,
 } from '../types';
-import type { SourceContract, SourceTargetDescriptor } from './source-contract';
+import { getAcceptedComponentNames } from './component-compatibility';
+import { getComplexComponentRecipe } from './complex-recipes';
+import {
+  isRuntimeSourceTargetKind,
+  type SourceCollectionItemSchema,
+  type SourceContract,
+  type SourceTargetDescriptor,
+} from './source-contract';
 import {
   SEMANTIC_RECIPE_SCHEMA_VERSION,
+  SEMANTIC_LIMITS,
   formatTargetPath,
   locatorKey,
   type FigmaNestedSourceDescriptor,
   type FigmaSemanticSnapshot,
+  type ConnectedInstanceItem,
   type SemanticBinding,
   type SemanticBindingSource,
   type SemanticConnectionRecipe,
@@ -32,6 +41,7 @@ export type SemanticTargetSection =
   | 'content'
   | 'variants'
   | 'actions'
+  | 'data'
   | 'slots'
   | 'behavior'
   | 'excluded';
@@ -40,6 +50,7 @@ export const SECTION_LABELS: Record<SemanticTargetSection, string> = {
   actions: 'Actions',
   behavior: 'Application behavior',
   content: 'Content',
+  data: 'Application data',
   excluded: 'Excluded by policy',
   slots: 'Slots',
   variants: 'Variants & states',
@@ -50,6 +61,7 @@ export const OPTION_UNSET = '';
 export const OPTION_RUNTIME = 'runtime';
 export const OPTION_STATIC = 'static';
 export const OPTION_OMITTED = 'omitted';
+export const OPTION_REPEATED = 'repeated';
 
 export type SemanticValueOption = {
   id: string;
@@ -78,6 +90,8 @@ export type SemanticTargetRow = {
   targetPath: string;
   section: SemanticTargetSection;
   optionId: string;
+  /** Stable source ids in authored order for an array-valued component slot. */
+  repeatedOptionIds?: string[];
   staticValue?: SourcePropValue;
   options: SemanticValueOption[];
   suggestion?: { optionId: string; reason: string };
@@ -101,8 +115,11 @@ export function getTargetSection(target: SourceTargetDescriptor): SemanticTarget
   if (target.kind === 'event') {
     return 'behavior';
   }
-  if (target.kind === 'node') {
+  if (target.kind === 'node' || target.kind === 'render') {
     return 'slots';
+  }
+  if (isRuntimeSourceTargetKind(target.kind)) {
+    return 'data';
   }
   if (target.kind === 'excluded' || target.kind === 'unsupported') {
     return 'excluded';
@@ -161,6 +178,9 @@ function isPropertyCompatible(
   target: SourceTargetDescriptor,
   property: FigmaPropertyDescriptor,
 ): boolean {
+  if (target.kind === 'node') {
+    return property.type === 'INSTANCE_SWAP';
+  }
   if (target.kind !== 'visual') {
     return false;
   }
@@ -187,7 +207,13 @@ function isNestedCompatible(
   // A connected nested instance is a whole component, so it fits exactly the
   // targets that expect one (ReactNode slots) and nothing else.
   if (descriptor.kind === 'nested-instance') {
-    return target.kind === 'node' && descriptor.connectedComponentName !== undefined;
+    const itemNode = findRepeatedNodeItemSchema(target);
+    const acceptsComponents = target.kind === 'node' || itemNode !== undefined;
+    if (!acceptsComponents || descriptor.connectedComponentName === undefined) {
+      return false;
+    }
+    const accepted = getAcceptedComponentNames(itemNode?.typeName ?? target.typeName);
+    return accepted.length === 0 || accepted.includes(descriptor.connectedComponentName);
   }
 
   if (target.kind !== 'visual') {
@@ -203,6 +229,14 @@ function isNestedCompatible(
   // Literal unions need a declarative transform; v1 authors that only for
   // top-level variant properties, so nested properties feed free values.
   return values.length === 0 || isBoolean;
+}
+
+function findRepeatedNodeItemSchema(
+  target: SourceTargetDescriptor,
+): SourceCollectionItemSchema | undefined {
+  return target.kind === 'array'
+    ? target.itemSchemas?.find((item) => item.role === 'item' && item.kind === 'node')
+    : undefined;
 }
 
 /**
@@ -261,11 +295,29 @@ export function suggestOption(
   figmaSnapshot: FigmaComponentSnapshot | undefined,
   semanticSnapshot: FigmaSemanticSnapshot,
 ): { optionId: string; reason: string } | undefined {
-  if (target.kind === 'event') {
+  if (isRuntimeSourceTargetKind(target.kind)) {
     return {
       optionId: OPTION_RUNTIME,
-      reason: 'Callbacks are provided by application code.',
+      reason: target.kind === 'event'
+        ? 'Callbacks are provided by application code.'
+        : 'Complex values are provided by application code.',
     };
+  }
+  if (target.kind === 'node') {
+    const preferredName = normalize(target.path[target.path.length - 1])
+      .replace(/^render/, '')
+      .replace(/^left/, 'leading')
+      .replace(/^right/, 'trailing');
+    const propertyMatches = (figmaSnapshot?.properties ?? []).filter(
+      (property) => isPropertyCompatible(target, property)
+        && nameMatches(preferredName, property.name),
+    );
+    if (propertyMatches.length === 1) {
+      return {
+        optionId: propertyOptionId(propertyMatches[0]),
+        reason: `Figma instance property "${propertyMatches[0].name}" supplies "${target.path[target.path.length - 1]}".`,
+      };
+    }
   }
   if (target.kind !== 'visual') {
     return undefined;
@@ -342,6 +394,7 @@ export function createRecipeDraft(
     (existing?.bindings ?? []).map((binding) => [formatTargetPath(binding.target), binding]),
   );
   const bindings: SemanticBinding[] = [];
+  const complexRecipe = getComplexComponentRecipe(contract.componentName);
 
   for (const target of contract.targets) {
     const targetPath = target.path.join('.');
@@ -351,7 +404,19 @@ export function createRecipeDraft(
       continue;
     }
 
-    const suggestion = suggestOption(target, figmaSnapshot, semanticSnapshot);
+    const complexDefault = complexRecipe && isRuntimeSourceTargetKind(target.kind)
+      ? target.required || complexRecipe.runtimeTargets.includes(targetPath)
+        ? OPTION_RUNTIME
+        : OPTION_OMITTED
+      : undefined;
+    const suggestion = complexDefault
+      ? {
+          optionId: complexDefault,
+          reason: complexDefault === OPTION_RUNTIME
+            ? complexRecipe?.summary ?? 'Provided by application code.'
+            : 'Optional advanced input is left out by the component recipe.',
+        }
+      : suggestOption(target, figmaSnapshot, semanticSnapshot);
     if (!suggestion) {
       continue;
     }
@@ -419,11 +484,104 @@ export function setTargetOption(
     : { ...recipe, bindings: remaining };
 }
 
+/**
+ * Replace an array target with an explicitly ordered list of connected nested
+ * instances. Option ids use the same stable locator-based ids as the ordinary
+ * source picker, so reordering never depends on display names.
+ */
+export function setRepeatedTargetInstances(
+  recipe: SemanticConnectionRecipe,
+  targetPath: readonly string[],
+  orderedOptionIds: readonly string[],
+): SemanticConnectionRecipe {
+  const path = targetPath.join('.');
+  const target = recipe.sourceContract?.targets.find(
+    (candidate) => candidate.path.join('.') === path,
+  );
+  const remaining = recipe.bindings.filter(
+    (binding) => formatTargetPath(binding.target) !== path,
+  );
+  if (
+    target?.kind !== 'array'
+    || orderedOptionIds.length === 0
+    || orderedOptionIds.length > SEMANTIC_LIMITS.maxRepeatedSlotItems
+  ) {
+    return { ...recipe, bindings: remaining };
+  }
+
+  const items: ConnectedInstanceItem[] = [];
+  for (const optionId of orderedOptionIds) {
+    const descriptor = findNestedByOptionId(recipe.figmaSnapshot, optionId);
+    if (
+      descriptor?.kind !== 'nested-instance'
+      || descriptor.connectedComponentName === undefined
+      || descriptor.connectedImportPath === undefined
+      || !isNestedCompatible(target, descriptor)
+    ) {
+      return recipe;
+    }
+    items.push({
+      componentName: descriptor.connectedComponentName,
+      importPath: descriptor.connectedImportPath,
+      locator: descriptor.locator,
+    });
+  }
+
+  const itemNode = findRepeatedNodeItemSchema(target);
+  const binding: SemanticBinding = {
+    id: `target:${path}`,
+    requirement: target.required ? 'required' : 'optional',
+    source: {
+      items,
+      kind: 'instances',
+      ...(itemNode?.path
+        ? { itemPath: itemNode.path }
+        : {}),
+    },
+    target: { path: [...target.path], typeName: target.typeName },
+  };
+  return { ...recipe, bindings: [...remaining, binding] };
+}
+
+/** Reorder one existing repeated slot item without rebuilding its sources. */
+export function moveRepeatedTargetInstance(
+  recipe: SemanticConnectionRecipe,
+  targetPath: readonly string[],
+  fromIndex: number,
+  toIndex: number,
+): SemanticConnectionRecipe {
+  const path = targetPath.join('.');
+  return {
+    ...recipe,
+    bindings: recipe.bindings.map((binding) => {
+      if (
+        formatTargetPath(binding.target) !== path
+        || binding.source.kind !== 'instances'
+        || fromIndex < 0
+        || fromIndex >= binding.source.items.length
+        || toIndex < 0
+        || toIndex >= binding.source.items.length
+        || fromIndex === toIndex
+      ) {
+        return binding;
+      }
+      const items = [...binding.source.items];
+      const [moved] = items.splice(fromIndex, 1);
+      items.splice(toIndex, 0, moved);
+      return { ...binding, source: { ...binding.source, items } };
+    }),
+  };
+}
+
 /** Read the active option id for a target back out of the recipe. */
 export function getTargetOptionId(
   recipe: SemanticConnectionRecipe,
   target: SourceTargetDescriptor,
-): { optionId: string; staticValue?: SourcePropValue } {
+): {
+  optionId: string;
+  repeatedOptionIds?: string[];
+  staticValue?: SourcePropValue;
+} {
   const binding = recipe.bindings.find(
     (candidate) => formatTargetPath(candidate.target) === target.path.join('.'),
   );
@@ -443,6 +601,13 @@ export function getTargetOptionId(
       };
     case 'instance':
       return { optionId: `nested:nested-instance:${locatorKey(source.locator)}:` };
+    case 'instances':
+      return {
+        optionId: OPTION_REPEATED,
+        repeatedOptionIds: source.items.map(
+          (item) => `nested:nested-instance:${locatorKey(item.locator)}:`,
+        ),
+      };
     case 'static':
       return { optionId: OPTION_STATIC, staticValue: source.value };
     case 'runtime':
@@ -461,7 +626,7 @@ function createBindingForOption(
 ): SemanticBinding | undefined {
   const base = {
     id: `target:${target.path.join('.')}`,
-    requirement: target.kind === 'event'
+    requirement: isRuntimeSourceTargetKind(target.kind)
       ? 'runtime' as const
       : target.required
         ? 'required' as const
@@ -516,14 +681,17 @@ function createBindingForOption(
       ) {
         return undefined;
       }
+      const item: ConnectedInstanceItem = {
+        componentName: descriptor.connectedComponentName,
+        importPath: descriptor.connectedImportPath,
+        locator: descriptor.locator,
+      };
       return {
         ...base,
-        source: {
-          componentName: descriptor.connectedComponentName,
-          importPath: descriptor.connectedImportPath,
-          kind: 'instance',
-          locator: descriptor.locator,
-        },
+        requirement: target.required ? 'required' : 'optional',
+        source: target.kind === 'array'
+          ? { items: [item], kind: 'instances' }
+          : { ...item, kind: 'instance' },
       };
     }
 
@@ -643,6 +811,11 @@ export function getUsedSourceOptionIds(recipe: SemanticConnectionRecipe): Set<st
       case 'instance':
         used.add(`nested:nested-instance:${locatorKey(source.locator)}:`);
         break;
+      case 'instances':
+        for (const item of source.items) {
+          used.add(`nested:nested-instance:${locatorKey(item.locator)}:`);
+        }
+        break;
       default:
         break;
     }
@@ -665,13 +838,14 @@ export function buildTargetRows(
     'content',
     'variants',
     'actions',
+    'data',
     'slots',
     'behavior',
     'excluded',
   ];
 
   const rows = contract.targets.map((target): SemanticTargetRow => {
-    const { optionId, staticValue } = getTargetOptionId(recipe, target);
+    const { optionId, repeatedOptionIds, staticValue } = getTargetOptionId(recipe, target);
     const binding = recipe.bindings.find(
       (candidate) => formatTargetPath(candidate.target) === target.path.join('.'),
     );
@@ -680,6 +854,7 @@ export function buildTargetRows(
     return {
       optionId,
       options: buildValueOptions(target, figmaSnapshot, recipe.figmaSnapshot),
+      ...(repeatedOptionIds !== undefined ? { repeatedOptionIds } : {}),
       ...(valueMappings ? { valueMappings } : {}),
       section: getTargetSection(target),
       ...(staticValue !== undefined ? { staticValue } : {}),
@@ -790,11 +965,41 @@ export function validateRecipeDraft(
       }
     }
 
-    if (target.kind === 'event' && target.required && !binding) {
-      errors.push(`Mark the required callback "${targetPath}" as set in application.`);
+    if (isRuntimeSourceTargetKind(target.kind) && target.required && !binding) {
+      errors.push(
+        target.kind === 'event'
+          ? `Mark the required callback "${targetPath}" as set in application.`
+          : `Mark the required ${target.kind} value "${targetPath}" as set in application.`,
+      );
     }
 
     if (binding) {
+      if (
+        target.kind === 'node'
+        && binding.source.kind === 'instance'
+      ) {
+        const accepted = getAcceptedComponentNames(target.typeName);
+        if (
+          accepted.length > 0
+          && !accepted.includes(binding.source.componentName)
+        ) {
+          errors.push(
+            `"${targetPath}" accepts ${accepted.join(' or ')}, not ${binding.source.componentName}.`,
+          );
+        }
+      }
+
+      if (target.kind === 'array' && binding.source.kind === 'instances') {
+        const accepted = getAcceptedComponentNames(target.typeName);
+        for (const item of binding.source.items) {
+          if (accepted.length > 0 && !accepted.includes(item.componentName)) {
+            errors.push(
+              `"${targetPath}" accepts ${accepted.join(' or ')}, not ${item.componentName}.`,
+            );
+          }
+        }
+      }
+
       if (
         (binding.source.kind === 'nested-text' || binding.source.kind === 'nested-property')
         && binding.source.locator.fragile
@@ -832,6 +1037,7 @@ export function validateRecipeDraft(
 export function hasStructuralMismatch(recipe: SemanticConnectionRecipe): boolean {
   return recipe.bindings.some(
     (binding) => binding.source.kind === 'nested-text'
-      || binding.source.kind === 'nested-property',
+      || binding.source.kind === 'nested-property'
+      || binding.source.kind === 'instances',
   );
 }

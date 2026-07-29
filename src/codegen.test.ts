@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import * as ts from 'typescript';
 import {
   createMappedProps,
+  createIconName,
   createOpeningTag,
   createSelfClosingTag,
   createUsageSnippet,
@@ -41,6 +42,14 @@ function createValidUsageSnippet(metadata: ConnectionMetadata, selection: Select
   expectValidTypeScript(result.code);
   return result.code;
 }
+
+describe('createIconName', () => {
+  it('uses kebab case and removes only the leading Icon namespace', () => {
+    expect(createIconName('ChevronLeft')).toBe('chevron-left');
+    expect(createIconName('Icon / Trash')).toBe('trash');
+    expect(createIconName('ContractCheck')).toBe('contract-check');
+  });
+});
 
 describe('formatJsxChildren', () => {
   it('leaves plain text unchanged (bare JSX text)', () => {

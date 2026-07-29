@@ -14,6 +14,7 @@ import {
   locatorKey,
   type FigmaNestedSourceDescriptor,
   type FigmaSemanticSnapshot,
+  type SemanticConnectionRecipe,
   type SemanticLocator,
 } from './types';
 
@@ -28,11 +29,22 @@ export type SemanticNodeLike = {
   mainComponentKey?: string;
   /** Exposed component property values on an INSTANCE node. */
   componentProperties?: Readonly<Record<string, string | boolean>>;
+  /** Resolved identities for INSTANCE_SWAP properties on this exact instance. */
+  instanceSwaps?: Readonly<Record<string, {
+    componentId: string;
+    componentName: string;
+  }>>;
   /** True when a Tashil connection is stored on the instance's main component. */
   hasOwnConnection?: boolean;
   /** The connected child's public component identity, when it has one. */
   connectedComponentName?: string;
   connectedImportPath?: string;
+  /**
+   * Validated recipe stored on the connected child's own main component.
+   * Kept only in the live semantic tree; parent snapshots still persist the
+   * child's public identity rather than duplicating its recipe.
+   */
+  connectedRecipe?: SemanticConnectionRecipe;
 };
 
 export type SemanticExtractionResult = {

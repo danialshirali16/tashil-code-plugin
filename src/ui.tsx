@@ -125,6 +125,7 @@ export function Plugin(): h.JSX.Element {
     setMappedProperty,
     setMappedValue,
     setSemanticOption,
+    setSemanticRepeatedInstances,
     setSemanticValueMapping,
     statusMessage,
     uploadSourceFiles,
@@ -368,6 +369,7 @@ export function Plugin(): h.JSX.Element {
             confirmSourceReplacement={confirmSourceReplacement}
             cancelSourceReplacement={cancelSourceReplacement}
             setSemanticOption={setSemanticOption}
+            setSemanticRepeatedInstances={setSemanticRepeatedInstances}
             setSemanticValueMapping={setSemanticValueMapping}
             reconcileFigma={reconcileFigma}
             removeStaleMapping={removeStaleMapping}
@@ -734,6 +736,10 @@ function ConnectComponentView(props: {
     optionId: string,
     staticValue?: string | number | boolean,
   ) => void;
+  setSemanticRepeatedInstances: (
+    targetPath: readonly string[],
+    orderedOptionIds: readonly string[],
+  ) => void;
   setSemanticValueMapping: (
     targetPath: readonly string[],
     sourceValue: string | number | boolean,
@@ -944,6 +950,7 @@ function ConnectComponentView(props: {
                 onExportDebugBundle={props.exportDebugBundle}
                 onFilesSelected={(files) => { void props.uploadSourceFiles(files); }}
                 onOptionChange={props.setSemanticOption}
+                onRepeatedInstancesChange={props.setSemanticRepeatedInstances}
                 onValueMappingChange={props.setSemanticValueMapping}
                 sourceUploading={props.isSourceUploading}
                 proposals={props.semanticProposals}
@@ -1019,6 +1026,7 @@ function ConnectComponentView(props: {
                     || connectionIssue !== undefined
                     || props.pendingOperation !== undefined
                   }
+                  loading={props.pendingOperation === 'save'}
                   onClick={props.handleSave}
                 >
                   {props.pendingOperation === 'save' ? 'Saving…' : 'Save'}

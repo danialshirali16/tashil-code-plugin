@@ -47,6 +47,7 @@ export type SourceComponentSnapshot = {
   componentName: string;
   contentHash: string;
   fileName: string;
+  propsTypeName?: string;
   props: SourcePropDescriptor[];
 };
 

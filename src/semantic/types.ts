@@ -27,8 +27,8 @@ export const SEMANTIC_RECIPE_SCHEMA_VERSION = 1;
 export const SEMANTIC_LIMITS = {
   /** Maximum bindings per recipe. */
   maxBindings: 64,
-  /** Maximum code prop path depth (v1 supports one nested level). */
-  maxTargetPathDepth: 2,
+  /** Maximum code prop path depth, bounded to prevent pathological type trees. */
+  maxTargetPathDepth: 8,
   /** Maximum segments in a Figma name-path locator. */
   maxLocatorDepth: 8,
   /** Maximum nodes visited during semantic extraction. */
@@ -39,6 +39,8 @@ export const SEMANTIC_LIMITS = {
   maxSerializedLength: 32_000,
   /** Maximum source contract targets persisted with a recipe. */
   maxContractTargets: 128,
+  /** Maximum connected children in one repeated React-element slot. */
+  maxRepeatedSlotItems: 16,
 } as const;
 
 /**
@@ -110,6 +112,20 @@ export type InstanceSource = {
   importPath: string;
 };
 
+export type ConnectedInstanceItem = {
+  locator: SemanticLocator;
+  componentName: string;
+  importPath: string;
+};
+
+/** Ordered connected children rendered into an array-valued component slot. */
+export type InstanceListSource = {
+  kind: 'instances';
+  items: ConnectedInstanceItem[];
+  /** Field inside each array item that receives the connected child. */
+  itemPath?: string[];
+};
+
 /**
  * An intentional decision to leave an optional prop out of generated code.
  * Distinct from "not yet decided" (no binding at all), so the editor can show
@@ -122,6 +138,7 @@ export type SemanticBindingSource =
   | NestedTextSource
   | NestedPropertySource
   | InstanceSource
+  | InstanceListSource
   | StaticValueSource
   | OmittedValueSource
   | RuntimeValueSource;
@@ -230,5 +247,8 @@ export const LOCATOR_KEY_SEPARATOR = String.fromCharCode(0);
 
 /** Stable key for locator lookup tables. */
 export function locatorKey(locator: SemanticLocator): string {
-  return locator.namePath.join(LOCATOR_KEY_SEPARATOR);
+  const path = locator.namePath.join(LOCATOR_KEY_SEPARATOR);
+  return locator.componentKey === undefined
+    ? path
+    : `${locator.componentKey}${LOCATOR_KEY_SEPARATOR}${path}`;
 }

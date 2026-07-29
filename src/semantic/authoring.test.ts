@@ -11,6 +11,8 @@ import {
   deriveTransform,
   getTargetSection,
   hasStructuralMismatch,
+  moveRepeatedTargetInstance,
+  setRepeatedTargetInstances,
   setTargetOption,
   suggestOption,
   validateRecipeDraft,
@@ -168,6 +170,64 @@ describe('suggestOption', () => {
     expect(suggestOption(onConfirm, figmaSnapshot, semanticSnapshot)?.optionId)
       .toBe(OPTION_RUNTIME);
   });
+
+  it('suggests runtime for controlled state instead of mapping a design sample', () => {
+    const { figmaSnapshot, semanticSnapshot } = createDialogInputs();
+    const controlled: SourceTargetDescriptor = {
+      controlledBy: ['onChange'],
+      kind: 'controlled',
+      ownerProp: 'value',
+      path: ['value'],
+      required: true,
+      typeName: 'string',
+    };
+
+    expect(suggestOption(controlled, figmaSnapshot, semanticSnapshot)?.optionId)
+      .toBe(OPTION_RUNTIME);
+  });
+
+  it('suggests instance-swap properties for left and right icon slots', () => {
+    const { figmaSnapshot, semanticSnapshot } = createDialogInputs();
+    figmaSnapshot.properties.push(
+      {
+        id: 'leading-icon',
+        name: 'leadingIcon',
+        options: [],
+        rawKey: 'leadingIcon#leading-icon',
+        type: 'INSTANCE_SWAP',
+      },
+      {
+        id: 'trailing-icon',
+        name: 'trailingIcon',
+        options: [],
+        rawKey: 'trailingIcon#trailing-icon',
+        type: 'INSTANCE_SWAP',
+      },
+    );
+
+    expect(suggestOption(
+      {
+        kind: 'node',
+        ownerProp: 'renderLeftIcon',
+        path: ['renderLeftIcon'],
+        required: false,
+        typeName: 'ReactNode',
+      },
+      figmaSnapshot,
+      semanticSnapshot,
+    )?.optionId).toBe('prop:leading-icon');
+    expect(suggestOption(
+      {
+        kind: 'node',
+        ownerProp: 'renderRightIcon',
+        path: ['renderRightIcon'],
+        required: false,
+        typeName: 'ReactNode',
+      },
+      figmaSnapshot,
+      semanticSnapshot,
+    )?.optionId).toBe('prop:trailing-icon');
+  });
 });
 
 describe('createRecipeDraft', () => {
@@ -199,7 +259,7 @@ describe('createRecipeDraft', () => {
     expect(result.usage.jsx).toContain('title={"Delete account?"}');
     expect(result.usage.jsx).toContain('cancelAction={{ label: "Cancel" }}');
     expect(result.usage.jsx).toContain('confirmAction={{ label: "Delete" }}');
-    expect(result.usage.jsx).toContain('onConfirm={undefined /* Set in application. */}');
+    expect(result.usage.jsx).toContain('onConfirm={onConfirm /* Set in application. */}');
   });
 
   it('keeps existing confirmed bindings over new suggestions', () => {
@@ -226,6 +286,305 @@ describe('createRecipeDraft', () => {
       kind: 'enum',
       map: { Danger: 'danger', Default: 'default' },
     });
+  });
+
+  it('defaults complex public API values to explicit application runtime bindings', () => {
+    const { figmaSnapshot, semanticSnapshot } = createDialogInputs();
+    const complexTargets: SourceTargetDescriptor[] = [
+      {
+        kind: 'array',
+        ownerProp: 'items',
+        path: ['items'],
+        required: true,
+        typeName: 'Item[]',
+      },
+      {
+        kind: 'record',
+        ownerProp: 'metadata',
+        path: ['metadata'],
+        required: true,
+        typeName: 'Record<string, unknown>',
+      },
+      {
+        kind: 'date',
+        ownerProp: 'selectedAt',
+        path: ['selectedAt'],
+        required: true,
+        typeName: 'Date',
+      },
+      {
+        kind: 'file',
+        ownerProp: 'files',
+        path: ['files'],
+        required: true,
+        typeName: 'FileList',
+      },
+      {
+        kind: 'render',
+        ownerProp: 'renderItem',
+        path: ['renderItem'],
+        required: true,
+        typeName: '(item: Item) => ReactNode',
+      },
+      {
+        kind: 'styling',
+        ownerProp: 'sx',
+        path: ['sx'],
+        required: true,
+        typeName: 'SxProps',
+      },
+    ];
+    const contract: SourceContract = {
+      componentName: 'DataView',
+      contentHash: 'complex-contract',
+      fileName: 'data-view.tsx',
+      targets: complexTargets,
+    };
+
+    const recipe = createRecipeDraft(contract, figmaSnapshot, semanticSnapshot);
+
+    expect(recipe.bindings).toHaveLength(complexTargets.length);
+    expect(recipe.bindings.every(
+      (binding) => binding.requirement === 'runtime' && binding.source.kind === 'runtime',
+    )).toBe(true);
+    expect(buildTargetRows(recipe, figmaSnapshot).map((row) => row.section))
+      .toEqual(['data', 'data', 'data', 'data', 'data', 'slots']);
+    expect(validateRecipeDraft(recipe)).toMatchObject({ errors: [], saveable: true });
+
+    const withoutItems = {
+      ...recipe,
+      bindings: recipe.bindings.filter((binding) => binding.target.path[0] !== 'items'),
+    };
+    expect(validateRecipeDraft(withoutItems).errors).toContain(
+      'Mark the required array value "items" as set in application.',
+    );
+  });
+
+  it('authors the standalone upload preview from design state and application callbacks', () => {
+    const extracted = extractSourceContract([
+      {
+        contents: `
+export type FileStatus = 'default' | 'uploaded' | 'uploading' | 'failed';
+export interface SelectedItemProps {
+  file?: File;
+  fileId?: string;
+  size?: 'medium' | 'small';
+  disabled?: boolean;
+  onRemove: (fileKey: number | string) => void;
+  onRetry: (fileName: string) => void;
+  status: FileStatus;
+  uploadProgress?: number;
+}
+`,
+        fileName: 'tashil-upload/types.ts',
+      },
+      {
+        contents: `
+export const SingleFilePreview: FunctionComponent<SelectedItemProps> = (props) => null;
+`,
+        fileName: 'tashil-upload/modules/single-preview/index.tsx',
+      },
+    ], 'SingleFilePreview');
+    if (!extracted.ok) {
+      throw new Error(extracted.message);
+    }
+
+    const uploadFigmaSnapshot: FigmaComponentSnapshot = {
+      componentId: 'upload-preview',
+      componentName: 'SingleFilePreview',
+      properties: [
+        {
+          defaultValue: 'Uploaded',
+          id: 'status',
+          name: 'status',
+          options: ['Default', 'Uploaded', 'Uploading', 'Failed'],
+          rawKey: 'status',
+          type: 'VARIANT',
+        },
+        {
+          defaultValue: 'Small',
+          id: 'size',
+          name: 'size',
+          options: ['Medium', 'Small'],
+          rawKey: 'size',
+          type: 'VARIANT',
+        },
+        {
+          defaultValue: 'invoice.pdf',
+          id: 'file-id',
+          name: 'fileId',
+          options: [],
+          rawKey: 'fileId',
+          type: 'TEXT',
+        },
+      ],
+    };
+    const uploadSemanticSnapshot = extractFigmaSemanticSnapshot(
+      { name: 'SingleFilePreview', type: 'INSTANCE' },
+      'upload-preview',
+    ).snapshot;
+    let recipe = createRecipeDraft(
+      extracted.contract,
+      uploadFigmaSnapshot,
+      uploadSemanticSnapshot,
+    );
+
+    expect(recipe.bindings.find((binding) => binding.target.path[0] === 'file')).toMatchObject({
+      requirement: 'runtime',
+      source: { kind: 'runtime' },
+    });
+    recipe = setTargetOption(recipe, uploadFigmaSnapshot, ['file'], OPTION_OMITTED);
+    expect(validateRecipeDraft(recipe)).toMatchObject({ errors: [], saveable: true });
+
+    const result = resolveSemanticUsage(
+      'SingleFilePreview',
+      '@tashilcar/swiss-army-knife',
+      recipe,
+      {
+        componentProperties: {
+          fileId: 'invoice.pdf',
+          size: 'Small',
+          status: 'Uploaded',
+        },
+      },
+    );
+
+    expect(result.issues).toEqual([]);
+    expect(result.usage.jsx).toBe([
+      '<SingleFilePreview',
+      '  fileId={"invoice.pdf"}',
+      '  size={"small"}',
+      '  onRemove={onRemove /* Set in application. */}',
+      '  onRetry={onRetry /* Set in application. */}',
+      '  status={"uploaded"}',
+      '/>',
+    ].join('\n'));
+    expect(result.runtimeRequirements).toEqual([
+      {
+        placeholder: 'onRemove',
+        targetPath: 'onRemove',
+        typeName: '(fileKey: number | string) => void',
+      },
+      {
+        placeholder: 'onRetry',
+        targetPath: 'onRetry',
+        typeName: '(fileName: string) => void',
+      },
+    ]);
+  });
+
+  it('uses the declarative dropdown recipe to keep only essential runtime inputs', () => {
+    const dropdownContract: SourceContract = {
+      componentName: 'TashilDropdown',
+      contentHash: 'dropdown-contract',
+      fileName: 'tashil-dropdown/types.tsx',
+      propsTypeName: 'DropdownProps',
+      targets: [
+        {
+          kind: 'array',
+          ownerProp: 'options',
+          path: ['options'],
+          required: true,
+          typeName: 'Array<any>',
+        },
+        {
+          kind: 'controlled',
+          ownerProp: 'value',
+          path: ['value'],
+          required: false,
+          typeName: 'any',
+        },
+        {
+          kind: 'event',
+          ownerProp: 'onChange',
+          path: ['onChange'],
+          required: false,
+          typeName: '(event: SyntheticEvent, value: any) => void',
+        },
+        {
+          kind: 'event',
+          ownerProp: 'onOpen',
+          path: ['onOpen'],
+          required: false,
+          typeName: '(event: SyntheticEvent) => void',
+        },
+        {
+          kind: 'render',
+          ownerProp: 'filterOptions',
+          path: ['filterOptions'],
+          required: false,
+          typeName: '(options: Array<any>) => Array<any>',
+        },
+        {
+          kind: 'record',
+          ownerProp: 'classes',
+          path: ['classes'],
+          required: false,
+          typeName: 'object',
+        },
+        {
+          kind: 'visual',
+          ownerProp: 'size',
+          path: ['size'],
+          required: false,
+          typeName: '"small" | "medium"',
+          values: ['small', 'medium'],
+        },
+      ],
+    };
+    const dropdownFigmaSnapshot: FigmaComponentSnapshot = {
+      componentId: 'dropdown',
+      componentName: 'TashilDropdown',
+      properties: [{
+        defaultValue: 'Medium',
+        id: 'size',
+        name: 'size',
+        options: ['Small', 'Medium'],
+        rawKey: 'size',
+        type: 'VARIANT',
+      }],
+    };
+    const dropdownSemanticSnapshot = extractFigmaSemanticSnapshot(
+      { name: 'TashilDropdown', type: 'INSTANCE' },
+      'dropdown',
+    ).snapshot;
+
+    const recipe = createRecipeDraft(
+      dropdownContract,
+      dropdownFigmaSnapshot,
+      dropdownSemanticSnapshot,
+    );
+
+    expect(recipe.bindings.map((binding) => [
+      binding.target.path.join('.'),
+      binding.source.kind,
+    ])).toEqual([
+      ['options', 'runtime'],
+      ['value', 'runtime'],
+      ['onChange', 'runtime'],
+      ['onOpen', 'omitted'],
+      ['filterOptions', 'omitted'],
+      ['classes', 'omitted'],
+      ['size', 'component-property'],
+    ]);
+    expect(validateRecipeDraft(recipe)).toMatchObject({ errors: [], saveable: true });
+
+    const result = resolveSemanticUsage(
+      'TashilDropdown',
+      '@tashilcar/swiss-army-knife',
+      recipe,
+      { componentProperties: { size: 'Medium' } },
+    );
+
+    expect(result.issues).toEqual([]);
+    expect(result.usage.jsx).toBe([
+      '<TashilDropdown',
+      '  options={options /* Set in application. */}',
+      '  value={value /* Set in application. */}',
+      '  onChange={onChange /* Set in application. */}',
+      '  size={"medium"}',
+      '/>',
+    ].join('\n'));
   });
 });
 
@@ -533,6 +892,164 @@ describe('buildValueOptions and rows', () => {
     expect(titleOptions.find((option) => option.label === 'Header / Title')?.needsCheck)
       .toBeUndefined();
     expect(titleOptions.find((option) => option.label === 'intent')?.needsCheck).toBe(true);
+  });
+
+  it('treats instance swaps as the fitting source for ReactNode icon slots', () => {
+    const { figmaSnapshot, semanticSnapshot } = createDialogInputs();
+    figmaSnapshot.properties.push(
+      {
+        id: 'has-leading-icon',
+        name: 'hasLeadingIcon',
+        options: [],
+        rawKey: 'hasLeadingIcon#has-leading-icon',
+        type: 'BOOLEAN',
+      },
+      {
+        id: 'leading-icon',
+        name: 'leadingIcon',
+        options: [],
+        rawKey: 'leadingIcon#leading-icon',
+        type: 'INSTANCE_SWAP',
+      },
+    );
+    const options = buildValueOptions(
+      {
+        kind: 'node',
+        ownerProp: 'renderLeftIcon',
+        path: ['renderLeftIcon'],
+        required: false,
+        typeName: 'ReactNode',
+      },
+      figmaSnapshot,
+      semanticSnapshot,
+    );
+
+    expect(options.find((option) => option.label === 'leadingIcon')?.needsCheck)
+      .toBeUndefined();
+    expect(options.find((option) => option.label === 'hasLeadingIcon')?.needsCheck)
+      .toBe(true);
+  });
+
+  it('flags and blocks a connected child that violates an explicit ReactElement type', () => {
+    const semanticSnapshot = extractFigmaSemanticSnapshot({
+      children: [
+        {
+          connectedComponentName: 'Button',
+          connectedImportPath: '@tashilcar/ui',
+          hasOwnConnection: true,
+          mainComponentKey: 'button-key',
+          name: 'Action',
+          type: 'INSTANCE',
+        },
+        {
+          connectedComponentName: 'Avatar',
+          connectedImportPath: '@tashilcar/ui',
+          hasOwnConnection: true,
+          mainComponentKey: 'avatar-key',
+          name: 'Avatar',
+          type: 'INSTANCE',
+        },
+      ],
+      name: 'Card',
+      type: 'COMPONENT',
+    }, 'card-id').snapshot;
+    const target: SourceTargetDescriptor = {
+      kind: 'node',
+      ownerProp: 'action',
+      path: ['action'],
+      required: true,
+      typeName: 'ReactElement<ButtonProps, typeof Button>',
+    };
+
+    const options = buildValueOptions(target, undefined, semanticSnapshot);
+    expect(options.find((option) => option.label === 'Action')?.needsCheck).toBeUndefined();
+    expect(options.find((option) => option.label === 'Avatar')?.needsCheck).toBe(true);
+
+    const recipe = createRecipeDraft({
+      componentName: 'Card',
+      contentHash: 'hash',
+      fileName: 'card.tsx',
+      targets: [target],
+    }, undefined, semanticSnapshot);
+    const avatarOption = options.find((option) => option.label === 'Avatar')!;
+    const incompatible = setTargetOption(
+      recipe,
+      undefined,
+      target.path,
+      avatarOption.id,
+    );
+    expect(validateRecipeDraft(incompatible).errors).toContain(
+      '"action" accepts Button, not Avatar.',
+    );
+  });
+
+  it('stores and reorders repeated connected children by stable locator ids', () => {
+    const semanticSnapshot = extractFigmaSemanticSnapshot({
+      children: [
+        {
+          connectedComponentName: 'Tab',
+          connectedImportPath: '@tashilcar/ui',
+          hasOwnConnection: true,
+          mainComponentKey: 'tab-one',
+          name: 'First tab',
+          type: 'INSTANCE',
+        },
+        {
+          connectedComponentName: 'Tab',
+          connectedImportPath: '@tashilcar/ui',
+          hasOwnConnection: true,
+          mainComponentKey: 'tab-two',
+          name: 'Second tab',
+          type: 'INSTANCE',
+        },
+      ],
+      name: 'Tabs',
+      type: 'COMPONENT',
+    }, 'tabs-id').snapshot;
+    const target: SourceTargetDescriptor = {
+      itemSchemas: [{
+        kind: 'node',
+        path: ['component'],
+        role: 'item',
+        typeName: 'ReactNode',
+      }],
+      kind: 'array',
+      ownerProp: 'components',
+      path: ['components'],
+      required: true,
+      typeName: '{ component: ReactNode }[]',
+    };
+    const recipe = createRecipeDraft({
+      componentName: 'Tabs',
+      contentHash: 'hash',
+      fileName: 'tabs.tsx',
+      targets: [target],
+    }, undefined, semanticSnapshot);
+    const options = buildValueOptions(target, undefined, semanticSnapshot);
+    const first = options.find((option) => option.label === 'First tab')!;
+    const second = options.find((option) => option.label === 'Second tab')!;
+
+    const ordered = setRepeatedTargetInstances(
+      recipe,
+      target.path,
+      [second.id, first.id],
+    );
+    expect(ordered.bindings[0]?.source).toMatchObject({
+      items: [
+        { componentName: 'Tab', locator: { componentKey: 'tab-two' } },
+        { componentName: 'Tab', locator: { componentKey: 'tab-one' } },
+      ],
+      itemPath: ['component'],
+      kind: 'instances',
+    });
+
+    const moved = moveRepeatedTargetInstance(ordered, target.path, 1, 0);
+    expect(
+      moved.bindings[0]?.source.kind === 'instances'
+        ? moved.bindings[0].source.items.map((item) => item.locator.componentKey)
+        : [],
+    ).toEqual(['tab-one', 'tab-two']);
+    expect(validateRecipeDraft(moved).saveable).toBe(true);
   });
 
   it('flags fragile locators on their options', () => {

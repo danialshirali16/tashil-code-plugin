@@ -718,6 +718,7 @@ describe('Plugin rendered interactions', () => {
     await waitFor(() => {
       expect(screen.getByText('Button.types.ts')).toBeTruthy();
     });
+    expect(screen.getByText('Button → ButtonProps')).toBeTruthy();
     // One mapping card: the Implementation mapping editor takes over once a
     // source contract exists, so the legacy card is gone.
     expect(screen.queryByText('Source & prop mappings')).toBeNull();
@@ -851,6 +852,7 @@ describe('Plugin rendered interactions', () => {
     const firstRequest = saveRequests[saveRequests.length - 1]!;
     const saving = screen.getByRole('button', { name: 'Saving…' }) as HTMLButtonElement;
     expect(saving.disabled).toBe(true);
+    expect(saving.parentElement?.querySelector('svg')).not.toBeNull();
     expect(screen.getByText('Saving connection…')).toBeTruthy();
 
     receive('SAVE_RESULT', {

@@ -2768,7 +2768,7 @@ describe('semantic connection generation', () => {
     '  description={"This action cannot be undone."}',
     '  cancelAction={{ label: "Cancel" }}',
     '  confirmAction={{ label: "Delete" }}',
-    '  onConfirm={undefined /* Set in application. */}',
+    '  onConfirm={onConfirm /* Set in application. */}',
     '/>',
   ].join('\n');
 

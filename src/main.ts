@@ -357,6 +357,7 @@ async function createConnectedOutput(
       metadata.semanticRecipe,
       {
         componentProperties: selection.componentProperties,
+        instanceSwaps: selection.instanceSwaps,
         root,
       },
     );
@@ -404,7 +405,10 @@ function formatRuntimeRequirements(
   return requirements
     .map((requirement) => {
       const note = requirement.note ? ` — ${requirement.note}` : '';
-      return `${requirement.targetPath}: ${requirement.typeName}${note}`;
+      const label = requirement.placeholder === requirement.targetPath
+        ? requirement.targetPath
+        : `${requirement.placeholder} → ${requirement.targetPath}`;
+      return `${label}: ${requirement.typeName}${note}`;
     })
     .join('\n');
 }

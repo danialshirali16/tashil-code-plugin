@@ -82,6 +82,29 @@ function checkDesignSource(
 ): void {
   const source = binding.source;
 
+  if (source.kind === 'instances') {
+    for (const [index, item] of source.items.entries()) {
+      if (item.locator.fragile) {
+        issues.push({
+          bindingId: binding.id,
+          message: `Repeated slot item ${index + 1} for ${JSON.stringify(targetPath)} is located by layer names only; renaming a layer will break it.`,
+          severity: 'warning',
+          targetPath,
+        });
+      }
+      const key = `nested-instance:${locatorKey(item.locator)}:`;
+      if (designKeys !== undefined && !designKeys.has(key)) {
+        issues.push({
+          bindingId: binding.id,
+          message: `Repeated slot item ${index + 1} at ${JSON.stringify(item.locator.namePath.join(' / '))} was not found in the current component.`,
+          severity: binding.requirement === 'required' ? 'broken' : 'needs-review',
+          targetPath,
+        });
+      }
+    }
+    return;
+  }
+
   if (
     source.kind === 'nested-text'
     || source.kind === 'nested-property'
