@@ -12,6 +12,13 @@ export type CheckerResolvedMember = {
 export type CheckerPropsResolution = {
   members: CheckerResolvedMember[];
   warnings: string[];
+  /**
+   * Best-effort base-type names for the inheritance-chain display (roadmap M7).
+   * Only populated from locally resolvable interface heritage; empty for type
+   * aliases, intersections, or any base whose declaration is not in the upload.
+   * Empty is the safe fallback — never a wrong chain.
+   */
+  baseTypeNames: string[];
 };
 
 type ProgramBundle = {
@@ -63,7 +70,7 @@ export function resolveSourcePropsWithTypeChecker(
     ? bundle.program.getSourceFile(virtualPath)
     : undefined;
   if (!sourceFile) {
-    return { members: [], warnings: [] };
+    return { members: [], warnings: [], baseTypeNames: [] };
   }
 
   const declaration = sourceFile.statements.find((statement) => (
@@ -74,13 +81,13 @@ export function resolveSourcePropsWithTypeChecker(
     !declaration
     || (!ts.isInterfaceDeclaration(declaration) && !ts.isTypeAliasDeclaration(declaration))
   ) {
-    return { members: [], warnings: [] };
+    return { members: [], warnings: [], baseTypeNames: [] };
   }
 
   const checker = bundle.program.getTypeChecker();
   const symbol = checker.getSymbolAtLocation(declaration.name);
   if (!symbol) {
-    return { members: [], warnings: [] };
+    return { members: [], warnings: [], baseTypeNames: [] };
   }
 
   const propsType = checker.getDeclaredTypeOfSymbol(symbol);
@@ -125,7 +132,60 @@ export function resolveSourcePropsWithTypeChecker(
       sourceFile,
       declaration,
     ),
+    baseTypeNames: collectLocalBaseTypeNames(checker, propsType),
   };
+}
+
+/**
+ * Best-effort inheritance chain for the M7 "resolved props source" display.
+ * Walks `getBaseTypes`, but keeps only bases whose declaration is in a bundled
+ * source file (local). External bases (React DOM attrs, MUI) would need their
+ * `@types` uploaded to name reliably, so they are omitted rather than guessed.
+ * Caps depth to keep deeply-recursive framework hierarchies bounded.
+ */
+function collectLocalBaseTypeNames(checker: ts.TypeChecker, propsType: ts.Type): string[] {
+  // getBaseTypes requires an InterfaceType. Require the resolved symbol to be a
+  // declared interface; bail on aliases, unions, or anonymous object types.
+  // ponytail: intentionally returns [] for non-interface props types rather than
+  // chasing alias targets — keeps the chain local and never wrong.
+  const symbol = propsType.getSymbol();
+  if (!symbol || (symbol.flags & ts.SymbolFlags.Interface) === 0) {
+    return [];
+  }
+  const baseTypes = checker.getBaseTypes(propsType as ts.InterfaceType);
+  if (baseTypes.length === 0) {
+    return [];
+  }
+  const names: string[] = [];
+  for (const base of baseTypes) {
+    if (names.length >= 8) {
+      break;
+    }
+    const symbol = base.getSymbol();
+    // Only keep named, locally-declared interfaces — skip intrinsic/object/any.
+    if (!symbol || !(symbol.flags & ts.SymbolFlags.Interface)) {
+      continue;
+    }
+    const declaration = symbol.declarations?.[0];
+    if (!declaration) {
+      continue;
+    }
+    const fileName = declaration.getSourceFile().fileName;
+    // ponytail: keep only bundled uploads; GLOBAL_TYPES_PATH holds the
+    // synthetic intrinsics. Anything else (lib.d.ts, @types) is out of scope.
+    if (fileName === GLOBAL_TYPES_PATH || fileName.startsWith('/lib.') || fileName.includes('/node_modules/')) {
+      continue;
+    }
+    const name = checker.typeToString(
+      base,
+      declaration,
+      ts.TypeFormatFlags.NoTruncation,
+    );
+    if (name && name !== 'object' && name !== '{}' && !names.includes(name)) {
+      names.push(name);
+    }
+  }
+  return names;
 }
 
 function getProgramBundle(files: readonly SourceFileInput[]): ProgramBundle {

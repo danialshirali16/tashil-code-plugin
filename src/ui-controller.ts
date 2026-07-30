@@ -27,6 +27,11 @@ import {
   createConnectionDebugBundle,
   serializeConnectionDebugBundle,
 } from './semantic/debug-bundle';
+import {
+  createComponentAuditReport,
+  formatComponentAuditMarkdown,
+  serializeComponentAuditJson,
+} from './semantic/audit-report';
 import { evaluateSemanticHealth } from './semantic/health';
 import { isSemanticConnectionRecipe } from './semantic/schema';
 import { extractSourceContract } from './semantic/source-contract';
@@ -130,6 +135,7 @@ export type ConnectionController = {
     action: ReconciliationAction,
   ) => void;
   exportDebugBundle: () => void;
+  exportReport: (format: 'markdown' | 'json') => void;
   isSourceReplacementPending: boolean;
   sourceReplacementCancelRef: { current: HTMLButtonElement | null };
   confirmSourceReplacement: () => void;
@@ -772,6 +778,39 @@ export function useConnectionController(): ConnectionController {
     }
   }
 
+  /**
+   * Export the compatibility report for the current component (roadmap M7).
+   * Derived from the live source contract — target-kind counts and unsupported
+   * paths only — so it matches the CI audit without re-parsing source or
+   * touching raw uploads. The report never leaves the browser.
+   */
+  function exportReport(format: 'markdown' | 'json'): void {
+    const recipe = readSemanticRecipe();
+    const contract = recipe?.sourceContract;
+    if (!contract) {
+      setErrorMessage('Upload source before exporting a compatibility report.');
+      return;
+    }
+
+    const report = createComponentAuditReport(contract);
+    const isMarkdown = format === 'markdown';
+    const body = isMarkdown
+      ? formatComponentAuditMarkdown(report)
+      : serializeComponentAuditJson(report);
+    const fileName = `tashil-compatibility-${report.componentName}.${isMarkdown ? 'md' : 'json'}`;
+    try {
+      downloadBlob(
+        new Blob([body], { type: isMarkdown ? 'text/markdown' : 'application/json' }),
+        fileName,
+      );
+      setErrorMessage('');
+      setStatusMessage(`Exported ${fileName}.`);
+    } catch (_error) {
+      setStatusMessage('');
+      setErrorMessage('Could not export the compatibility report.');
+    }
+  }
+
   function setSemanticValueMapping(
     targetPath: readonly string[],
     sourceValue: SourcePropValue,
@@ -1364,6 +1403,7 @@ export function useConnectionController(): ConnectionController {
     semanticProposals,
     applySemanticProposal,
     exportDebugBundle,
+    exportReport,
     isSourceReplacementPending,
     sourceReplacementCancelRef,
     confirmSourceReplacement,

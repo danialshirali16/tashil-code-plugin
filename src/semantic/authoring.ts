@@ -109,6 +109,24 @@ export type RecipeDraftValidation = {
   /** Resolved required visual targets over total required visual targets. */
   progress: { completed: number; total: number };
   saveable: boolean;
+  /**
+   * One-line pre-save summary (roadmap M7). Counts each blocking/review
+   * category so the editor can show a scannable status before the detail lists.
+   */
+  summary: RecipeValidationSummary;
+};
+
+export type RecipeValidationSummary = {
+  /** Required visual props still unmapped. */
+  unresolvedRequired: number;
+  /** Required runtime props (callbacks/data) still unmarked. */
+  unresolvedRuntime: number;
+  /** Connected components whose source type rejects them. */
+  incompatibleSlots: number;
+  /** Total blocking issues (everything that makes saveable false). */
+  blocking: number;
+  /** Non-blocking review items (fragile locators, unmapped enum values). */
+  review: number;
 };
 
 export function getTargetSection(target: SourceTargetDescriptor): SemanticTargetSection {
@@ -944,6 +962,12 @@ export function validateRecipeDraft(
   const contract = recipe.sourceContract;
   let completed = 0;
   let total = 0;
+  // Counters for the pre-save summary, incremented at the exact branch that
+  // raises each issue so the summary can never drift from the message lists.
+  let unresolvedRequired = 0;
+  let unresolvedRuntime = 0;
+  let incompatibleSlots = 0;
+  let review = 0;
 
   const bindingsByTarget = new Map(
     recipe.bindings.map((binding) => [formatTargetPath(binding.target), binding]),
@@ -959,13 +983,16 @@ export function validateRecipeDraft(
       if (binding && binding.source.kind !== 'omitted') {
         completed += 1;
       } else if (binding?.source.kind === 'omitted') {
+        unresolvedRequired += 1;
         errors.push(`"${targetPath}" is required and cannot be omitted.`);
       } else {
+        unresolvedRequired += 1;
         errors.push(`Map, set, or mark "${targetPath}" before saving — it is required.`);
       }
     }
 
     if (isRuntimeSourceTargetKind(target.kind) && target.required && !binding) {
+      unresolvedRuntime += 1;
       errors.push(
         target.kind === 'event'
           ? `Mark the required callback "${targetPath}" as set in application.`
@@ -983,6 +1010,7 @@ export function validateRecipeDraft(
           accepted.length > 0
           && !accepted.includes(binding.source.componentName)
         ) {
+          incompatibleSlots += 1;
           errors.push(
             `"${targetPath}" accepts ${accepted.join(' or ')}, not ${binding.source.componentName}.`,
           );
@@ -993,6 +1021,7 @@ export function validateRecipeDraft(
         const accepted = getAcceptedComponentNames(target.typeName);
         for (const item of binding.source.items) {
           if (accepted.length > 0 && !accepted.includes(item.componentName)) {
+            incompatibleSlots += 1;
             errors.push(
               `"${targetPath}" accepts ${accepted.join(' or ')}, not ${item.componentName}.`,
             );
@@ -1004,6 +1033,7 @@ export function validateRecipeDraft(
         (binding.source.kind === 'nested-text' || binding.source.kind === 'nested-property')
         && binding.source.locator.fragile
       ) {
+        review += 1;
         warnings.push(
           `"${targetPath}" is located by layer names only; renaming those layers breaks it.`,
         );
@@ -1017,6 +1047,7 @@ export function validateRecipeDraft(
         const mappedValues = new Set(Object.values(binding.transform.map));
         const unmapped = (target.values ?? []).filter((value) => !mappedValues.has(value));
         if (unmapped.length > 0) {
+          review += 1;
           warnings.push(
             `"${targetPath}": no Figma option maps to ${unmapped.map((value) => JSON.stringify(String(value))).join(', ')}.`,
           );
@@ -1029,6 +1060,13 @@ export function validateRecipeDraft(
     errors,
     progress: { completed, total },
     saveable: errors.length === 0,
+    summary: {
+      blocking: errors.length,
+      incompatibleSlots,
+      review,
+      unresolvedRequired,
+      unresolvedRuntime,
+    },
     warnings,
   };
 }

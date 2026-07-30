@@ -1,7 +1,7 @@
 # Full-Library Support Roadmap
 
 Status: In progress  
-Last updated: 2026-07-29  
+Last updated: 2026-07-30  
 Scope: `@tashilcar/swiss-army-knife`
 
 ## Objective
@@ -658,26 +658,62 @@ Required support:
 
 ## Milestone 7 — Editor and diagnostics
 
+Status: Completed (2026-07-30)
+
 Goal: make expanded support understandable without making the default workflow
 overwhelming.
 
 ### Deliverables
 
-- [ ] Display the resolved props source and inheritance chain.
-- [ ] Group targets into:
-  - appearance;
-  - content;
-  - state;
-  - slots;
-  - runtime data;
-  - callbacks;
-  - framework/excluded.
-- [ ] Show why a value is runtime-only or unsupported.
-- [ ] Show the expected TypeScript type beside every editor.
-- [ ] Add structured editors for safe objects and arrays.
-- [ ] Add searchable runtime-placeholder names.
-- [ ] Add a compatibility summary before saving.
-- [ ] Export the component compatibility report as Markdown or JSON.
+- [x] Display the resolved props source and inheritance chain (2026-07-30).
+      `SourceContract.propsTypeChain` carries resolved base-type names, captured
+      from whichever extraction path wins: the AST heritage walker accumulates
+      them in `source-props.ts`, and the type-checker path adds a best-effort
+      `collectLocalBaseTypeNames` (`getBaseTypes`, local interfaces only). The
+      semantic Connect editor renders `Component → propsTypeName → BaseA → BaseB`
+      in the source header. No schema-version bump — the permissive
+      `isPersistedSourceContract` tolerates the new optional field, so existing
+      connections load unchanged (chain absent). Legacy mapping editor
+      intentionally unchanged (separate `SourceComponentSnapshot` model).
+- [x] Group targets into sections (content, variants & states, actions,
+      application data, slots, application behavior, excluded by policy).
+      Derived in `getTargetSection` (`src/semantic/authoring.ts`) and rendered
+      with `.mapping-section-label` dividers in `SemanticMappingView`.
+- [x] Show why a value is runtime-only or unsupported (2026-07-30).
+      `targetKindReason(kind)` in `src/semantic/source-contract.ts` returns a
+      per-kind human reason drawn from the same intent as the `SourceTargetKind`
+      JSDoc. `PropInspector` now shows it for excluded, unsupported, and every
+      runtime/framework kind (event, array, record, date, file, render, styling,
+      controlled, environment), replacing the two previous fixed strings.
+- [x] Show the expected TypeScript type beside every editor — `target.typeName`
+      renders in both `PropRow` and `PropInspector` via `<code class="prop-type">`.
+- [x] Add structured editors for safe objects and arrays (2026-07-30).
+      Array-of-nodes slots have a full structured editor (`RepeatedSlotEditor`
+      with checkbox selection + ordering); safe object leaves flatten into their
+      own mappable targets (`confirmAction.label`); and the collection's item
+      shape is visible in the inspector via `summarizeCollectionItemSchema`
+      (`src/semantic/source-contract.ts`), rendering object-like
+      `{ id: string, label: string }` and Record-like `{ [key]: value }`.
+      **By design** (M3 decision): a whole array/record stays application-
+      provided and is *not* broken into per-leaf Figma bindings — Figma cannot
+      supply a full array, so per-item scalar mapping would be fictional
+      coverage (see Risks §"False confidence"). The collection emits a named
+      runtime placeholder instead.
+- [x] Add searchable runtime-placeholder names (2026-07-30). The Connect editor
+      gained a `SearchTextbox` above the code-prop list that filters rows by a
+      case-insensitive substring across target path, type name, and the resolved
+      value label. It composes with the existing All/Review filter, and an
+      empty-result search shows a distinct "No code props match …" state.
+- [x] Add a compatibility summary before saving (2026-07-30). `validateRecipeDraft`
+      now returns a `summary` with counts of unresolved required props, unmarked
+      runtime inputs, incompatible slots, total blocking, and review items. The
+      Connect editor shows a scannable "Cannot save — …" / "Saveable with …"
+      status line above the per-message lists. `src/semantic/authoring.ts`,
+      `src/semantic-editor-view.tsx`.
+- [x] Export the component compatibility report as Markdown or JSON (2026-07-30).
+      `createComponentAuditReport` derives per-kind target counts and unsupported
+      paths from the live source contract; the Connect editor exports both
+      formats via the established `downloadBlob` path. `src/semantic/audit-report.ts`.
 
 ### Acceptance criteria
 

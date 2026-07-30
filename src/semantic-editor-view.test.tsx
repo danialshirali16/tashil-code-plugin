@@ -659,4 +659,31 @@ describe('SemanticMappingView', () => {
 
     expect(screen.queryByText('Changes need review')).toBeNull();
   });
+
+  it('filters the code-prop list by the search query', () => {
+    render(
+      <SemanticMappingView
+        componentName="ConfirmationDialog"
+        disabled={false}
+        figmaSnapshot={createDialogFigmaSnapshot()}
+        importPath="@tashilcar/ui"
+        onOptionChange={vi.fn()}
+        recipe={createDialogRecipeDraft()}
+      />,
+    );
+
+    const search = screen.getByLabelText('Search code props');
+    // Before searching, both action props are present.
+    expect(screen.getByText('confirmAction.label')).toBeTruthy();
+    expect(screen.getByText('cancelAction.label')).toBeTruthy();
+
+    // Typing a query that matches only confirmAction narrows the list.
+    fireEvent.input(search, { target: { value: 'confirmAction' } });
+    expect(screen.getByText('confirmAction.label')).toBeTruthy();
+    expect(screen.queryByText('cancelAction.label')).toBeNull();
+
+    // A query that matches nothing shows the no-match empty state.
+    fireEvent.input(search, { target: { value: 'zzzznotreal' } });
+    expect(screen.getByText(/No code props match/)).toBeTruthy();
+  });
 });

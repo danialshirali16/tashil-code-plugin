@@ -1092,3 +1092,43 @@ describe('preview via samples', () => {
     expect(result.usage.jsx).toContain('confirmAction={{ label: "Delete" }}');
   });
 });
+
+describe('validateRecipeDraft summary (roadmap M7)', () => {
+  // Baseline: a fully-drafted Dialog recipe is saveable, so the summary is clean.
+  function baseRecipe() {
+    const { contract, figmaSnapshot, semanticSnapshot } = createDialogInputs();
+    return { figmaSnapshot, recipe: createRecipeDraft(contract, figmaSnapshot, semanticSnapshot) };
+  }
+
+  it('reports zero blocking for a saveable recipe (review items allowed)', () => {
+    const { recipe } = baseRecipe();
+    const validation = validateRecipeDraft(recipe);
+    // A drafted recipe may carry non-blocking review items (fragile locators,
+    // unmapped enum values) yet still be saveable. Only blocking must be zero.
+    expect(validation.saveable).toBe(true);
+    expect(validation.summary.blocking).toBe(0);
+    expect(validation.summary.unresolvedRequired).toBe(0);
+    expect(validation.summary.unresolvedRuntime).toBe(0);
+    expect(validation.summary.incompatibleSlots).toBe(0);
+    expect(validation.summary.review).toBe(validation.warnings.length);
+  });
+
+  it('counts an unresolved required visual prop and flips blocking', () => {
+    // `title` is a required visual target; clearing it must block save.
+    const { figmaSnapshot, recipe } = baseRecipe();
+    const next = setTargetOption(recipe, figmaSnapshot, ['title'], '');
+    const validation = validateRecipeDraft(next);
+
+    expect(validation.saveable).toBe(false);
+    expect(validation.summary.blocking).toBeGreaterThan(0);
+    expect(validation.summary.unresolvedRequired).toBeGreaterThanOrEqual(1);
+  });
+
+  it('summary.blocking equals the error count and never double-counts', () => {
+    const { figmaSnapshot, recipe } = baseRecipe();
+    const next = setTargetOption(recipe, figmaSnapshot, ['title'], '');
+    const validation = validateRecipeDraft(next);
+
+    expect(validation.summary.blocking).toBe(validation.errors.length);
+  });
+});

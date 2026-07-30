@@ -1,6 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import { getAcceptedComponentNames } from './component-compatibility';
-import { extractSourceContract } from './source-contract';
+import {
+  extractSourceContract,
+  isRuntimeSourceTargetKind,
+  summarizeCollectionItemSchema,
+  targetKindReason,
+  type SourceCollectionItemSchema,
+  type SourceTargetKind,
+} from './source-contract';
 
 const DIALOG_SOURCE = `
 export interface ConfirmationDialogProps {
@@ -1094,5 +1101,121 @@ export interface ModalProps {
       mystery: 'unsupported',
       theme: 'environment',
     });
+  });
+});
+
+describe('targetKindReason (roadmap M7)', () => {
+  const ALL_KINDS: SourceTargetKind[] = [
+    'visual', 'event', 'node', 'array', 'record', 'date', 'file',
+    'render', 'styling', 'controlled', 'environment', 'excluded', 'unsupported',
+  ];
+
+  it('returns a non-empty reason for every kind in the union', () => {
+    // Guards against a new SourceTargetKind landing without a reason entry.
+    for (const kind of ALL_KINDS) {
+      const reason = targetKindReason(kind);
+      expect(reason, `reason for ${kind}`).toBeTruthy();
+    }
+  });
+
+  it('distinguishes design-derived visual from runtime/framework kinds', () => {
+    const visualReason = targetKindReason('visual');
+    expect(visualReason).toContain('Design value');
+    // Every runtime/framework kind must have a reason distinct from the visual
+    // one, so the UI never tells the user a non-Figma prop "can come from a
+    // Figma property". `environment` and `styling` are framework values, not
+    // application code, so only assert distinctness rather than a fixed phrase.
+    for (const kind of ALL_KINDS) {
+      if (isRuntimeSourceTargetKind(kind)) {
+        expect(targetKindReason(kind), `reason for ${kind}`).not.toBe(visualReason);
+      }
+    }
+  });
+
+  it('distinguishes excluded and unsupported from runtime', () => {
+    expect(targetKindReason('excluded')).toContain('Excluded by policy');
+    expect(targetKindReason('unsupported')).toContain('cannot be mapped visually');
+  });
+});
+
+describe('summarizeCollectionItemSchema (roadmap M7)', () => {
+  const item = (
+    path: string[],
+    typeName: string,
+    kind: SourceTargetKind = 'visual',
+    role: 'item' | 'key' | 'value' = 'item',
+  ): SourceCollectionItemSchema => ({ kind, path, typeName, role });
+
+  it('renders object-like item fields as { name: type, … }', () => {
+    expect(summarizeCollectionItemSchema([
+      item(['id'], 'string'),
+      item(['label'], 'string'),
+    ])).toBe('{ id: string, label: string }');
+  });
+
+  it('renders a Record-like key/value pair as { [key]: value }', () => {
+    expect(summarizeCollectionItemSchema([
+      item(['key'], 'string', 'visual', 'key'),
+      item(['value'], 'Option', 'visual', 'value'),
+    ])).toBe('{ [key]: Option }');
+  });
+
+  it('returns undefined for an empty schema', () => {
+    expect(summarizeCollectionItemSchema([])).toBeUndefined();
+  });
+
+  it('falls back to the item typeName when there are no named fields', () => {
+    expect(summarizeCollectionItemSchema([
+      { kind: 'node', role: 'item', typeName: 'ReactNode' },
+    ])).toBe('ReactNode');
+  });
+});
+
+describe('propsTypeChain (roadmap M7)', () => {
+  it('records locally declared base types in the inheritance chain', () => {
+    const result = extractSourceContract([
+      {
+        contents: `
+export interface BaseProps {
+  id?: string;
+}
+export interface OwnProps {
+  label: string;
+}
+export interface ButtonProps extends BaseProps, OwnProps {
+  disabled?: boolean;
+}
+`,
+        fileName: 'button/Button.types.ts',
+      },
+    ], 'Button');
+
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.contract.propsTypeName).toBe('ButtonProps');
+      // Both local bases must appear in the chain (order follows the `extends`).
+      const chain = result.contract.propsTypeChain ?? [];
+      expect(chain).toContain('BaseProps');
+      expect(chain).toContain('OwnProps');
+    }
+  });
+
+  it('omits propsTypeChain when there is no local heritage', () => {
+    const result = extractSourceContract([
+      {
+        contents: `
+export interface PlainProps {
+  value: string;
+}
+`,
+        fileName: 'plain/Plain.types.ts',
+      },
+    ], 'Plain');
+
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      // No `extends` and no external bases resolvable locally → no chain field.
+      expect(result.contract.propsTypeChain ?? []).toEqual([]);
+    }
   });
 });

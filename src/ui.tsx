@@ -116,6 +116,7 @@ export function Plugin(): h.JSX.Element {
     semanticProposals,
     applySemanticProposal,
     exportDebugBundle,
+    exportReport,
     isSourceReplacementPending,
     sourceReplacementCancelRef,
     confirmSourceReplacement,
@@ -362,6 +363,7 @@ export function Plugin(): h.JSX.Element {
             semanticProposals={semanticProposals}
             applySemanticProposal={applySemanticProposal}
             exportDebugBundle={exportDebugBundle}
+            exportReport={exportReport}
             isSourceReplacementPending={isSourceReplacementPending}
             sourceReplacementCancelRef={(element) => {
               sourceReplacementCancelRef.current = element;
@@ -727,6 +729,7 @@ function ConnectComponentView(props: {
     action: ReconciliationAction,
   ) => void;
   exportDebugBundle: () => void;
+  exportReport: (format: 'markdown' | 'json') => void;
   isSourceReplacementPending: boolean;
   sourceReplacementCancelRef: (element: HTMLButtonElement | null) => void;
   confirmSourceReplacement: () => void;
@@ -948,6 +951,7 @@ function ConnectComponentView(props: {
                 importPath={props.importPath}
                 onApplyProposal={props.applySemanticProposal}
                 onExportDebugBundle={props.exportDebugBundle}
+                onExportReport={props.exportReport}
                 onFilesSelected={(files) => { void props.uploadSourceFiles(files); }}
                 onOptionChange={props.setSemanticOption}
                 onRepeatedInstancesChange={props.setSemanticRepeatedInstances}

@@ -85,7 +85,7 @@ export function parseSourceComponent(
       `Used ${selected.declaration.name.text} because no ${expectedPropsName} was found.`,
     );
   }
-  const members = collectSourcePropsMembers(selected, parsedFiles, warnings);
+  const { members } = collectSourcePropsMembers(selected, parsedFiles, warnings);
   const aliases = collectTypeAliases(parsedFiles.map(({ sourceFile }) => sourceFile));
   const props = members.flatMap(({
     member,

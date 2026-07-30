@@ -12,6 +12,7 @@ import {
   IconVariant16,
   IconWarning16,
   SegmentedControl,
+  SearchTextbox,
   Textbox,
   type DropdownOption,
 } from '@create-figma-plugin/ui';
@@ -28,6 +29,7 @@ import {
   nestedOptionId,
   propertyOptionId,
   validateRecipeDraft,
+  type RecipeValidationSummary,
   type SemanticTargetRow,
 } from './semantic/authoring';
 import { resolveSemanticUsage } from './semantic/resolver';
@@ -39,6 +41,8 @@ import {
 import type { SemanticConnectionRecipe } from './semantic/types';
 import {
   isRuntimeSourceTargetKind,
+  summarizeCollectionItemSchema,
+  targetKindReason,
   type SourceTargetDescriptor,
 } from './semantic/source-contract';
 import { configureDirectoryInput } from './source-upload';
@@ -54,6 +58,8 @@ export type SemanticMappingViewProps = {
   proposals?: readonly ReconciliationProposal[];
   onApplyProposal?: (proposal: ReconciliationProposal, action: ReconciliationAction) => void;
   onExportDebugBundle?: () => void;
+  /** Export the compatibility report for the current component (roadmap M7). */
+  onExportReport?: (format: 'markdown' | 'json') => void;
   onValueMappingChange?: (
     targetPath: readonly string[],
     sourceValue: SourcePropValue,
@@ -87,6 +93,7 @@ export function SemanticMappingView(props: SemanticMappingViewProps): h.JSX.Elem
   const [isDragging, setIsDragging] = useState(false);
   const [activePath, setActivePath] = useState<string>();
   const [filter, setFilter] = useState<'all' | 'review'>('all');
+  const [query, setQuery] = useState('');
   const recipe = props.recipe;
   if (!recipe?.sourceContract) {
     return null;
@@ -109,9 +116,17 @@ export function SemanticMappingView(props: SemanticMappingViewProps): h.JSX.Elem
     ?? rows.find((row) => row.optionId === '');
   const focusedPath = activePath ?? firstUnresolved?.targetPath ?? rows[0]?.targetPath;
   const focusedRow = rows.find((row) => row.targetPath === focusedPath) ?? rows[0];
-  const visibleRows = filter === 'review'
-    ? rows.filter((row) => targetState(row) !== 'done')
-    : rows;
+  // ponytail: plain substring match across targetPath + typeName + the resolved
+  // value label. No fuzzy ranking — the lists are short and owners search by
+  // the prop name they already know. Empty query = no filtering by search.
+  const normalizedQuery = query.trim().toLowerCase();
+  const matchesQuery = (row: SemanticTargetRow): boolean => normalizedQuery === ''
+    || row.targetPath.toLowerCase().includes(normalizedQuery)
+    || row.target.typeName.toLowerCase().includes(normalizedQuery)
+    || describeRowValue(row).toLowerCase().includes(normalizedQuery);
+  const visibleRows = rows.filter((row) => (
+    (filter === 'review' ? targetState(row) !== 'done' : true) && matchesQuery(row)
+  ));
 
   const usedSources = getUsedSourceOptionIds(recipe);
   const inventory = buildFigmaInventory(props.figmaSnapshot, recipe.figmaSnapshot);
@@ -152,6 +167,9 @@ export function SemanticMappingView(props: SemanticMappingViewProps): h.JSX.Elem
                 {contract.componentName}
                 {contract.propsTypeName
                   ? ` → ${contract.propsTypeName}`
+                  : ''}
+                {contract.propsTypeChain && contract.propsTypeChain.length > 0
+                  ? contract.propsTypeChain.map((base) => ` → ${base}`).join('')
                   : ''}
               </strong>
               <small class="source-file">{contract.fileName}</small>
@@ -283,6 +301,12 @@ export function SemanticMappingView(props: SemanticMappingViewProps): h.JSX.Elem
               </button>
             </div>
           </div>
+          <SearchTextbox
+            aria-label="Search code props"
+            onValueInput={setQuery}
+            placeholder="Search props, types, or values"
+            value={query}
+          />
           <div class="prop-list">
             {visibleRows.map((row) => {
               const sectionLabel = row.section !== previousSection
@@ -303,7 +327,11 @@ export function SemanticMappingView(props: SemanticMappingViewProps): h.JSX.Elem
               );
             })}
             {visibleRows.length === 0 ? (
-              <div class="mapping-list-empty">Everything is resolved.</div>
+              <div class="mapping-list-empty">
+                {normalizedQuery !== ''
+                  ? `No code props match "${query.trim()}".`
+                  : 'Everything is resolved.'}
+              </div>
             ) : null}
           </div>
         </aside>
@@ -334,6 +362,15 @@ export function SemanticMappingView(props: SemanticMappingViewProps): h.JSX.Elem
             <div class="mapping-list-empty">No mappable code props were found.</div>
           )}
 
+          {validation.summary.blocking > 0 || validation.summary.review > 0 ? (
+            <p
+              aria-live="polite"
+              class={validation.summary.blocking > 0 ? 'field-error' : 'mapping-help'}
+              role="status"
+            >
+              <CompatibilitySummary summary={validation.summary} />
+            </p>
+          ) : null}
           {validation.errors.length > 0 ? (
             <ul class="field-error" role="list">
               {validation.errors.map((error) => <li key={error}>{error}</li>)}
@@ -359,18 +396,46 @@ export function SemanticMappingView(props: SemanticMappingViewProps): h.JSX.Elem
         </main>
       </div>
 
-      {props.onExportDebugBundle ? (
+      {props.onExportDebugBundle || props.onExportReport ? (
         <div class="mapping-card-footer">
-          <button
-            class="link-button"
-            disabled={props.disabled}
-            onClick={props.onExportDebugBundle}
-            title="Records schema versions, mapping structure, and health only — no source code, URLs, design text, or layer names."
-            type="button"
-          >
-            Export debug bundle
-          </button>
-          <small>Redacted: structure and health only.</small>
+          {props.onExportReport ? (
+            <Fragment>
+              <button
+                class="link-button"
+                disabled={props.disabled}
+                onClick={() => props.onExportReport?.('markdown')}
+                title="Target-kind counts and unsupported props for this component."
+                type="button"
+              >
+                Compatibility report (Markdown)
+              </button>
+              <button
+                class="link-button"
+                disabled={props.disabled}
+                onClick={() => props.onExportReport?.('json')}
+                title="Same data as the Markdown report, as JSON."
+                type="button"
+              >
+                JSON
+              </button>
+            </Fragment>
+          ) : null}
+          {props.onExportDebugBundle ? (
+            <button
+              class="link-button"
+              disabled={props.disabled}
+              onClick={props.onExportDebugBundle}
+              title="Records schema versions, mapping structure, and health only — no source code, URLs, design text, or layer names."
+              type="button"
+            >
+              Export debug bundle
+            </button>
+          ) : null}
+          <small>
+            {props.onExportReport
+              ? 'Report: per-kind counts and unsupported props only.'
+              : 'Redacted: structure and health only.'}
+          </small>
         </div>
       ) : null}
     </section>
@@ -502,6 +567,40 @@ function ReconciliationPanel(props: {
 }
 
 /**
+ * Pre-save compatibility summary (roadmap M7). One scannable line that says
+ * whether the recipe is saveable and, if not, how many of each blocking category
+ * remain — before the user scrolls the per-message lists.
+ */
+function CompatibilitySummary(props: {
+  summary: RecipeValidationSummary;
+}): h.JSX.Element {
+  const { summary } = props;
+  const parts: string[] = [];
+
+  if (summary.blocking === 0 && summary.review === 0) {
+    return <span>Ready to save.</span>;
+  }
+
+  if (summary.unresolvedRequired > 0) {
+    parts.push(`${summary.unresolvedRequired} required prop${summary.unresolvedRequired === 1 ? '' : 's'} unresolved`);
+  }
+  if (summary.unresolvedRuntime > 0) {
+    parts.push(`${summary.unresolvedRuntime} runtime input${summary.unresolvedRuntime === 1 ? '' : 's'} unmarked`);
+  }
+  if (summary.incompatibleSlots > 0) {
+    parts.push(`${summary.incompatibleSlots} incompatible slot${summary.incompatibleSlots === 1 ? '' : 's'}`);
+  }
+  if (summary.review > 0) {
+    parts.push(`${summary.review} to review`);
+  }
+
+  const lead = summary.blocking > 0
+    ? `Cannot save — ${parts.join(', ')}.`
+    : `Saveable with ${parts.join(', ')}.`;
+  return <span>{lead}</span>;
+}
+
+/**
  * The legal values a static entry may take. A prop typed `boolean` or as a
  * literal union has a closed set, so the user picks from it and can never
  * author a value the source type would reject. Open types (`string`, `number`)
@@ -612,12 +711,20 @@ function PropInspector(props: {
 
       {target.kind === 'excluded' ? (
         <p class="mapping-help">
-          Excluded by policy — styling and DOM props stay in application code.
+          {targetKindReason(target.kind)}
         </p>
       ) : target.kind === 'unsupported' ? (
-        <p class="mapping-help">This type cannot be mapped visually yet.</p>
+        <p class="mapping-help">{targetKindReason(target.kind)}</p>
       ) : (
         <Fragment>
+          {isRuntimeSourceTargetKind(target.kind) && target.kind !== 'node' ? (
+            <p class="mapping-help">{targetKindReason(target.kind)}</p>
+          ) : null}
+          {summarizeCollectionItemSchema(target.itemSchemas ?? []) ? (
+            <p class="mapping-help">
+              Item shape: <code>{summarizeCollectionItemSchema(target.itemSchemas ?? [])}</code>
+            </p>
+          ) : null}
           <div
             aria-label={`Source mode for ${row.targetPath}`}
             class="mapping-mode-control"

@@ -87,15 +87,17 @@ export function collectSourcePropsMembers(
   selection: SourcePropsSelection,
   files: readonly ParsedSourceFile[],
   warnings: string[],
-): ResolvedSourceMember[] {
+): { members: ResolvedSourceMember[]; chain: string[] } {
   const symbols = buildSourceSymbolTable(files);
   const fallbackWarnings: string[] = [];
+  const fallbackChain: string[] = [];
   const fallbackMembers = collectDeclarationMembers(
     selection.declaration,
     selection.file.sourceFile,
     symbols,
     new Set(),
     fallbackWarnings,
+    fallbackChain,
   );
   const checked = resolveSourcePropsWithTypeChecker(
     files,
@@ -107,9 +109,9 @@ export function collectSourcePropsMembers(
     : fallbackWarnings;
   warnings.push(...retainedFallbackWarnings, ...checked.warnings);
   if (checked.members.length > 0) {
-    return checked.members;
+    return { members: checked.members, chain: checked.baseTypeNames };
   }
-  return fallbackMembers;
+  return { members: fallbackMembers, chain: fallbackChain };
 }
 
 function collectPropsCandidates(
@@ -555,6 +557,7 @@ function collectDeclarationMembers(
   symbols: SourceSymbolTable,
   seen: Set<string>,
   warnings: string[],
+  chain: string[] = [],
 ): ResolvedSourceMember[] {
   if (seen.has(declaration.name.text)) {
     return [];
@@ -562,7 +565,7 @@ function collectDeclarationMembers(
   seen.add(declaration.name.text);
 
   if (ts.isTypeAliasDeclaration(declaration)) {
-    return resolveTypeMembers(declaration.type, symbols, seen, warnings);
+    return resolveTypeMembers(declaration.type, symbols, seen, warnings, chain);
   }
 
   const ownMembers = declaration.members
@@ -570,7 +573,7 @@ function collectDeclarationMembers(
     .map((member) => ({ member, sourceFile }));
   const inheritedMembers = (declaration.heritageClauses ?? []).flatMap(
     ({ types }) => types.flatMap((type) => (
-      resolveHeritageMembers(type, symbols, new Set(seen), warnings)
+      resolveHeritageMembers(type, symbols, new Set(seen), warnings, chain)
     )),
   );
   return mergeMembers(ownMembers, inheritedMembers);
@@ -581,9 +584,10 @@ function resolveTypeMembers(
   symbols: SourceSymbolTable,
   seen: Set<string>,
   warnings: string[],
+  chain: string[] = [],
 ): ResolvedSourceMember[] {
   if (ts.isParenthesizedTypeNode(node)) {
-    return resolveTypeMembers(node.type, symbols, seen, warnings);
+    return resolveTypeMembers(node.type, symbols, seen, warnings, chain);
   }
   if (ts.isTypeLiteralNode(node)) {
     return node.members
@@ -594,7 +598,7 @@ function resolveTypeMembers(
     return node.types.reduce<ResolvedSourceMember[]>(
       (members, type) => mergeMembers(
         members,
-        resolveTypeMembers(type, symbols, new Set(seen), warnings),
+        resolveTypeMembers(type, symbols, new Set(seen), warnings, chain),
       ),
       [],
     );
@@ -610,6 +614,7 @@ function resolveTypeMembers(
       symbols,
       new Set(seen),
       warnings,
+      chain,
     );
     const keys = new Set(extractKeyLiterals(node.typeArguments[1]));
     return members.filter(({ member }) => {
@@ -621,12 +626,16 @@ function resolveTypeMembers(
 
   const candidate = symbols.interfaces.get(name) ?? symbols.aliases.get(name);
   if (candidate) {
+    if (!chain.includes(name)) {
+      chain.push(name);
+    }
     return collectDeclarationMembers(
       candidate.declaration,
       candidate.file.sourceFile,
       symbols,
       seen,
       warnings,
+      chain,
     );
   }
   return [];
@@ -637,6 +646,7 @@ function resolveHeritageMembers(
   symbols: SourceSymbolTable,
   seen: Set<string>,
   warnings: string[],
+  chain: string[] = [],
 ): ResolvedSourceMember[] {
   const name = getLastName(node.expression);
   if ((name === 'Omit' || name === 'Pick') && node.typeArguments?.length) {
@@ -645,17 +655,22 @@ function resolveHeritageMembers(
       symbols,
       seen,
       warnings,
+      chain,
     );
   }
   if (name) {
     const candidate = symbols.interfaces.get(name) ?? symbols.aliases.get(name);
     if (candidate) {
+      if (!chain.includes(name)) {
+        chain.push(name);
+      }
       return collectDeclarationMembers(
         candidate.declaration,
         candidate.file.sourceFile,
         symbols,
         seen,
         warnings,
+        chain,
       );
     }
     warnings.push(

@@ -91,11 +91,90 @@ export function isRuntimeSourceTargetKind(kind: SourceTargetKind): boolean {
     || kind === 'environment';
 }
 
+// ponytail: hand-maintained kind→reason map. Ceiling: a new SourceTargetKind
+// added without an entry here returns undefined and the UI falls back to the
+// generic static/runtime copy. The map mirrors the JSDoc on the union above,
+// which is the single source of truth for each kind's intent.
+const TARGET_KIND_REASON: Readonly<Record<SourceTargetKind, string>> = {
+  visual: 'Design value — can come from a Figma property.',
+  event: 'Callback — application code supplies the handler.',
+  node: 'React node slot — a connected component fills it.',
+  array: 'Collection — application code supplies the data.',
+  record: 'Object value — application code assembles it.',
+  date: 'Date value — application code supplies it.',
+  file: 'Browser file or blob — application code supplies it.',
+  render: 'Render function or component type — application code supplies it.',
+  styling: 'Framework styling value — stays in application code.',
+  controlled: 'Controlled state — application code owns the value.',
+  environment: 'Framework or host value (theme, anchor, slot config).',
+  excluded: 'Excluded by policy — styling and DOM props stay in application code.',
+  unsupported: 'This type cannot be mapped visually yet.',
+};
+
+/**
+ * Human reason for why a target is the way it is (roadmap M7: "show why a value
+ * is runtime-only or unsupported"). Mirrors the JSDoc intent on each
+ * {@link SourceTargetKind}. Returns undefined for an unknown kind so callers can
+ * fall back rather than render a wrong reason.
+ */
+export function targetKindReason(kind: SourceTargetKind): string | undefined {
+  return TARGET_KIND_REASON[kind];
+}
+
+/**
+ * Render a collection's item shape as a compact TypeScript-like summary for the
+ * M7 "structured editors" deliverable — display-only. Groups item fields by
+ * role: `item` fields become object members, `key`/`value` describe a Record.
+ * Returns undefined when there is nothing structured to show.
+ *
+ * ponytail: this is a presentational flatten of `itemSchemas`, not a type
+ * reconstruction. Generic parameterization and nested item objects are shown as
+ * their typeName verbatim; the ceiling is one level of item fields, which covers
+ * every public Swiss Army Knife collection audited so far.
+ */
+export function summarizeCollectionItemSchema(
+  items: readonly SourceCollectionItemSchema[],
+): string | undefined {
+  if (items.length === 0) {
+    return undefined;
+  }
+
+  // Record-like: `{ [key]: value }`.
+  const keyItem = items.find((item) => item.role === 'key');
+  const valueItem = items.find((item) => item.role === 'value');
+  if (keyItem && valueItem) {
+    return `{ [${formatField(keyItem)}]: ${valueItem.typeName} }`;
+  }
+
+  // Object-like: `{ field: type, … }`. A single pathless item (e.g. just
+  // `ReactNode`) is the collection's element type, not a named field.
+  const fields = items.filter((item) => item.role === 'item');
+  const namedFields = fields.filter((item) => item.path && item.path.length > 0);
+  if (namedFields.length === 0) {
+    return fields[0]?.typeName ?? items[0]?.typeName;
+  }
+  const members = namedFields.map((item) => {
+    const name = item.path?.[item.path.length - 1] ?? item.typeName;
+    return `${name}: ${item.typeName}`;
+  });
+  return `{ ${members.join(', ')} }`;
+}
+
+function formatField(item: SourceCollectionItemSchema): string {
+  return item.path?.[item.path.length - 1] ?? item.typeName;
+}
+
 export type SourceContract = {
   componentName: string;
   fileName: string;
   contentHash: string;
   propsTypeName?: string;
+  /**
+   * Resolved base-type names behind `propsTypeName`, for the M7 "resolved props
+   * source and inheritance chain" display. Empty/absent when no local heritage
+   * could be named (e.g. unresolved external bases). Display-only.
+   */
+  propsTypeChain?: string[];
   targets: SourceTargetDescriptor[];
 };
 
@@ -162,7 +241,11 @@ export function extractSourceContract(
   }
   const targets: SourceTargetDescriptor[] = [];
 
-  const members = collectSourcePropsMembers(selected, parsedFiles, warnings);
+  const { members, chain: propsTypeChain } = collectSourcePropsMembers(
+    selected,
+    parsedFiles,
+    warnings,
+  );
 
   for (const {
     member,
@@ -251,6 +334,7 @@ export function extractSourceContract(
       contentHash: createSourceContentHash(files),
       fileName: selected.file.fileName,
       propsTypeName: selected.declaration.name.text,
+      ...(propsTypeChain.length > 0 ? { propsTypeChain } : {}),
       targets: classifiedTargets,
     },
     ok: true,
