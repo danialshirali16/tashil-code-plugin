@@ -112,6 +112,13 @@ with the shipped plugin.
 ## Documentation changes
 
 When a user-facing mapping or maintenance behavior changes, update the relevant
+guide in the same change. When a section's module map, boundary, or invariants
+change, update its section guide too:
+
+- [Section guide index](sections-index.md) and the five `section-*.md` guides
+  for module-level architecture and the rules each section enforces.
+
+When a user-facing mapping or maintenance behavior changes, update the relevant
 guide in the same change:
 
 - [Connect a component](connect-component.md) for setup and Dev Mode behavior.

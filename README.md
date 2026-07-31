@@ -87,6 +87,10 @@ See [Generate and inspect a frame](docs/inspect-frame.md) for the full guide.
 
 ## Documentation
 
+- [Section guide](docs/sections-index.md) — engineer/agent onboarding: the five
+  `src/` sections, their module maps, the rules each one enforces, and the
+  global invariants. Read the matching `docs/section-*.md` before editing a
+  section.
 - [Project brief](docs/project-brief.md) — product scope, runtime flow,
   architecture, privacy model, and frame-inspection status.
 - [Generate and inspect a frame](docs/inspect-frame.md) — full styled-components
