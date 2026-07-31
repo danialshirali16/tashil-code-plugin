@@ -33,8 +33,10 @@ the `semantic/` and `inspect/` layering.
 | File | Role |
 | --- | --- |
 | `src/sync-tokens/types.ts` | Pure domain model. Zero `@figma/plugin-typings` imports. |
-| `src/sync-tokens/serialize.ts` | Pure transforms: name → CSS ident, color → css, number → rem, collection → `:root {}` block. |
-| `src/sync-tokens/serialize.test.ts` | Unit tests for the above (28 cases). |
+| `src/sync-tokens/serialize.ts` | Pure transforms: name → CSS ident, color → css, number → rem, collection → `:root {}` block. Also exports the duplicate-name guard (`duplicateNameWarning`) and the segment helpers the JSON serializers reuse. |
+| `src/sync-tokens/serialize-json.ts` | Pure JSON serializers: `serializeCollectionFlat` (flat mirror of the CSS keys/values) and `serializeCollectionDtcg` (W3C Design Tokens Format, nested by the Figma `/` path). Colors are always hex here — the `colorFormat` option is CSS-only. |
+| `src/sync-tokens/serialize.test.ts` | Unit tests for the CSS serializer (29 cases). |
+| `src/sync-tokens/serialize-json.test.ts` | Unit tests for the JSON serializers (9 cases). |
 | `src/main.ts` | The only place that calls `figma.variables.*`. Maps live Variable objects into the pure domain model, then serializes. |
 | `src/ui-controller.ts` | Holds tab state, owns the message round-trips, and **packages/downloads** the result. |
 | `src/ui-download.ts` | `downloadBlob()` — `URL.createObjectURL` + synthetic `<a download>`. The plugin's only file-download mechanism. |
@@ -127,10 +129,26 @@ gated on `token.scopes` intersecting `LENGTH_SCOPES` (defined in `types.ts`):
 A blanket px→rem on every FLOAT would corrupt opacity and font-weight. Don't
 remove the scope check.
 
-### `serializeCollection(collection, options)`
+### `serializeCollection(collection, options, warnings?)`
 
 Emits the `:root { … }` block. Skips tokens whose value serializes to empty
-(e.g. unresolved non-color aliases).
+(e.g. unresolved non-color aliases). Takes an optional `warnings` out-param so
+it can report **duplicate-name collisions**: two Figma variables that format to
+the same CSS identifier (e.g. `Color/Primary` and `Color.Primary` both kebab to
+`color-primary`) — first-write-wins, the duplicate is skipped, and a
+`duplicate-name` warning is pushed. The same guard runs in both JSON
+serializers. `main.ts` subtracts the duplicate count from `declarationCount`
+so the preflight summary reflects the real emitted count.
+
+### The JSON serializers (`src/sync-tokens/serialize-json.ts`)
+
+`serializeCollectionFlat` and `serializeCollectionDtcg` are pure siblings of
+`serializeCollection`, selected by `options.outputFormat`. Flat mirrors the CSS
+keys/values as a JSON object; DTCG nests by the Figma `/` path (via
+`tokenNameSegments`) with `{ $value, $type }` leaves and `{reference}` aliases.
+`$type` is inferred from `resolvedType` + scopes (`color`, `dimension` for
+length-scoped FLOAT, `number` otherwise, `string`, `boolean`). Both ignore
+`colorFormat` — JSON colors are always hex.
 
 ## The Figma adapter (`src/main.ts`)
 
@@ -145,10 +163,15 @@ and export orchestrator. Per selected collection, per selected mode:
    union into the pure `TokenValue`. Handles the three object shapes:
    `VariableAlias` (resolves via `getVariableByIdAsync`, and if the target is a
    color, resolves the color too), `RGB`, `RGBA`.
-3. Builds a `TokenCollection` and calls `serializeCollection`.
-4. Pushes an `ExportFile` with CSS, counts, and non-fatal warnings. Collections
-   that define multiple modes always include the mode suffix, so filenames stay
-   stable as the selection changes.
+3. Builds a `TokenCollection` and serializes it. The serializer and file
+   extension are chosen by `options.outputFormat`: `css` →
+   `serializeCollection` + `.css`, `json-flat` → `serializeCollectionFlat` +
+   `.json`, `json-dtcg` → `serializeCollectionDtcg` + `.json`. Each serializer
+   receives the file's `warnings` array so it can report duplicate-name
+   collisions.
+4. Pushes an `ExportFile` with the serialized body (the `content` field), counts,
+   and non-fatal warnings. Collections that define multiple modes always include
+   the mode suffix, so filenames stay stable as the selection changes.
 
 **Critical:** `manifest.json` has `documentAccess: "dynamic-page"`, so the
 deprecated sync Variables API (`getLocalVariableCollections()`,
@@ -162,9 +185,11 @@ instead of fabricating a fallback value.
 ## Packaging & download (`src/ui-controller.ts`)
 
 `deliverTokenFiles(files)` runs on the UI thread (the main thread has no DOM,
-so it cannot trigger downloads):
+so it cannot trigger downloads). It is format-agnostic: the MIME type is
+inferred from `file.name`'s extension (`application/json` for `.json`, else
+`text/css`), so it needs no knowledge of `outputFormat`:
 
-- **One file** → `new Blob([css], {type: 'text/css'})` + `downloadBlob`.
+- **One file** → `new Blob([content], {type: mime})` + `downloadBlob`.
 - **Multiple files** → `JSZip`, `generateAsync({type:'blob'})`, downloaded as
   `sync-tokens.zip`.
 
@@ -212,11 +237,23 @@ Selections and advanced settings reset when the plugin reopens. There is no
 `setSharedPluginData` round-trip for them. Add one if repeat-export workflows
 demand it — the persistence pattern already exists for connections.
 
-### Why CSS only
+### Output formats: CSS, JSON flat, JSON DTCG
 
-`.scss` and `.json` outputs are not supported. The serializer is pure and could
-emit other formats by adding a format selector + a sibling to
-`serializeCollection`; the domain model is format-agnostic.
+CSS is the default. JSON flat mirrors the CSS keys/values as an object; JSON
+DTCG emits the W3C Design Tokens Format. The `ExportFile.body` field is named
+`content` (not `css`) precisely because it carries either format, and the
+download MIME is derived from the filename extension so the packaging layer
+stays format-agnostic. **Color format is CSS-only** — JSON always writes hex,
+because crossing the 4 color formats with 2 JSON flavors is an 8-way behavior
+matrix nobody can keep straight. `px→rem` and name-style apply to all three.
+
+### Duplicate-name collisions
+
+Two Figma variables can format to the same exported name (`Color/Primary` and
+`Color.Primary` both kebab to `color-primary`; in DTCG, only identical segment
+arrays collide). Each serializer dedupes first-write-wins and pushes a
+`duplicate-name` warning; `main.ts` subtracts the count from `declarationCount`.
+Without this guard the second CSS declaration silently overrode the first.
 
 ## Gotchas
 
@@ -239,7 +276,8 @@ Common requests and where they land:
 
 | Want | Change |
 | --- | --- |
-| `.scss` / `.json` output | Add an output-format option; new serializer alongside `serializeCollection`. |
+| ~~`.json` output~~ | Done — `outputFormat` option (`css` / `json-flat` / `json-dtcg`); serializers in `serialize-json.ts`. |
+| `.scss` output | Add a fourth `outputFormat` literal + a sibling serializer; follow the `serialize-json.ts` pattern. |
 | Scoped `[data-theme]` blocks instead of per-mode files | `exportTokens` (one file) + `serializeCollection` (scoped blocks). |
 | Persist export settings | `setSharedPluginData` on save; load on tab mount. |
 | Recursive non-color alias resolution | Generalize `resolveColorValue` to `resolveValue` across types. |

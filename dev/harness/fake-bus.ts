@@ -16,11 +16,13 @@ import { createRecipeDraft } from '../../src/semantic/authoring';
 import { extractFigmaSemanticSnapshot } from '../../src/semantic/figma-extractor';
 import { extractSourceContract } from '../../src/semantic/source-contract';
 import { serializeCollection } from '../../src/sync-tokens/serialize';
+import { serializeCollectionDtcg, serializeCollectionFlat } from '../../src/sync-tokens/serialize-json';
 import type {
   ExportFile,
   ExportOptions,
   Token,
   TokenCollection,
+  TokenExportWarning,
 } from '../../src/sync-tokens/types';
 import { CURRENT_SCHEMA_VERSION } from '../../src/types';
 import type {
@@ -351,25 +353,32 @@ function createPreviewFiles(payload: {
       const suffix = collection.modes.length > 1
         ? `-${tokenFileSlug(mode.name)}`
         : '';
+      const warnings: TokenExportWarning[] = collection.id === 'product'
+        && modeId === 'zhina'
+        && payload.options.aliasModeOverridesByCollectionMode
+          ?.product?.zhina?.references === undefined
+        ? [{
+            code: 'mode-fallback',
+            message: 'No “Zhina” mode exists in References Color; using Light.',
+            tokenName: 'Color/Primary/Hover',
+            sourceCollectionId: 'product',
+            sourceModeId: 'zhina',
+            targetCollectionId: 'references',
+            fallbackModeId: 'light',
+          }]
+        : [];
+      const extension = payload.options.outputFormat === 'css' ? 'css' : 'json';
+      const content = payload.options.outputFormat === 'css'
+        ? serializeCollection(domain, payload.options, warnings)
+        : payload.options.outputFormat === 'json-flat'
+          ? serializeCollectionFlat(domain, payload.options, warnings)
+          : serializeCollectionDtcg(domain, payload.options, warnings);
       files.push({
-        name: `${tokenFileSlug(collection.name)}${suffix}.css`,
-        css: serializeCollection(domain, payload.options),
+        name: `${tokenFileSlug(collection.name)}${suffix}.${extension}`,
+        content,
         declarationCount: tokens.length,
         sourceVariableCount: collection.tokenCount,
-        warnings: collection.id === 'product'
-          && modeId === 'zhina'
-          && payload.options.aliasModeOverridesByCollectionMode
-            ?.product?.zhina?.references === undefined
-          ? [{
-              code: 'mode-fallback',
-              message: 'No “Zhina” mode exists in References Color; using Light.',
-              tokenName: 'Color/Primary/Hover',
-              sourceCollectionId: 'product',
-              sourceModeId: 'zhina',
-              targetCollectionId: 'references',
-              fallbackModeId: 'light',
-            }]
-          : [],
+        warnings,
       });
     }
   }

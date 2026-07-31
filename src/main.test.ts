@@ -387,6 +387,7 @@ describe('Sync Tokens export', () => {
       modesByCollection: { product: ['product-zhina', 'product-dark'] },
       nameStyle: 'dot',
       rootFontSize: 16,
+      outputFormat: 'css',
     };
     utilityMocks.handlers.get('EXPORT_TOKENS')?.({
       collectionIds: ['product'],
@@ -417,12 +418,12 @@ describe('Sync Tokens export', () => {
         fallbackModeId: 'references-light',
       }),
     ]);
-    expect(result.files?.[0]?.css).toContain('--color\\.primary\\.hover: #0d99ff;');
-    expect(result.files?.[0]?.css).toContain('--spacing\\.4: 1rem;');
+    expect(result.files?.[0]?.content).toContain('--color\\.primary\\.hover: #0d99ff;');
+    expect(result.files?.[0]?.content).toContain('--spacing\\.4: 1rem;');
     expect(result.files?.[1]?.name).toBe('product-tokens-dark.css');
-    expect(result.files?.[1]?.css).toContain('--color\\.primary\\.hover: #033366;');
-    expect(result.files?.[1]?.css).toContain('--spacing\\.4: 1.25rem;');
-    expect(result.files?.map((file) => file.css).join('\n')).not.toContain('#000000');
+    expect(result.files?.[1]?.content).toContain('--color\\.primary\\.hover: #033366;');
+    expect(result.files?.[1]?.content).toContain('--spacing\\.4: 1.25rem;');
+    expect(result.files?.map((file) => file.content).join('\n')).not.toContain('#000000');
 
     utilityMocks.handlers.get('EXPORT_TOKENS')?.({
       collectionIds: ['product'],
@@ -466,9 +467,9 @@ describe('Sync Tokens export', () => {
     const explicitModeResult = emittedPayloads<
       Parameters<ExportTokensResultHandler['handler']>[0]
     >('EXPORT_TOKENS_RESULT')[2];
-    expect(explicitModeResult.files?.[0]?.css)
+    expect(explicitModeResult.files?.[0]?.content)
       .toContain('--color\\.primary\\.hover: #033366;');
-    expect(explicitModeResult.files?.[0]?.css)
+    expect(explicitModeResult.files?.[0]?.content)
       .toContain('--spacing\\.4: 1.25rem;');
     expect(explicitModeResult.files?.[0]?.warnings).toEqual([]);
 
@@ -489,7 +490,7 @@ describe('Sync Tokens export', () => {
       Parameters<PreviewTokensResultHandler['handler']>[0]
     >('PREVIEW_TOKENS_RESULT')[0];
     expect(previewResult.files?.[0]?.name).toBe('product-tokens-dark.css');
-    expect(previewResult.files?.[0]?.css).toContain('--color\\.primary\\.hover: #033366;');
+    expect(previewResult.files?.[0]?.content).toContain('--color\\.primary\\.hover: #033366;');
   });
 
   it('reports skipped values, unresolved aliases, and unknown numeric scopes', async () => {
@@ -555,6 +556,7 @@ describe('Sync Tokens export', () => {
         modesByCollection: { [collection.id]: ['default'] },
         nameStyle: 'kebab',
         rootFontSize: 16,
+        outputFormat: 'css',
       } satisfies ExportOptions,
     });
 
@@ -570,7 +572,7 @@ describe('Sync Tokens export', () => {
       declarationCount: 2,
       sourceVariableCount: 5,
     }));
-    expect(result.files?.[0]?.css).toContain(
+    expect(result.files?.[0]?.content).toContain(
       '--unresolved-alias: var(--missing-target);',
     );
     expect(result.files?.[0]?.warnings.map((warning) => warning.code)).toEqual([
@@ -579,6 +581,145 @@ describe('Sync Tokens export', () => {
       'unsupported-value',
       'unknown-number-scope',
       'unresolved-alias',
+    ]);
+  });
+
+  it('exports JSON (flat) and JSON (DTCG) with the right extension and shape', async () => {
+    const collection = {
+      id: 'json-export',
+      name: 'Json Export',
+      modes: [{ modeId: 'default', name: 'Default' }],
+      defaultModeId: 'default',
+      variableIds: ['json-color', 'json-spacing'],
+    } as unknown as VariableCollection;
+    const color = {
+      id: 'json-color',
+      name: 'Color/Brand',
+      resolvedType: 'COLOR',
+      scopes: ['ALL_FILLS'],
+      valuesByMode: { default: { r: 0.05, g: 0.6, b: 1 } },
+      variableCollectionId: collection.id,
+    } as unknown as Variable;
+    const spacing = {
+      id: 'json-spacing',
+      name: 'Spacing/4',
+      resolvedType: 'FLOAT',
+      scopes: ['GAP'],
+      valuesByMode: { default: 16 },
+      variableCollectionId: collection.id,
+    } as unknown as Variable;
+
+    await startPlugin({
+      variableCollections: [collection],
+      variables: [color, spacing],
+    });
+
+    const baseJsonOptions = {
+      colorFormat: 'hex',
+      convertPxToRem: true,
+      modesByCollection: { 'json-export': ['default'] },
+      nameStyle: 'kebab',
+      rootFontSize: 16,
+    } as const;
+
+    // Flat JSON.
+    utilityMocks.handlers.get('EXPORT_TOKENS')?.({
+      collectionIds: ['json-export'],
+      operationId: 'export-json-flat',
+      options: { ...baseJsonOptions, outputFormat: 'json-flat' } satisfies ExportOptions,
+    });
+    await vi.waitFor(() => {
+      expect(emittedPayloads<
+        Parameters<ExportTokensResultHandler['handler']>[0]
+      >('EXPORT_TOKENS_RESULT')).toHaveLength(1);
+    });
+    const flat = emittedPayloads<
+      Parameters<ExportTokensResultHandler['handler']>[0]
+    >('EXPORT_TOKENS_RESULT')[0];
+    expect(flat.files?.[0]?.name).toBe('json-export.json');
+    const flatParsed = JSON.parse(flat.files?.[0]?.content ?? '{}');
+    expect(flatParsed['color-brand']).toBe('#0d99ff');
+    expect(flatParsed['spacing-4']).toBe('1rem');
+
+    // DTCG JSON.
+    utilityMocks.handlers.get('EXPORT_TOKENS')?.({
+      collectionIds: ['json-export'],
+      operationId: 'export-json-dtcg',
+      options: { ...baseJsonOptions, outputFormat: 'json-dtcg' } satisfies ExportOptions,
+    });
+    await vi.waitFor(() => {
+      expect(emittedPayloads<
+        Parameters<ExportTokensResultHandler['handler']>[0]
+      >('EXPORT_TOKENS_RESULT')).toHaveLength(2);
+    });
+    const dtcg = emittedPayloads<
+      Parameters<ExportTokensResultHandler['handler']>[0]
+    >('EXPORT_TOKENS_RESULT')[1];
+    expect(dtcg.files?.[0]?.name).toBe('json-export.json');
+    const dtcgParsed = JSON.parse(dtcg.files?.[0]?.content ?? '{}');
+    expect(dtcgParsed.color.brand).toEqual({ $value: '#0d99ff', $type: 'color' });
+    expect(dtcgParsed.spacing['4']).toEqual({ $value: '1rem', $type: 'dimension' });
+  });
+
+  it('dedupes variable names that collide after formatting and reports a warning', async () => {
+    const collection = {
+      id: 'dupes',
+      name: 'Duplicates',
+      modes: [{ modeId: 'default', name: 'Default' }],
+      defaultModeId: 'default',
+      variableIds: ['first', 'second'],
+    } as unknown as VariableCollection;
+    // Both kebab to 'color-primary'.
+    const first = {
+      id: 'first',
+      name: 'Color/Primary',
+      resolvedType: 'COLOR',
+      scopes: ['ALL_FILLS'],
+      valuesByMode: { default: { r: 0.2, g: 0.3, b: 0.8 } },
+      variableCollectionId: collection.id,
+    } as unknown as Variable;
+    const second = {
+      id: 'second',
+      name: 'Color.Primary',
+      resolvedType: 'COLOR',
+      scopes: ['ALL_FILLS'],
+      valuesByMode: { default: { r: 0.9, g: 0.1, b: 0.1 } },
+      variableCollectionId: collection.id,
+    } as unknown as Variable;
+
+    await startPlugin({
+      variableCollections: [collection],
+      variables: [first, second],
+    });
+
+    utilityMocks.handlers.get('EXPORT_TOKENS')?.({
+      collectionIds: ['dupes'],
+      operationId: 'export-dupes',
+      options: {
+        colorFormat: 'hex',
+        convertPxToRem: false,
+        modesByCollection: { dupes: ['default'] },
+        nameStyle: 'kebab',
+        rootFontSize: 16,
+        outputFormat: 'css',
+      } satisfies ExportOptions,
+    });
+
+    await vi.waitFor(() => {
+      expect(emittedPayloads<
+        Parameters<ExportTokensResultHandler['handler']>[0]
+      >('EXPORT_TOKENS_RESULT')).toHaveLength(1);
+    });
+    const result = emittedPayloads<
+      Parameters<ExportTokensResultHandler['handler']>[0]
+    >('EXPORT_TOKENS_RESULT')[0];
+    // 2 source variables, but only 1 declaration survives the dedupe.
+    expect(result.files?.[0]?.sourceVariableCount).toBe(2);
+    expect(result.files?.[0]?.declarationCount).toBe(1);
+    const matches = result.files?.[0]?.content.match(/--color-primary:/g);
+    expect(matches?.length).toBe(1);
+    expect(result.files?.[0]?.warnings).toEqual([
+      expect.objectContaining({ code: 'duplicate-name', tokenName: 'Color.Primary' }),
     ]);
   });
 });

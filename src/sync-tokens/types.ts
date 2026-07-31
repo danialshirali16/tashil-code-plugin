@@ -22,6 +22,13 @@ export type ColorFormat = 'rgb' | 'rgba' | 'hex' | 'variable';
  */
 export type NameStyle = 'kebab' | 'slash' | 'dot' | 'snake' | 'pascal';
 
+/**
+ * Export target. `css` emits `:root { --token: value; }` per file; `json-flat`
+ * emits a flat object mirroring the CSS keys/values; `json-dtcg` emits W3C
+ * Design Tokens Format (`$value`/`$type`, nested by the Figma `/` path).
+ */
+export type OutputFormat = 'css' | 'json-flat' | 'json-dtcg';
+
 /** Figma variable resolved type, mirrored here to stay runtime-free. */
 export type VariableResolvedType = 'BOOLEAN' | 'COLOR' | 'FLOAT' | 'STRING';
 
@@ -64,6 +71,8 @@ export type ExportOptions = {
   colorFormat: ColorFormat;
   /** Custom-property naming convention. */
   nameStyle: NameStyle;
+  /** Export target (CSS vs JSON variants). */
+  outputFormat: OutputFormat;
 };
 
 /** A resolved color value (Figma RGB/RGBA use 0–1 floats). */
@@ -125,7 +134,8 @@ export type TokenExportWarningCode =
   | 'mode-fallback'
   | 'unknown-number-scope'
   | 'unresolved-alias'
-  | 'unsupported-value';
+  | 'unsupported-value'
+  | 'duplicate-name';
 
 /** A non-fatal condition discovered while resolving an output file. */
 export type TokenExportWarning = {
@@ -139,10 +149,11 @@ export type TokenExportWarning = {
   fallbackModeId?: string;
 };
 
-/** One generated CSS file plus the preflight data used by preview and export. */
+/** One generated file plus the preflight data used by preview and export. */
 export type ExportFile = {
   name: string;
-  css: string;
+  /** Serialized file body: CSS text for `css` output, JSON text for JSON output. */
+  content: string;
   declarationCount: number;
   sourceVariableCount: number;
   warnings: readonly TokenExportWarning[];

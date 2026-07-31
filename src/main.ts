@@ -74,6 +74,7 @@ import {
   type ExportTokensResultHandler,
 } from './types';
 import { serializeCollection } from './sync-tokens/serialize';
+import { serializeCollectionDtcg, serializeCollectionFlat } from './sync-tokens/serialize-json';
 import type {
   AliasValue,
   ColorValue,
@@ -956,10 +957,19 @@ async function generateTokenFiles(
         tokens,
       };
       const suffix = collection.modes.length > 1 && mode ? `-${slug(mode.name)}` : '';
+      const extension = options.outputFormat === 'css' ? 'css' : 'json';
+      const content = options.outputFormat === 'css'
+        ? serializeCollection(domain, options, warnings)
+        : options.outputFormat === 'json-flat'
+          ? serializeCollectionFlat(domain, options, warnings)
+          : serializeCollectionDtcg(domain, options, warnings);
+      const duplicateCount = warnings.filter((w) => w.code === 'duplicate-name').length;
       files.push({
-        name: `${collectionSlug}${suffix}.css`,
-        css: serializeCollection(domain, options),
-        declarationCount: tokens.length,
+        name: `${collectionSlug}${suffix}.${extension}`,
+        content,
+        // Duplicate-name collisions are deduped by the serializer, so the real
+        // emitted count is the token count minus the duplicates it reported.
+        declarationCount: tokens.length - duplicateCount,
         sourceVariableCount: collection.variableIds.length,
         warnings,
       });

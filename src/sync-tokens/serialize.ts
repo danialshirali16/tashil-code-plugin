@@ -14,29 +14,41 @@ import {
   type NameStyle,
   type Token,
   type TokenCollection,
+  type TokenExportWarning,
   type TokenValue,
 } from './types';
 
-/** Split a Figma name on `/` and rejoin per the chosen style. */
-export function formatTokenName(raw: string, style: NameStyle): string {
+/** Split a Figma name on `/` into normalized segments, one per style. */
+export function tokenNameSegments(raw: string, style: NameStyle): string[] {
   // ponytail: Figma groups via `/`; segments may already contain spaces or
   // mixed case. We normalize each segment, never the raw string wholesale.
-  const segments = raw.split('/').map((segment) => segment.trim()).filter((segment) => segment.length > 0);
-  if (segments.length === 0) {
-    return 'unnamed';
+  const rawSegments = raw.split('/').map((segment) => segment.trim()).filter((segment) => segment.length > 0);
+  if (rawSegments.length === 0) {
+    return ['unnamed'];
   }
+  const normalize = style === 'snake' ? toSnake : style === 'pascal' ? toPascal : toKebab;
+  return rawSegments.map(normalize);
+}
+
+/** Separator joining segments for each style (pascal has none). */
+export function nameStyleSeparator(style: NameStyle): string {
   switch (style) {
     case 'kebab':
-      return segments.map(toKebab).join('-');
+      return '-';
     case 'slash':
-      return segments.map(toKebab).join('/');
+      return '/';
     case 'dot':
-      return segments.map(toKebab).join('.');
+      return '.';
     case 'snake':
-      return segments.map(toSnake).join('_');
+      return '_';
     case 'pascal':
-      return segments.map(toPascal).join('');
+      return '';
   }
+}
+
+/** Split a Figma name on `/` and rejoin per the chosen style. */
+export function formatTokenName(raw: string, style: NameStyle): string {
+  return tokenNameSegments(raw, style).join(nameStyleSeparator(style));
 }
 
 /**
@@ -162,16 +174,38 @@ function quoteIfNeeded(value: string): string {
   return `"${value.replace(/"/g, '\\"')}"`;
 }
 
+/**
+ * Build a `duplicate-name` warning for two Figma variables that slugify to the
+ * same exported name. Shared so every serializer reports collisions the same way.
+ */
+export function duplicateNameWarning(rawName: string, formattedName: string): TokenExportWarning {
+  return {
+    code: 'duplicate-name',
+    message: `Two variables share the name "${formattedName}"; only the first was emitted. Rename "${rawName}" to disambiguate.`,
+    tokenName: rawName,
+  };
+}
+
 /** Serialize a full collection to a `:root { ... }` CSS block. */
-export function serializeCollection(collection: TokenCollection, options: ExportOptions): string {
+export function serializeCollection(
+  collection: TokenCollection,
+  options: ExportOptions,
+  warnings?: TokenExportWarning[],
+): string {
   const lines: string[] = [`/* ${collection.name} — exported from Figma variables */`, ':root {'];
+  const seen = new Set<string>();
   for (const token of collection.tokens) {
     const name = formatCssTokenName(token.name, options.nameStyle);
     const value = formatTokenValue(token, options);
     if (value.length === 0) {
       continue;
     }
-    lines.push(`  --${name}: ${value};`);
+    if (!seen.has(name)) {
+      seen.add(name);
+      lines.push(`  --${name}: ${value};`);
+    } else if (warnings !== undefined) {
+      warnings.push(duplicateNameWarning(token.name, name));
+    }
   }
   lines.push('}');
   return lines.join('\n');

@@ -1344,6 +1344,12 @@ export function useConnectionController(): ConnectionController {
 
   // ponytail: single-file fast path avoids jszip overhead when there's one
   // collection; otherwise zip into one archive (user's chosen delivery).
+  // MIME is inferred from the filename extension so the controller stays
+  // format-agnostic — `main.ts` already picked the extension.
+  function tokenFileMimeType(name: string): string {
+    return name.endsWith('.json') ? 'application/json' : 'text/css';
+  }
+
   async function deliverTokenFiles(files: readonly ExportFile[]): Promise<void> {
     if (files.length === 0) {
       setTokensExportError('No exportable tokens found for the selected collections.');
@@ -1352,20 +1358,23 @@ export function useConnectionController(): ConnectionController {
     }
     try {
       if (files.length === 1) {
-        downloadBlob(new Blob([files[0].css], { type: 'text/css' }), files[0].name);
+        downloadBlob(
+          new Blob([files[0].content], { type: tokenFileMimeType(files[0].name) }),
+          files[0].name,
+        );
         setTokensExportStatus('idle');
         setTokensExportSuccess(`Downloaded ${files[0].name}.`);
         return;
       }
       const zip = new JSZip();
       for (const file of files) {
-        zip.file(file.name, file.css);
+        zip.file(file.name, file.content);
       }
       const bytes = await zip.generateAsync({ type: 'blob' });
       downloadBlob(bytes, 'sync-tokens.zip');
       setTokensExportStatus('idle');
       setTokensExportSuccess(
-        `Downloaded sync-tokens.zip with ${files.length} CSS files.`,
+        `Downloaded sync-tokens.zip with ${files.length} files.`,
       );
     } catch {
       setTokensExportSuccess('');

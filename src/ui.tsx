@@ -63,6 +63,7 @@ import type {
   ExportFile,
   ExportOptions,
   NameStyle,
+  OutputFormat,
   TokenCollectionSummary,
 } from './sync-tokens/types';
 import { formatCssBlock } from './inspect/css-partition';
@@ -1132,7 +1133,7 @@ function boundedCssPreview(css: string, maximumLines = 14): string {
   const hiddenLineCount = lines.length - maximumLines + 1;
   return [
     ...lines.slice(0, maximumLines - 2),
-    `  /* … ${hiddenLineCount} more declarations */`,
+    `  /* … ${hiddenLineCount} more lines */`,
     lines[lines.length - 1],
   ].join('\n');
 }
@@ -1174,6 +1175,7 @@ function SyncTokensView(props: {
   const [rootFontSize, setRootFontSize] = useState<number>(16);
   const [colorFormat, setColorFormat] = useState<ColorFormat>('hex');
   const [nameStyle, setNameStyle] = useState<NameStyle>('kebab');
+  const [outputFormat, setOutputFormat] = useState<OutputFormat>('css');
   const [aliasModeOverrides, setAliasModeOverrides] = useState<
     Record<string, Record<string, Record<string, string>>>
   >({});
@@ -1270,6 +1272,7 @@ function SyncTokensView(props: {
       rootFontSize: rootFontSize > 0 ? rootFontSize : 16,
       colorFormat,
       nameStyle,
+      outputFormat,
     });
   }
 
@@ -1311,6 +1314,7 @@ function SyncTokensView(props: {
     rootFontSize: rootFontSize > 0 ? rootFontSize : 16,
     colorFormat,
     nameStyle,
+    outputFormat,
   };
   const previewRequestKey = JSON.stringify({
     collectionIds: selectedCollectionIds,
@@ -1457,7 +1461,8 @@ function SyncTokensView(props: {
                         const modeSuffix = includeModeSuffix
                           ? `-${tokenFileSlug(mode.name)}`
                           : '';
-                        const fileName = `${collectionSlug}${modeSuffix}.css`;
+                        const extension = outputFormat === 'css' ? 'css' : 'json';
+                        const fileName = `${collectionSlug}${modeSuffix}.${extension}`;
                         return (
                           <div
                             class={`sync-tokens-mode-row${active ? ' sync-tokens-row-selected' : ''}`}
@@ -1519,6 +1524,18 @@ function SyncTokensView(props: {
             </div>
 
             <div class="sync-tokens-format-settings">
+              <Field id="tashil-output-format" label="Output format">
+                <SegmentedControl
+                  onValueChange={(value) => setOutputFormat(value as OutputFormat)}
+                  options={[
+                    { value: 'css', children: 'CSS' },
+                    { value: 'json-flat', children: 'JSON' },
+                    { value: 'json-dtcg', children: 'JSON (W3C)' },
+                  ]}
+                  value={outputFormat}
+                />
+              </Field>
+
               <Field id="tashil-color-format" label="Color format">
                 <SegmentedControl
                   onValueChange={(value) => setColorFormat(value as ColorFormat)}
@@ -1549,7 +1566,7 @@ function SyncTokensView(props: {
 
             <div class="sync-tokens-preview">
               <div class="sync-tokens-preview-heading">
-                <strong>CSS preview</strong>
+                <strong>{outputFormat === 'css' ? 'CSS preview' : 'JSON preview'}</strong>
                 <span>
                   {previewStatus === 'loading'
                     ? 'Updating from Figma variables…'
@@ -1557,7 +1574,7 @@ function SyncTokensView(props: {
                 </span>
               </div>
               <div
-                aria-label="CSS token preview"
+                aria-label={outputFormat === 'css' ? 'CSS token preview' : 'JSON token preview'}
                 class="sync-tokens-preview-files"
                 role="region"
               >
@@ -1592,8 +1609,8 @@ function SyncTokensView(props: {
                           : ''}
                       </span>
                     </div>
-                    <pre aria-label={`${file.name} CSS preview`} tabIndex={0}>
-                      <code>{boundedCssPreview(file.css)}</code>
+                    <pre aria-label={`${file.name} preview`} tabIndex={0}>
+                      <code>{boundedCssPreview(file.content)}</code>
                     </pre>
                     {file.warnings.some((warning) =>
                       warning.code === 'mode-fallback'

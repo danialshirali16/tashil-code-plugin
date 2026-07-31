@@ -146,7 +146,7 @@ function emittedPayloads<T>(name: string): T[] {
 
 function previewFile(
   name: string,
-  css: string,
+  content: string,
   options: {
     declarations?: number;
     sourceVariables?: number;
@@ -155,7 +155,7 @@ function previewFile(
 ): ExportFile {
   return {
     name,
-    css,
+    content,
     declarationCount: options.declarations ?? 294,
     sourceVariableCount: options.sourceVariables ?? 294,
     warnings: options.warnings ?? [],

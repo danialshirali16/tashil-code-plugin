@@ -11,6 +11,7 @@ import {
   type ExportOptions,
   type Token,
   type TokenCollection,
+  type TokenExportWarning,
 } from './types';
 
 const baseOptions: ExportOptions = {
@@ -19,6 +20,7 @@ const baseOptions: ExportOptions = {
   rootFontSize: 16,
   colorFormat: 'hex',
   nameStyle: 'kebab',
+  outputFormat: 'css',
 };
 
 function token(partial: Partial<Token> & Pick<Token, 'name' | 'value'>): Token {
@@ -250,5 +252,27 @@ describe('serializeCollection', () => {
     })).toContain(
       '--color\\.primary\\.hover: var(--reference\\.blue\\.500);',
     );
+  });
+
+  it('dedupes tokens that collide after formatting and reports a warning', () => {
+    const collection: TokenCollection = {
+      id: 'c1',
+      name: 'Primitive',
+      modes: [{ modeId: 'm1', name: 'Mode 1' }],
+      defaultModeId: 'm1',
+      tokens: [
+        token({ name: 'Color/Primary', resolvedType: 'COLOR', value: { kind: 'color', value: { r: 0.2, g: 0.3, b: 0.8 } } }),
+        token({ name: 'Color.Primary', resolvedType: 'COLOR', value: { kind: 'color', value: { r: 0.9, g: 0.1, b: 0.1 } } }),
+      ],
+    };
+    const warnings: TokenExportWarning[] = [];
+    const css = serializeCollection(collection, { ...baseOptions, nameStyle: 'kebab' }, warnings);
+    // Only one declaration survives; the second wins-by-position is NOT emitted.
+    const matches = css.match(/--color-primary:/g);
+    expect(matches?.length).toBe(1);
+    // First-write-wins: the surviving value is the first token's.
+    expect(css).toContain('--color-primary: #334dcc;');
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0]).toMatchObject({ code: 'duplicate-name', tokenName: 'Color.Primary' });
   });
 });

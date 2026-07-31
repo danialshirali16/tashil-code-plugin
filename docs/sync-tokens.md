@@ -94,6 +94,31 @@ like opacity (`0.5`) and font-weight (`600`) are left alone — see
 
 Set **Root font size (px)** to match your project's `html { font-size: … }`.
 
+#### Output format
+
+What kind of file each collection becomes:
+
+| Format | Extension | Shape |
+| ------ | --------- | ----- |
+| `CSS` | `.css` | The default. One `:root { --token: value; }` block per file. Colors honor the **Color format** option below. |
+| `JSON` | `.json` | A flat object mirroring the CSS: keys are the formatted token names, values are the same strings. Colors are always hex. Aliases become `{reference-name}` strings. |
+| `JSON (W3C)` | `.json` | The [W3C Design Tokens Format](https://tr.designtokens.org/format/): nested by the Figma `/` path, each leaf `{ "$value": …, "$type": … }`. This is the interchange format Style Dictionary, Token Studio, and similar tools round-trip. |
+
+For both JSON flavors, `px→rem` and **Token name style** still apply (they shape keys and numeric values identically). **Color format** is a CSS-only option — JSON always writes colors as hex so consumers don't have to parse `rgb()` or `var()`.
+
+`$type` is inferred from the variable: `color` for COLOR, `dimension` for length-scoped FLOAT (spacing, radius, font-size, gap, …), `number` for other FLOAT, `string`, `boolean`.
+
+```json
+{
+  "color": {
+    "brand": { "$value": "#0d99ff", "$type": "color" }
+  },
+  "spacing": {
+    "4": { "$value": "0.25rem", "$type": "dimension" }
+  }
+}
+```
+
 #### Color format
 
 How color variables are written:
@@ -177,4 +202,5 @@ no unit, so a blanket px→rem would corrupt unitless values.
 | Preview shows a mode fallback warning | A referenced collection does not have a mode with the selected mode's name, so its default mode was used. Use the warning's **Alias mode** dropdown to choose the intended mode. |
 | Preview reports fewer declarations than variables | Open the listed warnings; missing values and unsupported Figma value shapes are skipped instead of fabricating CSS. |
 | Opacity / font-weight came out as `rem` | It shouldn't — only length-scoped variables convert. If it does, the variable's scope in Figma is mislabeled. |
-| Want `.scss` / `.json` instead | Not supported yet. CSS only for now. |
+| Want `.scss` instead | Not supported. CSS and JSON (`json` / `json-dtcg`) are the available output formats; pick one in **Output settings**. |
+| A variable is missing from the export and a `duplicate-name` warning appears | Two variables format to the same name (e.g. `Color/Primary` and `Color.Primary` both kebab to `color-primary`). Only the first is emitted; rename one in Figma to disambiguate. |
