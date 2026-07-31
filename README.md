@@ -103,23 +103,16 @@ See [Generate and inspect a frame](docs/inspect-frame.md) for the full guide.
 
 ## Documentation
 
-- [Section guide](docs/sections-index.md) — engineer/agent onboarding: the five
-  `src/` sections, their module maps, the rules each one enforces, and the
-  global invariants. Read the matching `docs/section-*.md` before editing a
-  section.
-- [Project brief](docs/project-brief.md) — product scope, runtime flow,
-  architecture, privacy model, and frame-inspection status.
-- [Generate and inspect a frame](docs/inspect-frame.md) — full styled-components
-  output, connected-component boundaries, and selected-layer CSS inspection.
-- [Connect a component](docs/connect-component.md) — setup from Figma selection
-  to Dev Mode output.
-- [Visual prop mappings](docs/prop-mapping.md) — source/Figma mapping rules,
-  labels, icon slots, advanced mappings, and the Switch example.
-- [Maintain a connection](docs/maintain-connections.md) — source and Figma drift,
-  health states, and reconciliation.
-- [Development guide](docs/development.md) — local setup, project structure,
-  testing, and loading the plugin in Figma.
-- [Changelog](CHANGELOG.md) — notable changes by release.
+| Doc | What it covers |
+| --- | --- |
+| [Section guide](docs/sections-index.md) | Engineer/agent onboarding: the five `src/` sections, their module maps, the rules each enforces, and global invariants. Read the matching `docs/section-*.md` before editing a section. |
+| [Project brief](docs/project-brief.md) | Product scope, runtime flow, architecture, privacy model, and frame-inspection status. |
+| [Generate and inspect a frame](docs/inspect-frame.md) | Full styled-components output, connected-component boundaries, and selected-layer CSS inspection. |
+| [Connect a component](docs/connect-component.md) | Setup from Figma selection to Dev Mode output. |
+| [Visual prop mappings](docs/prop-mapping.md) | Source/Figma mapping rules, labels, icon slots, advanced mappings, and the Switch example. |
+| [Maintain a connection](docs/maintain-connections.md) | Source and Figma drift, health states, and reconciliation. |
+| [Development guide](docs/development.md) | Local setup, project structure, testing, and loading the plugin in Figma. |
+| [Changelog](CHANGELOG.md) | Notable changes by release. |
 
 ## Setup
 
