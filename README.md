@@ -2,10 +2,17 @@
 
 # Tashil Code
 
-Tashil Code is a Figma Dev Mode plugin for connecting Figma components to their
-production React components. It lets design-system owners map real source props
-to Figma component properties, then gives developers a copyable TSX snippet and
-reference links in Dev Mode.
+> 📐 **[Install on Figma Community →](https://www.figma.com/community/plugin/1654920127584180700/tashil-code)**
+> A Figma Dev Mode plugin that connects your design system to your production
+> React library.
+
+Tashil Code connects your Figma design system to your production React library.
+Map real component props, generate accurate TSX, convert layouts into
+styled-components, and export Figma Variables as CSS tokens.
+
+Design-system owners author the connections once; developers get copyable,
+source-accurate code in Dev Mode. The plugin runs in both the Figma Design
+editor and Dev Mode (`editorType: ["figma", "dev"]`).
 
 ## What it does
 
@@ -15,15 +22,24 @@ reference links in Dev Mode.
 - Generate React/TSX for the Figma instance currently selected in Dev Mode.
 - Generate a complete styled-components React module for a selected frame,
   group, section, or text layer, including its nested connected components.
+- Export Figma Variable collections as CSS token files.
 - Store optional Storybook and source references alongside the connection.
 - Detect source and Figma drift so mappings can be reviewed before they break.
 
-The plugin has two workflows:
+The plugin has three workflows, surfaced as tabs in the plugin window
+(Design mode) and as the **Tashil UI** codegen language (Dev Mode):
 
 - **Connect component** — design-system owners select a main component or
-  component set and save its code-generation metadata.
-- **Tashil UI codegen** — developers select a connected instance for its usage
-  snippet, or a design frame for complete styled-components React output.
+  component set, map its source props to Figma properties, and save the
+  code-generation metadata.
+- **Inspect Code** — preview the generated output for a selected frame, group,
+  section, or text layer (Layout/Style CSS + connected components) without a
+  Dev Mode seat.
+- **Sync Tokens** — export Figma Variable collections as CSS files (one per
+  collection × mode).
+
+In **Dev Mode**, selecting a connected instance yields its usage snippet and
+selecting a frame yields a complete styled-components React module.
 
 Only **Component name** and **Import path** are required. Storybook and source
 references are optional. Source parsing happens locally: the plugin saves the
@@ -105,39 +121,112 @@ See [Generate and inspect a frame](docs/inspect-frame.md) for the full guide.
   testing, and loading the plugin in Figma.
 - [Changelog](CHANGELOG.md) — notable changes by release.
 
-## Development
+## Setup
+
+### Prerequisites
+
+- **Node.js 22** or later (pinned in [`.nvmrc`](.nvmrc); `nvm use` will pick it
+  up). The build is not tested on older Node.
+- **npm** (ships with Node).
+- A Figma account with permission to import a development plugin.
+
+### Install
 
 ```sh
 npm install
+```
+
+### Build
+
+```sh
 npm run build
 ```
 
-For continuous builds while testing in Figma:
+This runs the TypeScript typecheck and writes the plugin bundle to `build/`
+(`build/main.js`, `build/ui.js`). It also regenerates `manifest.json` from the
+`figma-plugin` field in `package.json`.
+
+For continuous rebuilds while testing in Figma:
 
 ```sh
 npm run watch
 ```
 
-To run the full local verification suite:
+### Load the plugin in Figma
+
+1. Build at least once (`npm run build`).
+2. In the Figma desktop app, open
+   **Plugins → Development → Import plugin from manifest…**.
+3. Choose this repository's [`manifest.json`](manifest.json).
+4. The plugin is now available under
+   **Plugins → Development → Tashil Code**.
+
+> After every local rebuild, **reload the development plugin in Figma** before
+> testing the new bundle — Figma caches the old code until you do. Use the
+> "Run" entry on the plugin's development page, or close and reopen it.
+
+## Using the plugin
+
+Tashil Code runs in **both** Figma editors (`editorType: ["figma", "dev"]`).
+Authoring happens in **Design mode**; generated code is consumed in **Dev Mode**.
+See [Figma Editor Modes](docs/section-editor-modes.md) for the boundary.
+
+### Design mode — author connections
+
+1. Select a main component, component set, or instance on the canvas.
+2. Run **Plugins → Development → Tashil Code → Connect component**.
+3. In the plugin window:
+   - Upload the component's local `.ts`/`.tsx` source to discover its props.
+   - Visually map source props to Figma properties, or author a semantic recipe
+     when the structures don't match.
+   - Optionally attach Storybook / source reference links.
+   - Save. Only **Component name** and **Import path** are required.
+4. Use the **Inspect Code** tab to preview the generated output without a Dev
+   Mode seat, and the **Sync Tokens** tab to export Figma Variable collections
+   as CSS files.
+
+Source parsing is local: the plugin stores the extracted prop schema and a
+content hash, never the uploaded source text. See
+[Connect a component](docs/connect-component.md) and
+[Sync Tokens](docs/sync-tokens.md).
+
+### Dev Mode — consume generated code
+
+1. In Dev Mode, select a connected instance (or a frame/group/section/text layer).
+2. Choose **Tashil UI** in the Code section.
+3. Copy the generated TSX / styled-components module.
+
+A connected instance yields its usage snippet; a design frame yields a complete
+styled-components `.tsx` module with connected instances as atomic usages. Dev
+Mode reads connections — it never authors them.
+
+## `manifest.json` is generated
+
+`manifest.json` is regenerated by `npm run build` from the `figma-plugin` field
+in `package.json`. **Never edit it by hand.** To change the plugin name, menu,
+capabilities, or codegen languages, edit the `figma-plugin` field in
+`package.json`, rebuild, and commit the regenerated `manifest.json` alongside
+the `package.json` change.
+
+It is checked in on purpose (like `package-lock.json`) so the shipped plugin
+matches committed source. CI's `git diff --exit-code` step fails if
+`manifest.json` drifts from a clean rebuild — so an uncommitted regeneration
+will break CI.
+
+## Verify changes
+
+Run the full local verification suite before handing off a change:
 
 ```sh
-npm run typecheck
-npm test
-npm run lint
-npm run build
+npm run typecheck   # 4 tsconfig contexts (main, ui, tests, plugin-tests)
+npm test            # vitest run
+npm run lint        # eslint .
+npm run build       # typecheck + build-figma-plugin --minify
 ```
 
-Import `manifest.json` in Figma from:
-
-`Plugins > Development > Import plugin from manifest...`
-
-> **`manifest.json` is generated**, not hand-written. `npm run build` regenerates
-> it from the `figma-plugin` field in `package.json`. Edit that field (then
-> rebuild) to change the plugin name, menu, or capabilities — never edit
-> `manifest.json` directly. It is checked in on purpose (like `package-lock.json`)
-> so the shipped plugin matches committed source, and CI's `git diff --exit-code`
-> step fails if it drifts — so after rebuilding, commit the regenerated
-> `manifest.json` along with your `package.json` change.
+Tests use Vitest. UI interaction tests run with Preact Testing Library and
+jsdom; plugin-side tests cover Figma API behavior with local test doubles. See
+[Development guide](docs/development.md) for details.
 
 ## Project map
 
