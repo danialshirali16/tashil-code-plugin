@@ -31,9 +31,10 @@ connected instance → its usage snippet; select a frame → the inspection), an
 the in-plugin **Inspect Code** screen (same data for teammates without a Dev
 Mode seat).
 
-For connected components, Inspect Code also surfaces plain-text Figma/source
-descriptions. The user-local LTR/RTL preference changes only preview direction;
-the code string and copied bytes are unchanged. Dev Mode multi-selection emits
+For connected components, the user-local LTR/RTL preference changes only
+preview direction; the code string and copied bytes are unchanged. Component
+descriptions remain in the Connect editor and are intentionally omitted from
+Inspect Code. Dev Mode multi-selection emits
 one combined usage block in selection order, deduplicates compatible imports,
 and stops at the 50-selection safety limit.
 
@@ -75,6 +76,8 @@ and stops at the 50-selection safety limit.
    variable-based colors simply produce no contrast finding.
 7. **RTL is presentation only.** Apply `dir` to preview containers, never to
    `ComponentUsage`, formatters, or copied text.
+8. **Descriptions stay in Connect.** Inspect Code is focused on generated code,
+   diagnostics, and references; do not add source/Figma description panels.
 
 ## Gotchas
 

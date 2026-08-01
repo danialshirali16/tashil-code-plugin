@@ -10,7 +10,7 @@
  * Everything here is serializable and Figma-independent so recipes can be
  * validated, migrated, and unit-tested without the plugin runtime.
  *
- * Spec: docs/semantic-connect-roadmap.md §"Target architecture".
+ * Spec: docs/archive/semantic-connect-roadmap.md §"Target architecture".
  */
 
 import type { SourcePropValue } from '../types';

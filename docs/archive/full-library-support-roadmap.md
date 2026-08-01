@@ -1,6 +1,6 @@
 # Full-Library Support Roadmap
 
-Status: In progress
+Status: Archived
 Last updated: 2026-08-01
 
 Scope: `@tashilcar/swiss-army-knife`

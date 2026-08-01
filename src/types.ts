@@ -256,7 +256,6 @@ export type UiTargetState =
 
 export type InspectCodeComponentOutput = {
   code: string;
-  descriptions?: { figma?: string; source?: string };
   diagnostics?: string;
   references?: ConnectionReferences;
   /** Semantic connections: which design values produced each code prop. */

@@ -6,7 +6,7 @@
 
 Status: Development complete (Phase A–H) — manual user verification (Design mode, library components, keyboard layout) and release decision remain.  
 Last updated: 2026-07-24 (commit f604703)  
-Decisions record: [`layout-composer-decisions.md`](layout-composer-decisions.md)
+Decisions record: [`layout-composer-decisions.md`](../layout-composer-decisions.md)
 
 ## The pivot, in one paragraph
 

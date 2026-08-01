@@ -4,7 +4,7 @@
  * Figma-independent, serializable values only. Both the Dev Mode codegen
  * adapter and the Inspect Code UI consume the same {@link FrameInspection}.
  *
- * Spec: docs/layout-composer-roadmap.md §"Target domain model".
+ * Spec: docs/archive/layout-composer-roadmap.md §"Target domain model".
  */
 
 import type { ComponentUsage } from '../layout/types';

@@ -1,4 +1,4 @@
-# Visual Prop Mapping Delivery Record
+# Archived Visual Prop Mapping Delivery Record
 
 > Historical implementation checklist. The visual prop-mapping feature shipped
 > in July 2026; this file is kept as a delivery record rather than an active

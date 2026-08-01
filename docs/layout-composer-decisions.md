@@ -1,7 +1,7 @@
 # Layout Composer — Architecture Decisions
 
 Status: Phase 0 baseline
-Companion: [`layout-composer-roadmap.md`](layout-composer-roadmap.md)
+Companion: [`layout-composer-roadmap.md`](archive/layout-composer-roadmap.md)
 
 This is the single source of truth that the layout-composer phases cite. It
 records the supported-node matrix, the component-usage refactor decision, and
@@ -142,7 +142,7 @@ Dev Mode adapter / Inspect Code adapter  (strings only)
 selected frame tree, Phases 0–5 of the original roadmap) and replace it with
 Dev-Mode-parity inspection: the selected node's **Layout** and **Style** CSS
 sections plus **Connected component** information. See the rewritten
-[`layout-composer-roadmap.md`](layout-composer-roadmap.md).
+[`layout-composer-roadmap.md`](archive/layout-composer-roadmap.md).
 
 ### Why
 

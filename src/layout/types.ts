@@ -6,7 +6,7 @@
  * only — no Figma node references. The extraction layer (Phase 2) is the only
  * place that touches Figma types and produces this IR.
  *
- * Spec: docs/layout-composer-roadmap.md §"Target domain model".
+ * Spec: docs/archive/layout-composer-roadmap.md §"Target domain model".
  */
 
 import type { MappingDiagnostic } from '../codegen';

@@ -2,7 +2,7 @@
 
 Status: Active (M1–M5 implemented on `main`)
 Last updated: 2026-07-31
-Companion: [decisions](semantic-connect-decisions.md) · [roadmap](semantic-connect-roadmap.md) · [user guide](semantic-connect.md)
+Companion: [decisions](semantic-connect-decisions.md) · [archived roadmap](archive/semantic-connect-roadmap.md) · [user guide](semantic-connect.md)
 
 Semantic Connect is the code path used when a Figma component's structure does
 **not** match its source code — e.g. the source exposes `confirmAction.label`
@@ -121,7 +121,7 @@ The editor-diagnostics and library-compatibility work lives on the
   `scripts/audit-library-compatibility.mjs` CI runner (`npm run audit:library`).
 - **Source parsing pipeline** — `src/source-props.ts`, `src/source-type-program.ts`
   feeding `source-contract.ts`.
-- **Roadmap** — `docs/full-library-support-roadmap.md` (M0–M8; M7 is the
+- **Archived roadmap** — `docs/archive/full-library-support-roadmap.md` (M0–M8; M7 is the
   editor/diagnostics work).
 
 When this merges, fold these into the module map above and remove this section.
@@ -129,6 +129,6 @@ When this merges, fold these into the module map above and remove this section.
 ## Related docs
 
 - [Semantic Connect — Architecture Decisions](semantic-connect-decisions.md) (the source of truth for resolved open questions)
-- [Semantic Connect roadmap](semantic-connect-roadmap.md)
+- [Semantic Connect archived roadmap](archive/semantic-connect-roadmap.md)
 - [Semantic Connect user guide](semantic-connect.md)
 - [Section guide index](sections-index.md) · [Development guide](development.md)

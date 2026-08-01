@@ -1,9 +1,9 @@
 # Semantic Connect Roadmap
 
-Status: Proposed  
+Status: Archived  
 Last updated: 2026-07-23  
 Companion preview:
-[`semantic-connect-preview.html`](../prototypes/connect-components-preview/semantic-connect-preview.html)
+[`semantic-connect-preview.html`](../../prototypes/connect-components-preview/semantic-connect-preview.html)
 
 ## Objective
 
@@ -268,7 +268,7 @@ Do not persist:
 > distributed externally. The formal governance gates below — RFC sign-off,
 > closed beta, telemetry/privacy review, and GA release process — are
 > **intentionally relaxed**: decisions are recorded in
-> [`semantic-connect-decisions.md`](semantic-connect-decisions.md) and shipping
+> [`semantic-connect-decisions.md`](../semantic-connect-decisions.md) and shipping
 > is gated on the verification suite plus manual Figma checks, not on approvals.
 > The engineering gates (tests, migration safety, no arbitrary code execution)
 > still apply in full.
@@ -306,7 +306,7 @@ Do not persist:
       metadata size.
 - [ ] Define a structured `ComponentUsage` value IR before JSX formatting.
 - [x] Record decisions in a dedicated ADR or decisions section in this document.
-      (2026-07-24) [`semantic-connect-decisions.md`](semantic-connect-decisions.md)
+      (2026-07-24) [`semantic-connect-decisions.md`](../semantic-connect-decisions.md)
       records the decisions as implemented, including how the Open decisions
       below were resolved.
 
@@ -765,7 +765,7 @@ as an advisory `deprecation` string that never blocks generation.
       "newer than this plugin supports — update the plugin" message; a
       connection-level recovery surface is pending.)*
 - [x] Document manual recovery for malformed or legacy metadata. (2026-07-24)
-      [Maintain a connection §"Recover a malformed or unreadable connection"](maintain-connections.md)
+      [Maintain a connection §"Recover a malformed or unreadable connection"](../maintain-connections.md)
       documents each validation message, its recovery, and the
       blocked-not-destructive guarantee.
 
@@ -972,7 +972,7 @@ modules incrementally and keep compatibility wrappers during migration.
 ## Open decisions
 
 Resolved decisions are recorded in
-[`semantic-connect-decisions.md`](semantic-connect-decisions.md); the section
+[`semantic-connect-decisions.md`](../semantic-connect-decisions.md); the section
 letter is cited below.
 
 - [x] Should a runtime prop be copied as a comment, omitted, or represented in a

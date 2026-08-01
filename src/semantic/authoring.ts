@@ -6,7 +6,7 @@
  * form like the legacy mapping document. Everything here is deterministic and
  * UI-framework free so the flow can be unit-tested against the Dialog fixture.
  *
- * Spec: docs/semantic-connect-roadmap.md §"M3 — Authoring UI" and
+ * Spec: docs/archive/semantic-connect-roadmap.md §"M3 — Authoring UI" and
  * §"Suggestion engine".
  */
 

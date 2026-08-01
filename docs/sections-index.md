@@ -145,9 +145,9 @@ public behavior, boundary, or invariants, update its `section-*.md`.
 - Per-feature depth docs (cited from each section guide):
   - [Sync Tokens — How It Works](sync-tokens-architecture.md)
   - [Layout Composer decisions](layout-composer-decisions.md) ·
-    [roadmap](layout-composer-roadmap.md)
+    [archived roadmap](archive/layout-composer-roadmap.md)
   - [Semantic Connect decisions](semantic-connect-decisions.md) ·
-    [roadmap](semantic-connect-roadmap.md) · [user guide](semantic-connect.md)
+    [archived roadmap](archive/semantic-connect-roadmap.md) · [user guide](semantic-connect.md)
   - [Generate and inspect a frame](inspect-frame.md)
   - [Connect a component](connect-component.md) ·
     [Visual prop mappings](prop-mapping.md) ·

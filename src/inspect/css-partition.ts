@@ -5,7 +5,7 @@
  * future properties default to the Style bucket, matching Figma's own panel
  * behavior of grouping non-structural properties under Style.
  *
- * Spec: docs/layout-composer-roadmap.md §"Layout / Style partition".
+ * Spec: docs/archive/layout-composer-roadmap.md §"Layout / Style partition".
  */
 
 import type { CssDeclaration, NodeCss } from './types';

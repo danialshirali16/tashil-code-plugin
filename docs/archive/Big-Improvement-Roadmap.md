@@ -1,10 +1,10 @@
-# Feature Roadmap — Post-1.0 Proposals
+# Archived Feature Roadmap — Post-1.0 Proposals
 
 > **Status:** Phases 1–6 and 8–10 implemented; Phase 7 repository deliverables
 > prepared, with Figma Community publication and the cold run still pending.
 > Phase 0 remains a proposal.
 > **Date:** 2026-07-31
-> **Related docs:** `semantic-connect-roadmap.md`, `layout-composer-roadmap.md`, `visual-prop-mapping-todo.md`, `docs/sync-tokens.md`, `CHANGELOG.md`
+> **Related docs:** `semantic-connect-roadmap.md`, `layout-composer-roadmap.md`, `visual-prop-mapping-todo.md`, `../sync-tokens.md`, `../../CHANGELOG.md`
 
 ---
 
@@ -63,7 +63,7 @@ Zero-risk maintenance items. Land first, in a single PR if convenient.
 
 ### 4.1 Docs sync fix
 
-- **Problem:** `docs/sync-tokens.md` Troubleshooting table still says
+- **Problem:** `../sync-tokens.md` Troubleshooting table still says
   *"Want `.scss` / `.json` instead — Not supported yet. CSS only for now"*,
   but 1.0.0 shipped `json-flat | json-dtcg` output. README also mentions only
   "CSS token files".
@@ -83,7 +83,7 @@ diagnostics are copyable; no unhandled exception reaches a blank iframe.
 
 ### 4.3 README badges
 
-- CI status, version, license badges at the top of `README.md`.
+- CI status, version, license badges at the top of `../../README.md`.
 
 **Exit criteria:** badges render on GitHub; CI workflow exists and is green on
 `main`.
@@ -256,7 +256,7 @@ document):
 - **New `outputFormat` values:** `scss` (variables/map) and `tailwind-theme`
   (theme-extension snippet), dispatched through the existing format-dispatch
   switch. JSON formats shipped in 1.0.0; SCSS is the explicitly documented gap
-  (`docs/sync-tokens.md` Troubleshooting).
+  (`../sync-tokens.md` Troubleshooting).
 - **Export diff:** hash of the last export stored in `clientStorage`;
   pre-download summary — e.g. *"12 tokens changed, 3 removed"* — so teams know
   whether a commit is warranted.
@@ -306,11 +306,11 @@ external traction).
 - **README demo GIF:** the Connect → Dev Mode copy flow.
 - **GitHub topics:** `figma-plugin`, `design-system`, `design-tokens`,
   `codegen`, `react`; plus issue templates.
-- **Standalone `PRIVACY.md`:** the local-first model is a selling point —
+- **Standalone `../../PRIVACY.md`:** the local-first model is a selling point —
   document exactly what data lives where (shared plugin data vs `clientStorage`
   vs nothing-at-all).
 
-**Implementation status (2026-08-01):** `PRIVACY.md`, structured issue forms,
+**Implementation status (2026-08-01):** `../../PRIVACY.md`, structured issue forms,
 the five GitHub topics, the real-harness README GIF, the standalone React
 companion, and the Community-file publication guide are complete. Publishing
 the external Figma Community file and recording the cold run require a Figma

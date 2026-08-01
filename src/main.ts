@@ -442,14 +442,6 @@ async function generateComponentCodegenBlocks(
     blocks.push(createPlainTextBlock('Why this structure?', output.explanation));
   }
 
-  if (output.descriptions) {
-    const text = [
-      output.descriptions.figma ? `Figma: ${output.descriptions.figma}` : '',
-      output.descriptions.source ? `Source: ${output.descriptions.source}` : '',
-    ].filter(Boolean).join('\n\n');
-    blocks.push(createPlainTextBlock('Component descriptions', text));
-  }
-
   const references = createReferenceText(connection.metadata);
 
   if (references) {
@@ -477,7 +469,6 @@ async function generateComponentCodegenBlocks(
 
 type ConnectedOutput = {
   code: string;
-  descriptions?: { figma?: string; source?: string };
   diagnostics?: string;
   explanation?: string;
   runtimeRequirements?: string;
@@ -496,7 +487,6 @@ async function createConnectedOutput(
   selection: ResolvedSelection,
   selectedNode: SceneNode,
 ): Promise<ConnectedOutput> {
-  const descriptions = createConnectionDescriptions(metadata, selection.mainComponent);
   if (metadata.semanticRecipe) {
     const root = await createSemanticNodeTree(selectedNode);
     const result = resolveSemanticUsage(
@@ -512,7 +502,6 @@ async function createConnectedOutput(
 
     return {
       code: [renderImportLines(result.usage.imports), '', result.usage.jsx].join('\n'),
-      ...(descriptions ? { descriptions } : {}),
       diagnostics: result.issues.length > 0 ? result.issues.join('\n') : undefined,
       explanation: formatSemanticExplanations(result.explanations),
       runtimeRequirements: formatRuntimeRequirements(result.runtimeRequirements),
@@ -524,26 +513,8 @@ async function createConnectedOutput(
   const usage = createComponentUsage(metadata, selection);
   return {
     code: [renderImportLines(usage.imports), '', usage.jsx].join('\n'),
-    ...(descriptions ? { descriptions } : {}),
     diagnostics: formatMappingDiagnostics(usage.diagnostics) || undefined,
     usage,
-  };
-}
-
-function createConnectionDescriptions(
-  metadata: ConnectionMetadata,
-  component: ConnectableComponentNode,
-): { figma?: string; source?: string } | undefined {
-  const figmaDescription = typeof component.description === 'string'
-    ? component.description.trim()
-    : '';
-  const sourceDescription = metadata.mappingDocument?.sourceSnapshot?.description?.trim() ?? '';
-  if (figmaDescription === '' && sourceDescription === '') {
-    return undefined;
-  }
-  return {
-    ...(figmaDescription ? { figma: figmaDescription } : {}),
-    ...(sourceDescription ? { source: sourceDescription } : {}),
   };
 }
 
@@ -2193,7 +2164,6 @@ async function createInspectCodeState(
       status: 'connected',
       output: {
         code: output.code,
-        descriptions: output.descriptions,
         deprecation: output.deprecation,
         diagnostics: output.diagnostics,
         explanation: output.explanation,

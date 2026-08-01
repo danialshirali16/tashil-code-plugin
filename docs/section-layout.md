@@ -2,7 +2,7 @@
 
 Status: Active
 Last updated: 2026-07-31
-Companion: [decisions](layout-composer-decisions.md) (supported-node matrix) · [roadmap](layout-composer-roadmap.md) · [user guide](inspect-frame.md)
+Companion: [decisions](layout-composer-decisions.md) (supported-node matrix) · [archived roadmap](archive/layout-composer-roadmap.md) · [user guide](inspect-frame.md)
 
 The Layout Composer generates one complete styled-components `.tsx` module for
 a selected frame, group, section, or text layer — including its visible inner
@@ -116,6 +116,6 @@ only place that touches Figma types.
 ## Related docs
 
 - [Layout Composer decisions](layout-composer-decisions.md) — the supported-node matrix (the canonical reference for what's generated vs. placeholdered)
-- [Layout Composer roadmap](layout-composer-roadmap.md)
+- [Layout Composer archived roadmap](archive/layout-composer-roadmap.md)
 - [Generate and inspect a frame](inspect-frame.md) — user guide
 - [Section guide index](sections-index.md) · [Development guide](development.md)

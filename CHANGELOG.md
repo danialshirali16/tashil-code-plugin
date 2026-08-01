@@ -32,7 +32,7 @@ is the version of record.
   selection guard for large component sets.
 - Added combined Dev Mode output for up to 50 selected layers, preserving
   selection order while deduplicating compatible production imports.
-- Added source and Figma descriptions, saved intentional-property health
+- Added source and Figma descriptions to the Connect editor, saved intentional-property health
   prefixes, and a user-local LTR/RTL preview setting.
 - Added a read-only connection-manifest CI reviewer and explicit downloadable
   React Code Connect `.figma.tsx` output. See the
@@ -42,7 +42,7 @@ is the version of record.
   including recursive object and collection contracts, controlled values,
   runtime callbacks, React-node slots, data-driven components, overlays,
   forms, uploads, and date/range controls. See the
-  [full-library support roadmap](docs/full-library-support-roadmap.md).
+  [full-library support roadmap](docs/archive/full-library-support-roadmap.md).
 - Added declarative complex-component recipes, ordered nested-instance arrays,
   structured compatibility reports, and versioned recipe migrations so
   generated usage remains reviewable as component APIs evolve.

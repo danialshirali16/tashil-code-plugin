@@ -2503,6 +2503,7 @@ describe('Dev Mode inspection codegen', () => {
     const component = createComponent('c-button', 'Button', {
       sharedPluginData: JSON.stringify(metadata),
     });
+    Object.assign(component, { description: 'Primary action component.' });
 
     const blocks = await codegenEvents.get('generate')?.({ node: component });
 
@@ -2515,6 +2516,7 @@ describe('Dev Mode inspection codegen', () => {
       }),
     ]));
     expect(blocks?.some((b) => b.language === 'CSS')).toBe(false);
+    expect(blocks?.some((b) => b.title === 'Component descriptions')).toBe(false);
   });
 
   it('inspects any node type — a vector gets its CSS, not a rejection', async () => {

@@ -7,7 +7,7 @@
  * and keeps callbacks and unsupported types visible instead of discarding
  * them. Source text is never persisted; only the derived contract is.
  *
- * Spec: docs/semantic-connect-roadmap.md §"Source contract v2".
+ * Spec: docs/archive/semantic-connect-roadmap.md §"Source contract v2".
  */
 
 import * as ts from 'typescript';

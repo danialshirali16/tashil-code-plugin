@@ -2201,18 +2201,6 @@ function InspectCodeView(props: {
         direction={props.previewDirection}
         title="Code"
       />
-      {output.descriptions?.figma ? (
-        <section class="description-panel">
-          <h2>Figma description</h2>
-          <p>{output.descriptions.figma}</p>
-        </section>
-      ) : null}
-      {output.descriptions?.source ? (
-        <section class="description-panel">
-          <h2>Source documentation</h2>
-          <p>{output.descriptions.source}</p>
-        </section>
-      ) : null}
       {output.runtimeRequirements ? (
         <CodeBlock
           code={output.runtimeRequirements}

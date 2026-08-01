@@ -1,7 +1,7 @@
 # Semantic Connect — Architecture Decisions
 
 Status: Implemented (M1–M8)
-Companion: [`semantic-connect-roadmap.md`](semantic-connect-roadmap.md)
+Companion: [`semantic-connect-roadmap.md`](archive/semantic-connect-roadmap.md)
 User guide: [`semantic-connect.md`](semantic-connect.md)
 
 This records the decisions actually made while implementing semantic connect,
