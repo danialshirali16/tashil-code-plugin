@@ -100,6 +100,9 @@ export type ChildrenMode = 'icon-only' | 'none' | 'text';
 export type ConnectionMetadata = {
   /** Runtime metadata is always normalized to the schema this build understands. */
   schemaVersion: typeof CURRENT_SCHEMA_VERSION;
+  /** Current Figma main component/set name used as the design-side reference. */
+  figmaComponentName?: string;
+  /** Exported source-code component used for imports and generated JSX. */
   componentName: string;
   importPath: string;
   storybookUrl?: string;

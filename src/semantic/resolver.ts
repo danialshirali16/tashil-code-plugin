@@ -12,12 +12,12 @@
  */
 
 import type { ComponentUsage } from '../layout/types';
-import { createIconName, createSelfClosingTag } from '../codegen';
+import { createIconName, createOpeningTag, createSelfClosingTag } from '../codegen';
 import type { SourcePropValue } from '../types';
 import { getAcceptedComponentNames } from './component-compatibility';
 import { resolveLocator, type SemanticNodeLike } from './figma-extractor';
 import type { SourceTargetDescriptor } from './source-contract';
-import { formatUsageProp, type UsageValue } from './usage-ir';
+import { formatUsageChildren, formatUsageProp, type UsageValue } from './usage-ir';
 import {
   formatTargetPath,
   locatorKey,
@@ -190,7 +190,11 @@ function resolveSemanticUsageInternal(
   }
 
   const props: string[] = [];
+  const children = assembled.get('children');
   for (const [propName, value] of assembled) {
+    if (propName === 'children') {
+      continue;
+    }
     const formatted = formatUsageProp(propName, value);
     if (formatted !== null) {
       props.push(formatted);
@@ -211,7 +215,13 @@ function resolveSemanticUsageInternal(
         ...collectComponentImports(recipe, importPath),
         ...nestedImports,
       ]),
-      jsx: createSelfClosingTag(componentName, props),
+      jsx: children === undefined
+        ? createSelfClosingTag(componentName, props)
+        : [
+            createOpeningTag(componentName, props),
+            ...formatUsageChildren(children).split('\n').map((line) => `  ${line}`),
+            `</${componentName}>`,
+          ].join('\n'),
       ...(runtimeRequirements.length > 0
         ? {
             runtimeRequirements: runtimeRequirements.map((requirement) => {

@@ -16,7 +16,10 @@ import type {
   SourcePropValue,
 } from '../types';
 import { getAcceptedComponentNames } from './component-compatibility';
-import { getComplexComponentRecipe } from './complex-recipes';
+import {
+  getComplexComponentRecipe,
+  getExclusiveTargetSiblings,
+} from './complex-recipes';
 import {
   isRuntimeSourceTargetKind,
   type SourceCollectionItemSchema,
@@ -158,6 +161,7 @@ function normalize(value: string): string {
 /** Explicit, testable synonym dictionary (roadmap: no fuzzy magic). */
 const NAME_SYNONYMS: Readonly<Record<string, readonly string[]>> = {
   cancel: ['secondary', 'dismiss'],
+  children: ['label', 'text', 'content'],
   confirm: ['primary', 'submit'],
   description: ['body', 'subtitle', 'supportingtext'],
   label: ['text', 'buttontext'],
@@ -189,7 +193,7 @@ export function propertyOptionId(property: FigmaPropertyDescriptor): string {
 }
 
 export function nestedOptionId(descriptor: FigmaNestedSourceDescriptor): string {
-  return `nested:${descriptor.kind}:${locatorKey(descriptor.locator)}:${descriptor.propertyName ?? ''}`;
+  return `nested:${descriptor.kind}:${locatorKey(descriptor.locator)}:${descriptor.propertyName ?? descriptor.instancePropertyName ?? ''}`;
 }
 
 function isPropertyCompatible(
@@ -197,7 +201,8 @@ function isPropertyCompatible(
   property: FigmaPropertyDescriptor,
 ): boolean {
   if (target.kind === 'node') {
-    return property.type === 'INSTANCE_SWAP';
+    return property.type === 'INSTANCE_SWAP'
+      || (target.path[target.path.length - 1] === 'children' && property.type === 'TEXT');
   }
   if (target.kind !== 'visual') {
     return false;
@@ -408,6 +413,18 @@ export function createRecipeDraft(
   semanticSnapshot: FigmaSemanticSnapshot,
   existing?: SemanticConnectionRecipe,
 ): SemanticConnectionRecipe {
+  if (
+    existing?.sourceContract
+    && !sourceContractsEquivalent(existing.sourceContract, contract)
+  ) {
+    return {
+      ...existing,
+      figmaSnapshot: semanticSnapshot,
+      pendingSourceContract: contract,
+      schemaVersion: SEMANTIC_RECIPE_SCHEMA_VERSION,
+    };
+  }
+
   const existingByTarget = new Map(
     (existing?.bindings ?? []).map((binding) => [formatTargetPath(binding.target), binding]),
   );
@@ -422,10 +439,15 @@ export function createRecipeDraft(
       continue;
     }
 
-    const complexDefault = complexRecipe && isRuntimeSourceTargetKind(target.kind)
-      ? target.required || complexRecipe.runtimeTargets.includes(targetPath)
-        ? OPTION_RUNTIME
-        : OPTION_OMITTED
+    const recipeRuntimeTarget = complexRecipe?.runtimeTargets.includes(targetPath) ?? false;
+    const recipeOmittedTarget = complexRecipe?.omittedTargets?.includes(targetPath) ?? false;
+    const complexDefault = complexRecipe
+      && (recipeOmittedTarget || recipeRuntimeTarget || isRuntimeSourceTargetKind(target.kind))
+      ? recipeOmittedTarget
+        ? OPTION_OMITTED
+        : target.required || recipeRuntimeTarget
+          ? OPTION_RUNTIME
+          : OPTION_OMITTED
       : undefined;
     const suggestion = complexDefault
       ? {
@@ -467,7 +489,25 @@ export function createRecipeDraft(
     revision: existing?.revision ?? 1,
     schemaVersion: SEMANTIC_RECIPE_SCHEMA_VERSION,
     sourceContract: contract,
+    pendingSourceContract: undefined,
   };
+}
+
+function sourceContractsEquivalent(left: SourceContract, right: SourceContract): boolean {
+  const comparable = (contract: SourceContract) => ({
+    componentName: contract.componentName,
+    propsTypeChain: contract.propsTypeChain ?? [],
+    propsTypeName: contract.propsTypeName,
+    targets: contract.targets.map(({ declaredIn: _declaredIn, ...target }) => target),
+  });
+  return JSON.stringify(comparable(left)) === JSON.stringify(comparable(right));
+}
+
+/** Contract shown by authoring while the accepted contract remains active for resolution. */
+export function getAuthoringSourceContract(
+  recipe: SemanticConnectionRecipe,
+): SourceContract | undefined {
+  return recipe.pendingSourceContract ?? recipe.sourceContract;
 }
 
 /** Apply one decision from the single value-selection control. */
@@ -478,7 +518,7 @@ export function setTargetOption(
   optionId: string,
   staticValue?: SourcePropValue,
 ): SemanticConnectionRecipe {
-  const target = recipe.sourceContract?.targets.find(
+  const target = getAuthoringSourceContract(recipe)?.targets.find(
     (candidate) => candidate.path.join('.') === targetPath.join('.'),
   );
   const remaining = recipe.bindings.filter(
@@ -497,9 +537,41 @@ export function setTargetOption(
     staticValue,
   );
 
+  const exclusiveRemaining = binding && binding.source.kind !== 'omitted'
+    ? omitExclusiveTargetSiblings(recipe, targetPath.join('.'), remaining)
+    : remaining;
+
   return binding
-    ? { ...recipe, bindings: [...remaining, binding] }
+    ? { ...recipe, bindings: [...exclusiveRemaining, binding] }
     : { ...recipe, bindings: remaining };
+}
+
+function omitExclusiveTargetSiblings(
+  recipe: SemanticConnectionRecipe,
+  targetPath: string,
+  bindings: readonly SemanticBinding[],
+): SemanticBinding[] {
+  const componentName = getAuthoringSourceContract(recipe)?.componentName;
+  if (!componentName) {
+    return [...bindings];
+  }
+  const siblingPaths = getExclusiveTargetSiblings(componentName, targetPath);
+  if (siblingPaths.length === 0) {
+    return [...bindings];
+  }
+  const siblings = new Set(siblingPaths);
+  const withoutSiblings = bindings.filter(
+    (binding) => !siblings.has(formatTargetPath(binding.target)),
+  );
+  const omittedSiblings = (getAuthoringSourceContract(recipe)?.targets ?? [])
+    .filter((target) => siblings.has(target.path.join('.')) && !target.required)
+    .map<SemanticBinding>((target) => ({
+      id: `target:${target.path.join('.')}`,
+      requirement: 'optional',
+      source: { kind: 'omitted' },
+      target: { path: [...target.path], typeName: target.typeName },
+    }));
+  return [...withoutSiblings, ...omittedSiblings];
 }
 
 /**
@@ -513,7 +585,7 @@ export function setRepeatedTargetInstances(
   orderedOptionIds: readonly string[],
 ): SemanticConnectionRecipe {
   const path = targetPath.join('.');
-  const target = recipe.sourceContract?.targets.find(
+  const target = getAuthoringSourceContract(recipe)?.targets.find(
     (candidate) => candidate.path.join('.') === path,
   );
   const remaining = recipe.bindings.filter(
@@ -542,6 +614,9 @@ export function setRepeatedTargetInstances(
       componentName: descriptor.connectedComponentName,
       importPath: descriptor.connectedImportPath,
       locator: descriptor.locator,
+      ...(descriptor.instancePropertyName !== undefined
+        ? { instancePropertyName: descriptor.instancePropertyName }
+        : {}),
     });
   }
 
@@ -558,7 +633,13 @@ export function setRepeatedTargetInstances(
     },
     target: { path: [...target.path], typeName: target.typeName },
   };
-  return { ...recipe, bindings: [...remaining, binding] };
+  return {
+    ...recipe,
+    bindings: [
+      ...omitExclusiveTargetSiblings(recipe, path, remaining),
+      binding,
+    ],
+  };
 }
 
 /** Reorder one existing repeated slot item without rebuilding its sources. */
@@ -618,12 +699,14 @@ export function getTargetOptionId(
         optionId: `nested:nested-property:${locatorKey(source.locator)}:${source.propertyName}`,
       };
     case 'instance':
-      return { optionId: `nested:nested-instance:${locatorKey(source.locator)}:` };
+      return {
+        optionId: `nested:nested-instance:${locatorKey(source.locator)}:${source.instancePropertyName ?? ''}`,
+      };
     case 'instances':
       return {
         optionId: OPTION_REPEATED,
         repeatedOptionIds: source.items.map(
-          (item) => `nested:nested-instance:${locatorKey(item.locator)}:`,
+          (item) => `nested:nested-instance:${locatorKey(item.locator)}:${item.instancePropertyName ?? ''}`,
         ),
       };
     case 'static':
@@ -703,6 +786,9 @@ function createBindingForOption(
         componentName: descriptor.connectedComponentName,
         importPath: descriptor.connectedImportPath,
         locator: descriptor.locator,
+        ...(descriptor.instancePropertyName !== undefined
+          ? { instancePropertyName: descriptor.instancePropertyName }
+          : {}),
       };
       return {
         ...base,
@@ -827,11 +913,11 @@ export function getUsedSourceOptionIds(recipe: SemanticConnectionRecipe): Set<st
         used.add(`nested:nested-property:${locatorKey(source.locator)}:${source.propertyName}`);
         break;
       case 'instance':
-        used.add(`nested:nested-instance:${locatorKey(source.locator)}:`);
+        used.add(`nested:nested-instance:${locatorKey(source.locator)}:${source.instancePropertyName ?? ''}`);
         break;
       case 'instances':
         for (const item of source.items) {
-          used.add(`nested:nested-instance:${locatorKey(item.locator)}:`);
+          used.add(`nested:nested-instance:${locatorKey(item.locator)}:${item.instancePropertyName ?? ''}`);
         }
         break;
       default:
@@ -847,7 +933,7 @@ export function buildTargetRows(
   recipe: SemanticConnectionRecipe,
   figmaSnapshot: FigmaComponentSnapshot | undefined,
 ): SemanticTargetRow[] {
-  const contract = recipe.sourceContract;
+  const contract = getAuthoringSourceContract(recipe);
   if (!contract) {
     return [];
   }
@@ -959,7 +1045,7 @@ export function validateRecipeDraft(
 ): RecipeDraftValidation {
   const errors: string[] = [];
   const warnings: string[] = [];
-  const contract = recipe.sourceContract;
+  const contract = getAuthoringSourceContract(recipe);
   let completed = 0;
   let total = 0;
   // Counters for the pre-save summary, incremented at the exact branch that
@@ -968,6 +1054,10 @@ export function validateRecipeDraft(
   let unresolvedRuntime = 0;
   let incompatibleSlots = 0;
   let review = 0;
+
+  if (recipe.pendingSourceContract) {
+    errors.push('Review and accept the uploaded source update before saving.');
+  }
 
   const bindingsByTarget = new Map(
     recipe.bindings.map((binding) => [formatTargetPath(binding.target), binding]),
@@ -991,7 +1081,11 @@ export function validateRecipeDraft(
       }
     }
 
-    if (isRuntimeSourceTargetKind(target.kind) && target.required && !binding) {
+    if (
+      isRuntimeSourceTargetKind(target.kind)
+      && target.required
+      && (!binding || binding.source.kind === 'omitted')
+    ) {
       unresolvedRuntime += 1;
       errors.push(
         target.kind === 'event'
@@ -1018,14 +1112,24 @@ export function validateRecipeDraft(
       }
 
       if (target.kind === 'array' && binding.source.kind === 'instances') {
-        const accepted = getAcceptedComponentNames(target.typeName);
-        for (const item of binding.source.items) {
-          if (accepted.length > 0 && !accepted.includes(item.componentName)) {
-            incompatibleSlots += 1;
-            errors.push(
-              `"${targetPath}" accepts ${accepted.join(' or ')}, not ${item.componentName}.`,
-            );
-          }
+        const acceptedFromItems = (target.itemSchemas ?? [])
+          .filter((item) => item.role === 'item' && item.kind === 'node')
+          .flatMap((item) => getAcceptedComponentNames(item.typeName));
+        const accepted = [...new Set(
+          acceptedFromItems.length > 0
+            ? acceptedFromItems
+            : getAcceptedComponentNames(target.typeName),
+        )];
+        const incompatibleNames = [...new Set(
+          binding.source.items
+            .map((item) => item.componentName)
+            .filter((name) => accepted.length > 0 && !accepted.includes(name)),
+        )];
+        if (incompatibleNames.length > 0) {
+          incompatibleSlots += 1;
+          errors.push(
+            `"${targetPath}" accepts ${accepted.join(' or ')}, not ${incompatibleNames.join(', ')}.`,
+          );
         }
       }
 

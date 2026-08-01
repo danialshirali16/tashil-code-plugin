@@ -53,7 +53,7 @@ describe('createConnectionDebugBundle — structure', () => {
     expect(bundle.componentName).toBe('ConfirmationDialog');
     expect(bundle.importPath).toBe('@tashilcar/ui');
     expect(bundle.connectionSchemaVersion).toBe(4);
-    expect(bundle.recipeSchemaVersion).toBe(1);
+    expect(bundle.recipeSchemaVersion).toBe(2);
     expect(bundle.bindingCount).toBe(6);
     expect(bundle.figma).toEqual({ componentId: '1:23', nestedSourceCount: 4 });
     expect(bundle.source?.contentHash).toMatch(/^fnv1a-/);

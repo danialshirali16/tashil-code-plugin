@@ -119,14 +119,14 @@ export function parseSourceComponent(
     }];
   });
 
-  const componentName = selected.reason === 'name-affinity'
-    ? selected.declaration.name.text
-      .replace(/Props(?:Type)?$/i, '')
-      .replace(/^I(?=[A-Z])/, '')
-    : requestedComponentName
-      ?? selected.declaration.name.text
-        .replace(/Props(?:Type)?$/i, '')
-        .replace(/^I(?=[A-Z])/, '');
+  const propsComponentName = selected.declaration.name.text
+    .replace(/Props(?:Type)?$/i, '')
+    .replace(/^I(?=[A-Z])/, '');
+  const componentName = selected.componentName
+    ?? ((selected.reason === 'name-affinity' || selected.reason === 'fallback')
+      && propsComponentName
+      ? propsComponentName
+      : requestedComponentName ?? propsComponentName);
   const defaults = collectImplementationDefaults(parsedFiles.map(({ sourceFile }) => sourceFile));
   const propsWithDefaults = props.map((prop) => {
     const defaultValue = defaults.get(prop.name);

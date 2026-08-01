@@ -66,8 +66,7 @@ function entry(
 export const SWISS_ARMY_KNIFE_COMPATIBILITY: readonly LibraryCompatibilityEntry[] = [
   entry('TashilAuthentication', 'tashil-authentication', 'partial', {
     selectedPropsType: 'TashilAuthenticationProps',
-    targetKindCounts: { event: 1, node: 1, unsupported: 1, visual: 6 },
-    unsupportedTargets: ['childProps'],
+    targetKindCounts: { event: 1, node: 1, record: 1, visual: 6 },
   }),
   entry('Drawer', 'drawer', 'partial', {
     selectedPropsType: 'DrawerProps',
@@ -131,19 +130,16 @@ export const SWISS_ARMY_KNIFE_COMPATIBILITY: readonly LibraryCompatibilityEntry[
       environment: 2,
       event: 9,
       excluded: 1,
-      node: 1,
+      node: 4,
       record: 2,
       render: 1,
       styling: 1,
-      unsupported: 5,
+      unsupported: 2,
       visual: 41,
     },
     unsupportedTargets: [
       'blurOnSelect',
-      'clearIcon',
-      'popupIcon',
       'forcePopupIcon',
-      'noOptionsText',
     ],
     warningKinds: ['fallback-props-type'],
   }),

@@ -124,6 +124,49 @@ describe('source schema', () => {
     }
   });
 
+  it('uses an exported source component when its name differs from Figma', () => {
+    const result = parseSourceComponent(
+      [{
+        fileName: 'info-modal.tsx',
+        contents: `
+interface StyleProps { compact?: boolean }
+export interface InfoModalProps { title: string; open: boolean }
+export const TashilInfoModal: React.FC<InfoModalProps> = () => null;
+`,
+      }],
+      'Dialogbox',
+    );
+
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.snapshot.componentName).toBe('TashilInfoModal');
+      expect(result.snapshot.propsTypeName).toBe('InfoModalProps');
+      expect(result.snapshot.props.map(({ name }) => name)).toEqual(['title', 'open']);
+      expect(result.warnings.join(' ')).toMatch(/InfoModalProps.*DialogboxProps/);
+    }
+  });
+
+  it('falls back to the strongest props declaration when names are unrelated', () => {
+    const result = parseSourceComponent(
+      [{
+        fileName: 'types.ts',
+        contents: `
+interface StyleProps { compact?: boolean }
+export interface InfoModalProps { title: string; open: boolean }
+interface DesktopHeaderProps { dense?: boolean }
+`,
+      }],
+      'Dialogbox',
+    );
+
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.snapshot.componentName).toBe('InfoModal');
+      expect(result.snapshot.propsTypeName).toBe('InfoModalProps');
+      expect(result.snapshot.props.map(({ name }) => name)).toEqual(['title', 'open']);
+    }
+  });
+
   it('creates stable hashes independent of file input order', () => {
     const first = { contents: buttonTypes, fileName: 'types.ts' };
     const second = { contents: buttonImplementation, fileName: 'index.tsx' };

@@ -8,7 +8,7 @@
  */
 
 import type { SourcePropValue } from '../types';
-import { formatPropValue, isPropIdentifier } from '../codegen';
+import { formatJsxChildren, formatPropValue, isPropIdentifier } from '../codegen';
 
 const COMPONENT_IDENTIFIER_PATTERN = /^[A-Z_$][A-Za-z0-9_$]*$/;
 
@@ -72,6 +72,26 @@ export function formatUsageProp(name: string, value: UsageValue): string | null 
   }
 
   return `${name}={${formatObjectLiteral(value)}}`;
+}
+
+/** Format a resolved `children` value between a component's opening and closing tags. */
+export function formatUsageChildren(value: UsageValue): string {
+  if (value.kind === 'literal') {
+    return typeof value.value === 'string'
+      ? formatJsxChildren(value.value)
+      : `{${String(value.value)}}`;
+  }
+  if (value.kind === 'runtime') {
+    assertRuntimeIdentifier(value.identifier);
+    return `{${value.identifier} /* ${sanitizeComment(value.note ?? DEFAULT_RUNTIME_NOTE)} */}`;
+  }
+  if (value.kind === 'component') {
+    return formatComponentElement(value);
+  }
+  if (value.kind === 'array') {
+    return `{${formatArrayLiteral(value)}}`;
+  }
+  return `{${formatObjectLiteral(value)}}`;
 }
 
 function formatObjectLiteral(value: Extract<UsageValue, { kind: 'object' }>): string {

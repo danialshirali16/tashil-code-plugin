@@ -303,7 +303,7 @@ describe('Plugin rendered interactions', () => {
       },
     });
 
-    expect((screen.getByLabelText('Component name') as HTMLInputElement).value)
+    expect((screen.getByLabelText('Source component name') as HTMLInputElement).value)
       .toBe('Button');
 
     receive('CANVAS_TARGET_STATE', {
@@ -315,7 +315,7 @@ describe('Plugin rendered interactions', () => {
         targetToken: 'other',
       },
     });
-    expect((screen.getByLabelText('Component name') as HTMLInputElement).value)
+    expect((screen.getByLabelText('Source component name') as HTMLInputElement).value)
       .toBe('Button');
 
     fireEvent.click(screen.getByRole('button', { name: 'Back to components' }));
@@ -749,6 +749,60 @@ describe('Plugin rendered interactions', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Save' }));
     const saveRequests = emittedPayloads<{ metadata: ConnectionMetadata }>('SAVE_CONNECTION');
     expect(saveRequests[saveRequests.length - 1]?.metadata.childrenMode).toBe('none');
+    expect(saveRequests[saveRequests.length - 1]?.metadata).toMatchObject({
+      componentName: 'Button',
+      figmaComponentName: 'Button',
+    });
+  });
+
+  it('keeps different Figma and source component names', async () => {
+    renderPlugin();
+    receive('SELECTION_STATE', {
+      componentName: 'Dialogbox',
+      figmaSnapshot: {
+        componentId: 'dialogbox-set',
+        componentName: 'Dialogbox',
+        properties: [],
+      },
+      message: 'This component is ready to connect.',
+      status: 'ready',
+      targetToken: 'dialogbox-set',
+    });
+
+    expect((screen.getByLabelText('Figma component name') as HTMLInputElement).value)
+      .toBe('Dialogbox');
+    expect((screen.getByLabelText('Source component name') as HTMLInputElement).value)
+      .toBe('Dialogbox');
+
+    const source = new File([], 'info-modal.tsx', { type: 'text/typescript' });
+    Object.defineProperty(source, 'text', {
+      value: vi.fn().mockResolvedValue(`
+interface StyleProps { compact?: boolean }
+export interface InfoModalProps { title?: string; open?: boolean }
+export const TashilInfoModal: React.FC<InfoModalProps> = () => null;
+`),
+    });
+    fireEvent.input(screen.getByLabelText('Upload source'), {
+      target: { files: [source] },
+    });
+
+    await waitFor(() => {
+      expect((screen.getByLabelText('Source component name') as HTMLInputElement).value)
+        .toBe('TashilInfoModal');
+    });
+    expect((screen.getByLabelText('Figma component name') as HTMLInputElement).value)
+      .toBe('Dialogbox');
+
+    fireEvent.input(screen.getByLabelText('Import path'), {
+      target: { value: '@tashilcar/swiss-army-knife' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+
+    const saves = emittedPayloads<{ metadata: ConnectionMetadata }>('SAVE_CONNECTION');
+    expect(saves[saves.length - 1]?.metadata).toMatchObject({
+      componentName: 'TashilInfoModal',
+      figmaComponentName: 'Dialogbox',
+    });
   });
 
   it('presents connect setup as ordered steps with references collapsed', () => {
@@ -759,8 +813,8 @@ describe('Plugin rendered interactions', () => {
     expect(screen.getByRole('heading', { name: 'Code component' })).toBeTruthy();
     expect(screen.getByRole('heading', { name: 'Props & mapping' })).toBeTruthy();
 
-    // Component name explains that it also selects the props interface.
-    expect(document.body.textContent).toContain('selects the props interface');
+    expect(screen.getByLabelText('Figma component name')).toBeTruthy();
+    expect(screen.getByLabelText('Source component name')).toBeTruthy();
 
     // Optional references are present but collapsed out of the primary flow.
     const references = screen.getByText('References (optional)');
@@ -780,7 +834,7 @@ describe('Plugin rendered interactions', () => {
       }],
       figmaSnapshot: { componentId: 'button-set', componentName: 'Button', nestedSources: [] },
       revision: 1,
-      schemaVersion: 1 as const,
+      schemaVersion: 2 as const,
     };
     receive('SELECTION_STATE', {
       ...readySelection(existingConnection({ semanticRecipe: savedRecipe })),
@@ -1041,7 +1095,7 @@ describe('Plugin rendered interactions', () => {
     expect(screen.getByText(
       'Button selected. This component already has a Storybook connection.',
     )).toBeTruthy();
-    expect(screen.getByLabelText('Component name')).toBeTruthy();
+    expect(screen.getByLabelText('Source component name')).toBeTruthy();
   });
 
   it('renders the redesigned references and opens final reference URLs', () => {

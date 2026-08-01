@@ -68,6 +68,8 @@ export type SourceTargetDescriptor = {
   itemSchemas?: SourceCollectionItemSchema[];
   /** Companion callback that updates this controlled value. */
   controlledBy?: string[];
+  /** File that declares the owning prop, used to identify inherited drift. */
+  declaredIn?: string;
 };
 
 export type SourceCollectionItemSchema = {
@@ -240,6 +242,7 @@ export function extractSourceContract(
     );
   }
   const targets: SourceTargetDescriptor[] = [];
+  const declarationFiles = new Map<string, string>();
 
   const { members, chain: propsTypeChain } = collectSourcePropsMembers(
     selected,
@@ -264,6 +267,7 @@ export function extractSourceContract(
     const typeName = checkedTypeName ?? member.type?.getText(sourceFile) ?? 'unknown';
     const typeNode = checkedTypeNode ?? member.type;
     const typeSourceFile = checkedTypeNode?.getSourceFile() ?? sourceFile;
+    declarationFiles.set(name, sourceFile.fileName);
 
     if (EXCLUDED_PROPS.has(name)) {
       targets.push({ kind: 'excluded', ownerProp: name, path: [name], required, typeName });
@@ -295,7 +299,9 @@ export function extractSourceContract(
     }
 
     const resolvedTypeNode = dealias(typeNode, aliases, new Set());
-    const leaf = resolveLeafType(name, resolvedTypeNode, typeSourceFile);
+    const leaf = isLocalObjectUnion(resolvedTypeNode, symbols, warnings)
+      ? { kind: 'record' as const }
+      : resolveLeafType(name, resolvedTypeNode, typeSourceFile);
     const itemSchemas = leaf.kind === 'array'
       ? resolveCollectionItemSchemas(
           resolvedTypeNode,
@@ -318,15 +324,23 @@ export function extractSourceContract(
 
   const classifiedTargets = classifyControlledTargets(
     classifyFrameworkTargets(targets),
-  );
-  const componentName = selected.reason === 'name-affinity'
-    ? selected.declaration.name.text
-      .replace(/Props(?:Type)?$/i, '')
-      .replace(/^I(?=[A-Z])/, '')
-    : requestedComponentName
-      ?? selected.declaration.name.text
-        .replace(/Props(?:Type)?$/i, '')
-        .replace(/^I(?=[A-Z])/, '');
+  ).map((target) => ({
+    ...target,
+    ...(isDependencyDeclaration(
+      declarationFiles.get(target.ownerProp),
+      selected.file.fileName,
+    )
+      ? { declaredIn: declarationFiles.get(target.ownerProp) }
+      : {}),
+  }));
+  const propsComponentName = selected.declaration.name.text
+    .replace(/Props(?:Type)?$/i, '')
+    .replace(/^I(?=[A-Z])/, '');
+  const componentName = selected.componentName
+    ?? ((selected.reason === 'name-affinity' || selected.reason === 'fallback')
+      && propsComponentName
+      ? propsComponentName
+      : requestedComponentName ?? propsComponentName);
 
   return {
     contract: {
@@ -340,6 +354,17 @@ export function extractSourceContract(
     ok: true,
     warnings,
   };
+}
+
+function isDependencyDeclaration(
+  declaredIn: string | undefined,
+  componentFile: string,
+): declaredIn is string {
+  if (declaredIn === undefined) {
+    return false;
+  }
+  const normalize = (value: string) => value.replace(/\\/g, '/').replace(/^\/+/, '');
+  return normalize(declaredIn) !== normalize(componentFile);
 }
 
 function classifyFrameworkTargets(
@@ -711,6 +736,28 @@ function resolveObjectMembers(
   warnings: string[],
 ): ResolvedMember[] {
   return node === undefined ? [] : resolveTypeToMembers(node, symbols, new Set(), warnings);
+}
+
+/**
+ * A union of local object interfaces is a runtime record, but it is not safe to
+ * flatten: each branch can require a different shape. Keep the declared union
+ * type intact and let application code provide one complete branch.
+ */
+function isLocalObjectUnion(
+  node: ts.TypeNode | undefined,
+  symbols: SymbolTable,
+  warnings: string[],
+): boolean {
+  if (!node || !ts.isUnionTypeNode(node)) {
+    return false;
+  }
+  const members = node.types.filter(
+    (member) => member.kind !== ts.SyntaxKind.UndefinedKeyword
+      && !(ts.isLiteralTypeNode(member) && member.literal.kind === ts.SyntaxKind.NullKeyword),
+  );
+  return members.length > 1 && members.every(
+    (member) => resolveTypeToMembers(member, symbols, new Set(), warnings).length > 0,
+  );
 }
 
 function resolveLeafType(

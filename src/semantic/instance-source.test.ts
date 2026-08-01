@@ -619,7 +619,11 @@ describe('nested icon property generation', () => {
       },
     );
 
-    expect(result.usage.jsx).toContain('children={"trash"}');
+    expect(result.usage.jsx).toContain([
+      '<Button>',
+      '  trash',
+      '</Button>',
+    ].join('\n'));
     expect(result.usage.imports).toHaveLength(1);
   });
 });

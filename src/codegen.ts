@@ -948,6 +948,10 @@ function hasValidCommonConnectionFields(value: Record<string, unknown>): boolean
   return (
     typeof value.componentName === 'string'
     && isComponentIdentifier(value.componentName)
+    && (value.figmaComponentName === undefined || (
+      typeof value.figmaComponentName === 'string'
+      && value.figmaComponentName.trim().length > 0
+    ))
     && typeof value.importPath === 'string'
     && value.importPath.length > 0
     && (value.storybookUrl === undefined || typeof value.storybookUrl === 'string')

@@ -33,6 +33,19 @@ export type ReconciliationProposal =
       targetPath: string;
       message: string;
       newLocator: SemanticLocator;
+      /** Present when one item in a repeated component slot moved. */
+      itemIndex?: number;
+    }
+  /** A nested instance or INSTANCE_SWAP still exists but selects another component. */
+  | {
+      kind: 'instance-swap-changed';
+      bindingId: string;
+      targetPath: string;
+      message: string;
+      componentName: string;
+      importPath: string;
+      instancePropertyName?: string;
+      itemIndex?: number;
     }
   /** The source prop path is gone but exactly one type-compatible target fits. */
   | {
@@ -42,6 +55,32 @@ export type ReconciliationProposal =
       message: string;
       newTargetPath: string[];
       newTypeName: string;
+    }
+  /** A collection/object contract changed without changing its outer type text. */
+  | {
+      kind: 'schema-changed';
+      bindingId: string;
+      targetPath: string;
+      message: string;
+      newTypeName: string;
+      newSchemaSignature: string;
+    }
+  /** A target declared by an inherited dependency changed type or shape. */
+  | {
+      kind: 'dependency-type-changed';
+      bindingId: string;
+      targetPath: string;
+      message: string;
+      newTypeName: string;
+      newSchemaSignature?: string;
+    }
+  /** All binding drift is resolved; promote the pending contract explicitly. */
+  | {
+      kind: 'source-contract-update' | 'component-alias-changed';
+      bindingId: '$source-contract';
+      targetPath: string;
+      message: string;
+      newContract: SourceContract;
     }
   /** The source prop still exists but changed type; the binding needs review. */
   | {
@@ -117,12 +156,31 @@ export function planReconciliation(
         targetPath,
         contractByPath,
         currentContract!,
+        recipe.sourceContract,
         boundTargetPaths,
       );
       if (proposal) {
         proposals.push(proposal);
       }
     }
+  }
+
+  if (
+    currentContract !== undefined
+    && recipe.pendingSourceContract === currentContract
+    && !proposals.some(isSourceDriftProposal)
+  ) {
+    const oldName = recipe.sourceContract?.componentName;
+    const aliasChanged = oldName !== undefined && oldName !== currentContract.componentName;
+    proposals.push({
+      bindingId: '$source-contract',
+      kind: aliasChanged ? 'component-alias-changed' : 'source-contract-update',
+      message: aliasChanged
+        ? `The exported source component changed from ${JSON.stringify(oldName)} to ${JSON.stringify(currentContract.componentName)}. Accept to use the new export while keeping the Figma component identity unchanged.`
+        : 'All source changes have been reviewed. Accept to make the uploaded source contract active.',
+      newContract: currentContract,
+      targetPath: aliasChanged ? currentContract.componentName : 'source contract',
+    });
   }
 
   return proposals;
@@ -135,8 +193,32 @@ function planDesignProposal(
   designByKey: ReadonlyMap<string, FigmaNestedSourceDescriptor>,
 ): ReconciliationProposal | undefined {
   const source = binding.source;
-  if (source.kind !== 'nested-text' && source.kind !== 'nested-property') {
+  if (source.kind === 'instances') {
+    for (const [itemIndex, item] of source.items.entries()) {
+      const proposal = planInstanceProposal(
+        binding,
+        targetPath,
+        currentDesign,
+        designByKey,
+        item,
+        itemIndex,
+      );
+      if (proposal) {
+        return proposal;
+      }
+    }
     return undefined;
+  }
+  if (
+    source.kind !== 'nested-text'
+    && source.kind !== 'nested-property'
+    && source.kind !== 'instance'
+  ) {
+    return undefined;
+  }
+
+  if (source.kind === 'instance') {
+    return planInstanceProposal(binding, targetPath, currentDesign, designByKey, source);
   }
 
   const currentKey = `${source.kind}:${locatorKey(source.locator)}:${source.kind === 'nested-property' ? source.propertyName : ''}`;
@@ -183,21 +265,116 @@ function planDesignProposal(
   };
 }
 
+function planInstanceProposal(
+  binding: SemanticBinding,
+  targetPath: string,
+  currentDesign: FigmaSemanticSnapshot,
+  designByKey: ReadonlyMap<string, FigmaNestedSourceDescriptor>,
+  item: {
+    locator: SemanticLocator;
+    componentName: string;
+    importPath: string;
+    instancePropertyName?: string;
+  },
+  itemIndex?: number,
+): ReconciliationProposal | undefined {
+  const key = `nested-instance:${locatorKey(item.locator)}:${item.instancePropertyName ?? ''}`;
+  const exact = designByKey.get(key);
+  if (exact) {
+    if (
+      exact.connectedComponentName !== undefined
+      && exact.connectedImportPath !== undefined
+      && (
+        exact.connectedComponentName !== item.componentName
+        || exact.connectedImportPath !== item.importPath
+      )
+    ) {
+      return {
+        bindingId: binding.id,
+        componentName: exact.connectedComponentName,
+        importPath: exact.connectedImportPath,
+        ...(exact.instancePropertyName !== undefined
+          ? { instancePropertyName: exact.instancePropertyName }
+          : {}),
+        ...(itemIndex !== undefined ? { itemIndex } : {}),
+        kind: 'instance-swap-changed',
+        message: `The nested instance for ${JSON.stringify(targetPath)} now selects ${JSON.stringify(exact.connectedComponentName)}. Accept to update the component value.`,
+        targetPath,
+      };
+    }
+    return undefined;
+  }
+
+  const identityMatches = item.locator.componentKey === undefined
+    ? []
+    : currentDesign.nestedSources.filter((candidate) => (
+    candidate.kind === 'nested-instance'
+    && candidate.locator.componentKey === item.locator.componentKey
+    && candidate.instancePropertyName === item.instancePropertyName
+    ));
+  const sourceLeaf = leafSegment(item.locator.namePath);
+  const sameLeaf = identityMatches.filter(
+    (candidate) => leafSegment(candidate.locator.namePath) === sourceLeaf,
+  );
+  const moved = sameLeaf.length === 1
+    ? sameLeaf[0]
+    : identityMatches.length === 1 ? identityMatches[0] : undefined;
+
+  if (moved) {
+    return {
+      bindingId: binding.id,
+      ...(itemIndex !== undefined ? { itemIndex } : {}),
+      kind: 'locator-moved',
+      message: `The nested instance for ${JSON.stringify(targetPath)} moved to ${JSON.stringify(moved.displayPath)} but kept its component identity. Accept to remap it.`,
+      newLocator: moved.locator,
+      targetPath,
+    };
+  }
+
+  return {
+    bindingId: binding.id,
+    kind: 'design-removed',
+    message: `The nested instance at ${JSON.stringify(item.locator.namePath.join(' / '))} for ${JSON.stringify(targetPath)} was not found. Remove the stale mapping or restore the instance.`,
+    targetPath,
+  };
+}
+
 function planSourceProposal(
   binding: SemanticBinding,
   targetPath: string,
   contractByPath: ReadonlyMap<string, SourceTargetDescriptor>,
   currentContract: SourceContract,
+  previousContract: SourceContract | undefined,
   boundTargetPaths: ReadonlySet<string>,
 ): ReconciliationProposal | undefined {
   const existing = contractByPath.get(targetPath);
 
   if (existing !== undefined) {
     if (existing.typeName !== binding.target.typeName) {
+      const dependency = isInheritedTarget(existing, currentContract);
       return {
         bindingId: binding.id,
-        kind: 'type-changed',
-        message: `Source prop ${JSON.stringify(targetPath)} changed type from ${JSON.stringify(binding.target.typeName)} to ${JSON.stringify(existing.typeName)}. Accept to update the binding, then review its transform.`,
+        kind: dependency ? 'dependency-type-changed' : 'type-changed',
+        message: `${dependency ? 'Inherited source prop' : 'Source prop'} ${JSON.stringify(targetPath)} changed type from ${JSON.stringify(binding.target.typeName)} to ${JSON.stringify(existing.typeName)}. Accept to update the binding, then review its transform.`,
+        newTypeName: existing.typeName,
+        targetPath,
+      };
+    }
+    const previous = previousContract?.targets.find(
+      (target) => target.path.join('.') === targetPath,
+    );
+    const currentSignature = targetSchemaSignature(existing);
+    if (
+      binding.target.schemaSignature !== currentSignature
+      && previous
+      && targetSchemaSignature(previous) !== currentSignature
+    ) {
+      const dependency = isInheritedTarget(existing, currentContract);
+      return {
+        bindingId: binding.id,
+        kind: dependency ? 'dependency-type-changed' : 'schema-changed',
+        message: `${dependency ? 'Inherited source prop' : 'Source prop'} ${JSON.stringify(targetPath)} changed its array/object schema. Accept to keep the mapping and review its structured value.`,
+        newSchemaSignature: currentSignature,
         newTypeName: existing.typeName,
         targetPath,
       };
@@ -245,6 +422,19 @@ export function applyProposal(
   proposal: ReconciliationProposal,
   action: ReconciliationAction,
 ): SemanticConnectionRecipe {
+  if (
+    proposal.kind === 'source-contract-update'
+    || proposal.kind === 'component-alias-changed'
+  ) {
+    return action === 'accept'
+      ? {
+          ...recipe,
+          pendingSourceContract: undefined,
+          sourceContract: proposal.newContract,
+        }
+      : { ...recipe, pendingSourceContract: undefined };
+  }
+
   if (action === 'remove') {
     return {
       ...recipe,
@@ -263,8 +453,46 @@ export function applyProposal(
         return binding;
       }
       if (proposal.kind === 'locator-moved'
-        && (binding.source.kind === 'nested-text' || binding.source.kind === 'nested-property')) {
+        && (
+          binding.source.kind === 'nested-text'
+          || binding.source.kind === 'nested-property'
+          || binding.source.kind === 'instance'
+        )) {
         return { ...binding, source: { ...binding.source, locator: proposal.newLocator } };
+      }
+      if (proposal.kind === 'locator-moved' && binding.source.kind === 'instances') {
+        return {
+          ...binding,
+          source: {
+            ...binding.source,
+            items: binding.source.items.map((item, index) => (
+              index === proposal.itemIndex ? { ...item, locator: proposal.newLocator } : item
+            )),
+          },
+        };
+      }
+      if (proposal.kind === 'instance-swap-changed') {
+        const update = {
+          componentName: proposal.componentName,
+          importPath: proposal.importPath,
+          ...(proposal.instancePropertyName !== undefined
+            ? { instancePropertyName: proposal.instancePropertyName }
+            : {}),
+        };
+        if (binding.source.kind === 'instance') {
+          return { ...binding, source: { ...binding.source, ...update } };
+        }
+        if (binding.source.kind === 'instances') {
+          return {
+            ...binding,
+            source: {
+              ...binding.source,
+              items: binding.source.items.map((item, index) => (
+                index === proposal.itemIndex ? { ...item, ...update } : item
+              )),
+            },
+          };
+        }
       }
       if (proposal.kind === 'source-renamed') {
         return {
@@ -272,8 +500,33 @@ export function applyProposal(
           target: { path: [...proposal.newTargetPath], typeName: proposal.newTypeName },
         };
       }
-      if (proposal.kind === 'type-changed') {
-        return { ...binding, target: { ...binding.target, typeName: proposal.newTypeName } };
+      if (
+        proposal.kind === 'type-changed'
+        || proposal.kind === 'dependency-type-changed'
+      ) {
+        const newSchemaSignature = proposal.kind === 'dependency-type-changed'
+          ? proposal.newSchemaSignature
+          : undefined;
+        return {
+          ...binding,
+          target: {
+            ...binding.target,
+            typeName: proposal.newTypeName,
+            ...(newSchemaSignature !== undefined
+              ? { schemaSignature: newSchemaSignature }
+              : {}),
+          },
+        };
+      }
+      if (proposal.kind === 'schema-changed') {
+        return {
+          ...binding,
+          target: {
+            ...binding.target,
+            schemaSignature: proposal.newSchemaSignature,
+            typeName: proposal.newTypeName,
+          },
+        };
       }
       return binding;
     }),
@@ -292,9 +545,48 @@ export function markRecipeReconciled(
 }
 
 function descriptorKey(source: FigmaNestedSourceDescriptor): string {
-  return `${source.kind}:${locatorKey(source.locator)}:${source.propertyName ?? ''}`;
+  return `${source.kind}:${locatorKey(source.locator)}:${source.propertyName ?? source.instancePropertyName ?? ''}`;
 }
 
 function leafSegment(namePath: readonly string[]): string | undefined {
   return namePath[namePath.length - 1];
+}
+
+function isSourceDriftProposal(proposal: ReconciliationProposal): boolean {
+  return proposal.kind === 'source-renamed'
+    || proposal.kind === 'source-removed'
+    || proposal.kind === 'type-changed'
+    || proposal.kind === 'schema-changed'
+    || proposal.kind === 'dependency-type-changed';
+}
+
+function isInheritedTarget(
+  target: SourceTargetDescriptor,
+  contract: SourceContract,
+): boolean {
+  if (target.declaredIn === undefined) {
+    return false;
+  }
+  const declaredIn = target.declaredIn.replace(/\\/g, '/').replace(/^\/+/, '');
+  const contractFile = contract.fileName.replace(/\\/g, '/').replace(/^\/+/, '');
+  return declaredIn !== contractFile;
+}
+
+/** Stable structural comparison for arrays, records, literal sets and control pairs. */
+export function targetSchemaSignature(target: SourceTargetDescriptor): string {
+  return JSON.stringify({
+    controlledBy: target.controlledBy ?? [],
+    defaultValue: target.defaultValue,
+    insideOptionalObject: target.insideOptionalObject ?? false,
+    itemSchemas: (target.itemSchemas ?? []).map((item) => ({
+      kind: item.kind,
+      path: item.path ?? [],
+      role: item.role,
+      typeName: item.typeName,
+      values: item.values ?? [],
+    })),
+    kind: target.kind,
+    required: target.required,
+    values: target.values ?? [],
+  });
 }

@@ -34,6 +34,22 @@ describe('validateSemanticRecipe', () => {
     expect(validateSemanticRecipe(asUnknown(createRecipe()))).toMatchObject({ ok: true });
   });
 
+  it('migrates a v1 recipe in memory without changing its bindings', () => {
+    const value = asUnknown(createRecipe());
+    value.schemaVersion = 1;
+    const bindingsBefore = JSON.stringify(value.bindings);
+
+    const result = validateSemanticRecipe(value);
+
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.recipe.schemaVersion).toBe(SEMANTIC_RECIPE_SCHEMA_VERSION);
+      expect(JSON.stringify(result.recipe.bindings)).toBe(bindingsBefore);
+    }
+    // Reading never mutates/persists the legacy document.
+    expect(value.schemaVersion).toBe(1);
+  });
+
   it('accepts every explicit complex source target kind', () => {
     const value = asUnknown(createRecipe());
     value.sourceContract = {

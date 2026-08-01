@@ -11,9 +11,10 @@ export type SourcePropsDeclaration =
   | ts.TypeAliasDeclaration;
 
 export type SourcePropsSelection = {
+  componentName?: string;
   declaration: SourcePropsDeclaration;
   file: ParsedSourceFile;
-  reason: 'component-declaration' | 'exact-name' | 'name-affinity';
+  reason: 'component-declaration' | 'exact-name' | 'name-affinity' | 'fallback';
 };
 
 export type ResolvedSourceMember = {
@@ -30,6 +31,7 @@ type SourcePropsCandidate = {
 };
 
 type InferredPropsReference = {
+  componentName?: string;
   file: ParsedSourceFile;
   typeName: string;
 };
@@ -80,7 +82,29 @@ export function selectSourcePropsDeclaration(
   }
 
   const affinity = selectByNameAffinity(candidates, requestedComponentName);
-  return affinity ? { ...affinity, reason: 'name-affinity' } : undefined;
+  if (affinity) {
+    return { ...affinity, reason: 'name-affinity' };
+  }
+
+  const inferred = inferUniqueComponentPropsReference(files, candidates);
+  if (inferred) {
+    const inferredCandidate = candidates.find(({ declaration, file }) => (
+      declaration.name.text === inferred.typeName
+      && file.sourceFile === inferred.file.sourceFile
+    )) ?? candidates.find(
+      ({ declaration }) => declaration.name.text === inferred.typeName,
+    );
+    if (inferredCandidate) {
+      return {
+        ...inferredCandidate,
+        componentName: inferred.componentName,
+        reason: 'component-declaration',
+      };
+    }
+  }
+
+  const fallback = selectStrongestCandidate(candidates);
+  return fallback ? { ...fallback, reason: 'fallback' } : undefined;
 }
 
 export function collectSourcePropsMembers(
@@ -109,7 +133,10 @@ export function collectSourcePropsMembers(
     : fallbackWarnings;
   warnings.push(...retainedFallbackWarnings, ...checked.warnings);
   if (checked.members.length > 0) {
-    return { members: checked.members, chain: checked.baseTypeNames };
+    return {
+      members: checked.members,
+      chain: [...new Set([...checked.baseTypeNames, ...fallbackChain])],
+    };
   }
   return { members: fallbackMembers, chain: fallbackChain };
 }
@@ -158,6 +185,60 @@ function inferComponentPropsReference(
     ? readParameterPropsType(resolved.declaration.parameters[0])
     : readVariablePropsType(resolved.declaration);
   return typeName ? { file: resolved.file, typeName } : undefined;
+}
+
+function inferUniqueComponentPropsReference(
+  files: readonly ParsedSourceFile[],
+  candidates: readonly SourcePropsCandidate[],
+): InferredPropsReference | undefined {
+  const candidateNames = new Set(
+    candidates.map(({ declaration }) => declaration.name.text),
+  );
+  const references: Array<InferredPropsReference & { exported: boolean }> = [];
+
+  for (const file of files) {
+    if (isDependencyDeclarationFile(file.fileName)) {
+      continue;
+    }
+    for (const statement of file.sourceFile.statements) {
+      const declarations: ComponentDeclaration[] = ts.isFunctionDeclaration(statement)
+        ? statement.name ? [statement] : []
+        : ts.isVariableStatement(statement)
+          ? [...statement.declarationList.declarations]
+          : [];
+      for (const declaration of declarations) {
+        const componentName = ts.isFunctionDeclaration(declaration)
+          ? declaration.name?.text
+          : ts.isIdentifier(declaration.name) ? declaration.name.text : undefined;
+        const typeName = ts.isFunctionDeclaration(declaration)
+          ? readParameterPropsType(declaration.parameters[0])
+          : readVariablePropsType(declaration);
+        if (componentName && typeName && candidateNames.has(typeName)) {
+          references.push({
+            componentName,
+            exported: isDeclarationExported(declaration),
+            file,
+            typeName,
+          });
+        }
+      }
+    }
+  }
+
+  const exported = references.filter((reference) => reference.exported);
+  const eligible = exported.length > 0 ? exported : references;
+  const typeNames = new Set(eligible.map(({ typeName }) => typeName));
+  if (typeNames.size !== 1) {
+    return undefined;
+  }
+  const selected = eligible[0];
+  return selected
+    ? {
+        componentName: selected.componentName,
+        file: selected.file,
+        typeName: selected.typeName,
+      }
+    : undefined;
 }
 
 function resolveExportedComponent(
@@ -489,7 +570,20 @@ function selectByNameAffinity(
     .filter(({ score }) => score > 0)
     .sort((left, right) => right.score - left.score || left.index - right.index);
 
-  return ranked[0]?.candidate ?? (candidates.length === 1 ? candidates[0] : undefined);
+  return ranked[0]?.candidate;
+}
+
+function selectStrongestCandidate(
+  candidates: readonly SourcePropsCandidate[],
+): SourcePropsCandidate | undefined {
+  return [...candidates]
+    .map((candidate, index) => ({
+      candidate,
+      index,
+      score: getDeclarationWeight(candidate.declaration),
+    }))
+    .sort((left, right) => right.score - left.score || left.index - right.index)[0]
+    ?.candidate;
 }
 
 function getDeclarationWeight(declaration: SourcePropsDeclaration): number {

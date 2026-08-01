@@ -27,6 +27,7 @@ const EMPTY_FORM: ConnectionFormValues = {
   childrenTextProperty: 'label',
   componentName: '',
   customPropMappings: '',
+  figmaComponentName: '',
   iconComponentName: '',
   iconImportPath: '',
   importPath: '',
@@ -61,6 +62,7 @@ describe('connection form validation', () => {
     const result = validateConnectionForm({
       ...EMPTY_FORM,
       componentName: ' Button ',
+      figmaComponentName: ' Dialogbox ',
       importPath: ' tashil-ui ',
       propMappings: '{"size":{"small":{"prop":"size","value":"sm"}}}',
       sourcePath: ' src/Button.tsx ',
@@ -73,6 +75,7 @@ describe('connection form validation', () => {
       ok: true,
       metadata: {
         schemaVersion: CURRENT_SCHEMA_VERSION,
+        figmaComponentName: 'Dialogbox',
         componentName: 'Button',
         importPath: 'tashil-ui',
         propMappings: {

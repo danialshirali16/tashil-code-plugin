@@ -14,6 +14,8 @@ import {
   locatorKey,
   type FigmaNestedSourceDescriptor,
   type FigmaSemanticSnapshot,
+  type SemanticExtractionDiagnostic,
+  type SemanticExtractionLimits,
   type SemanticConnectionRecipe,
   type SemanticLocator,
 } from './types';
@@ -33,6 +35,7 @@ export type SemanticNodeLike = {
   instanceSwaps?: Readonly<Record<string, {
     componentId: string;
     componentName: string;
+    importPath?: string;
   }>>;
   /** True when a Tashil connection is stored on the instance's main component. */
   hasOwnConnection?: boolean;
@@ -51,6 +54,8 @@ export type SemanticExtractionResult = {
   snapshot: FigmaSemanticSnapshot;
   /** Human-readable notes about truncation or skipped subtrees. */
   diagnostics: string[];
+  /** Machine-readable truncation details for UI and compatibility reports. */
+  extractionDiagnostics: SemanticExtractionDiagnostic[];
   /** True when limits truncated the scan and results are partial. */
   partial: boolean;
 };
@@ -66,9 +71,25 @@ const SAMPLE_VALUE_MAX_LENGTH = 80;
 export function extractFigmaSemanticSnapshot(
   root: SemanticNodeLike,
   rootId: string,
+  limitOverrides: Partial<SemanticExtractionLimits> = {},
 ): SemanticExtractionResult {
+  const limits: SemanticExtractionLimits = {
+    maxExtractionNodes: normalizeLimit(
+      limitOverrides.maxExtractionNodes,
+      SEMANTIC_LIMITS.maxExtractionNodes,
+    ),
+    maxLocatorDepth: normalizeLimit(
+      limitOverrides.maxLocatorDepth,
+      SEMANTIC_LIMITS.maxLocatorDepth,
+    ),
+    maxNestedSources: normalizeLimit(
+      limitOverrides.maxNestedSources,
+      SEMANTIC_LIMITS.maxNestedSources,
+    ),
+  };
   const nestedSources: FigmaNestedSourceDescriptor[] = [];
-  const diagnostics: string[] = [];
+  const extractionDiagnostics: SemanticExtractionDiagnostic[] = [];
+  const diagnosticKeys = new Set<string>();
   const seenKeys = new Set<string>();
   let visited = 0;
   let partial = false;
@@ -79,15 +100,13 @@ export function extractFigmaSemanticSnapshot(
     depth: number,
     anchorComponentKey: string | undefined,
   ): void => {
-    if (partial) {
-      return;
-    }
-
-    if (visited >= SEMANTIC_LIMITS.maxExtractionNodes) {
+    if (visited >= limits.maxExtractionNodes) {
       partial = true;
-      diagnostics.push(
-        `Stopped after visiting ${SEMANTIC_LIMITS.maxExtractionNodes} layers; deeper values were not scanned.`,
-      );
+      addDiagnostic({
+        code: 'node-limit',
+        limit: limits.maxExtractionNodes,
+        message: `Stopped after visiting ${limits.maxExtractionNodes} layers; remaining values were not scanned.`,
+      });
       return;
     }
     visited += 1;
@@ -96,21 +115,27 @@ export function extractFigmaSemanticSnapshot(
       return;
     }
 
-    if (depth > SEMANTIC_LIMITS.maxLocatorDepth) {
+    if (depth > limits.maxLocatorDepth) {
       partial = true;
-      diagnostics.push(
-        `Stopped at depth ${SEMANTIC_LIMITS.maxLocatorDepth} under ${JSON.stringify(namePath.join(' / '))}.`,
-      );
+      const path = namePath.join(' / ');
+      addDiagnostic({
+        code: 'locator-depth-limit',
+        limit: limits.maxLocatorDepth,
+        message: `Skipped values deeper than ${limits.maxLocatorDepth} layers under ${JSON.stringify(path)}.`,
+        path,
+      });
       return;
     }
 
     const isRoot = namePath.length === 0;
 
-    if (!isRoot && nestedSources.length >= SEMANTIC_LIMITS.maxNestedSources) {
+    if (!isRoot && nestedSources.length >= limits.maxNestedSources) {
       partial = true;
-      diagnostics.push(
-        `Captured the maximum of ${SEMANTIC_LIMITS.maxNestedSources} nested sources; remaining layers were skipped.`,
-      );
+      addDiagnostic({
+        code: 'nested-source-limit',
+        limit: limits.maxNestedSources,
+        message: `Captured the maximum of ${limits.maxNestedSources} nested sources; remaining candidates were skipped.`,
+      });
       return;
     }
 
@@ -124,7 +149,7 @@ export function extractFigmaSemanticSnapshot(
       nextAnchor = node.mainComponentKey ?? anchorComponentKey;
 
       for (const propertyName of Object.keys(node.componentProperties ?? {})) {
-        if (nestedSources.length >= SEMANTIC_LIMITS.maxNestedSources) {
+        if (nestedSources.length >= limits.maxNestedSources) {
           break;
         }
         addSource(node, namePath, 'nested-property', nextAnchor, propertyName);
@@ -137,11 +162,35 @@ export function extractFigmaSemanticSnapshot(
         if (
           node.connectedComponentName !== undefined
           && node.connectedImportPath !== undefined
-          && nestedSources.length < SEMANTIC_LIMITS.maxNestedSources
+          && nestedSources.length < limits.maxNestedSources
         ) {
           addSource(node, namePath, 'nested-instance', nextAnchor);
         }
         return;
+      }
+
+      for (const [propertyName, swap] of Object.entries(node.instanceSwaps ?? {})) {
+        if (nestedSources.length >= limits.maxNestedSources) {
+          partial = true;
+          addDiagnostic({
+            code: 'nested-source-limit',
+            limit: limits.maxNestedSources,
+            message: `Captured the maximum of ${limits.maxNestedSources} nested sources; remaining candidates were skipped.`,
+          });
+          break;
+        }
+        addSource(
+          {
+            ...node,
+            connectedComponentName: swap.componentName,
+            connectedImportPath: swap.importPath,
+          },
+          namePath,
+          'nested-instance',
+          nextAnchor,
+          undefined,
+          propertyName,
+        );
       }
     }
 
@@ -156,13 +205,14 @@ export function extractFigmaSemanticSnapshot(
     kind: 'nested-property' | 'nested-text' | 'nested-instance',
     componentKey: string | undefined,
     propertyName?: string,
+    instancePropertyName?: string,
   ): void => {
     const locator: SemanticLocator = {
       fragile: componentKey === undefined,
       namePath,
       ...(componentKey !== undefined ? { componentKey } : {}),
     };
-    const key = `${kind}:${locatorKey(locator)}:${propertyName ?? ''}`;
+    const key = `${kind}:${locatorKey(locator)}:${propertyName ?? instancePropertyName ?? ''}`;
     if (seenKeys.has(key)) {
       return;
     }
@@ -175,9 +225,9 @@ export function extractFigmaSemanticSnapshot(
         : formatPropertySample(node.componentProperties?.[propertyName ?? '']);
 
     nestedSources.push({
-      displayPath: propertyName === undefined
+      displayPath: propertyName === undefined && instancePropertyName === undefined
         ? namePath.join(' / ')
-        : `${namePath.join(' / ')} / ${propertyName}`,
+        : `${namePath.join(' / ')} / ${propertyName ?? instancePropertyName}`,
       kind,
       locator,
       ...(propertyName !== undefined ? { propertyName } : {}),
@@ -185,6 +235,7 @@ export function extractFigmaSemanticSnapshot(
         ? {
             connectedComponentName: node.connectedComponentName,
             connectedImportPath: node.connectedImportPath,
+            ...(instancePropertyName !== undefined ? { instancePropertyName } : {}),
           }
         : {}),
       ...(sampleValue !== undefined
@@ -193,15 +244,30 @@ export function extractFigmaSemanticSnapshot(
     });
   };
 
+  const addDiagnostic = (diagnostic: SemanticExtractionDiagnostic): void => {
+    const key = `${diagnostic.code}:${diagnostic.path ?? ''}`;
+    if (diagnosticKeys.has(key)) {
+      return;
+    }
+    diagnosticKeys.add(key);
+    extractionDiagnostics.push(diagnostic);
+  };
+
   visit(root, [], 0, undefined);
 
   return {
-    diagnostics,
+    diagnostics: extractionDiagnostics.map(({ message }) => message),
+    extractionDiagnostics,
     partial,
     snapshot: {
       componentId: rootId,
       componentName: root.name,
       nestedSources,
+      extraction: {
+        diagnostics: extractionDiagnostics,
+        partial,
+        visitedNodes: visited,
+      },
     },
   };
 }
@@ -245,4 +311,10 @@ export function resolveLocator(
 
 function formatPropertySample(value: string | boolean | undefined): string | undefined {
   return value === undefined ? undefined : String(value);
+}
+
+function normalizeLimit(value: number | undefined, fallback: number): number {
+  return value === undefined || !Number.isInteger(value) || value <= 0
+    ? fallback
+    : Math.min(value, fallback);
 }

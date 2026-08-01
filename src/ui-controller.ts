@@ -33,7 +33,7 @@ import {
   serializeComponentAuditJson,
 } from './semantic/audit-report';
 import { evaluateSemanticHealth } from './semantic/health';
-import { isSemanticConnectionRecipe } from './semantic/schema';
+import { validateSemanticRecipe } from './semantic/schema';
 import { extractSourceContract } from './semantic/source-contract';
 import {
   applyProposal,
@@ -690,7 +690,8 @@ export function useConnectionController(): ConnectionController {
 
     try {
       const parsed = JSON.parse(value) as unknown;
-      return isSemanticConnectionRecipe(parsed) ? parsed : undefined;
+      const validation = validateSemanticRecipe(parsed);
+      return validation.ok ? validation.recipe : undefined;
     } catch (_error) {
       return undefined;
     }
@@ -786,7 +787,7 @@ export function useConnectionController(): ConnectionController {
    */
   function exportReport(format: 'markdown' | 'json'): void {
     const recipe = readSemanticRecipe();
-    const contract = recipe?.sourceContract;
+    const contract = recipe?.pendingSourceContract ?? recipe?.sourceContract;
     if (!contract) {
       setErrorMessage('Upload source before exporting a compatibility report.');
       return;
@@ -836,11 +837,24 @@ export function useConnectionController(): ConnectionController {
     }
     const updated = applyProposal(recipe, proposal, action);
     setFormField('semanticRecipe', JSON.stringify(updated));
-    setStatusMessage(
-      action === 'remove'
+    if (
+      action === 'accept'
+      && (
+        proposal.kind === 'source-contract-update'
+        || proposal.kind === 'component-alias-changed'
+      )
+    ) {
+      setFormField('componentName', proposal.newContract.componentName);
+    }
+    const contractUpdate = proposal.kind === 'source-contract-update'
+      || proposal.kind === 'component-alias-changed';
+    setStatusMessage(contractUpdate
+      ? action === 'accept'
+        ? 'Accepted the uploaded source contract.'
+        : 'Kept the current source contract.'
+      : action === 'remove'
         ? `Removed the stale mapping for ${proposal.targetPath}.`
-        : `Remapped ${proposal.targetPath}.`,
-    );
+        : `Remapped ${proposal.targetPath}.`);
   }
 
   function readPropMappings(): PropMappings {
@@ -1015,6 +1029,14 @@ export function useConnectionController(): ConnectionController {
         return;
       }
 
+      const acceptedRecipe = readSemanticRecipe();
+      // Figma and source components have independent identities. A first
+      // upload can select the parsed source export immediately; replacement
+      // source stays pending so existing generation keeps its prior export.
+      if (!acceptedRecipe?.sourceContract) {
+        setFormField('componentName', result.snapshot.componentName);
+      }
+
       const document = createMappingDocumentDraft(
         result.snapshot,
         currentTarget.figmaSnapshot,
@@ -1044,7 +1066,7 @@ export function useConnectionController(): ConnectionController {
             contractResult.contract,
             currentTarget.figmaSnapshot,
             semanticSnapshot,
-            readSemanticRecipe(),
+            acceptedRecipe,
           );
           setFormField('semanticRecipe', JSON.stringify(recipe));
         }
@@ -1290,10 +1312,10 @@ export function useConnectionController(): ConnectionController {
   const semanticProposals: ReconciliationProposal[] = SEMANTIC_CONNECT_AUTHORING_ENABLED
     && workingRecipe
     && targetState.status === 'ready'
-    ? planReconciliation(
+      ? planReconciliation(
         workingRecipe,
         targetState.semanticSnapshot,
-        workingRecipe.sourceContract,
+        workingRecipe.pendingSourceContract ?? workingRecipe.sourceContract,
       )
     : [];
 

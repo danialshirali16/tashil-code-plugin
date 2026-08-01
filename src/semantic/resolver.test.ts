@@ -36,7 +36,7 @@ describe('resolveSemanticUsage', () => {
         nestedSources: [],
       },
       revision: 1,
-      schemaVersion: 1,
+      schemaVersion: 2,
       sourceContract: {
         componentName: 'Icon',
         contentHash: 'icon-source',
@@ -516,6 +516,48 @@ describe('resolveSemanticUsage', () => {
       localName: 'Icon',
       modulePath: '@tashilcar/swiss-army-knife',
     });
+  });
+
+  it('renders a mapped Button label as JSX children', () => {
+    const recipe = createDialogRecipe();
+    recipe.bindings = [
+      {
+        id: 'binding-size',
+        requirement: 'optional',
+        source: { kind: 'static', value: 'small' },
+        target: { path: ['size'], typeName: 'ButtonSizeType' },
+      },
+      {
+        id: 'binding-on-click',
+        requirement: 'runtime',
+        source: { kind: 'runtime' },
+        target: { path: ['onClick'], typeName: '() => void' },
+      },
+      {
+        id: 'binding-children',
+        requirement: 'optional',
+        source: {
+          kind: 'component-property',
+          propertyId: 'label',
+          propertyName: 'label',
+        },
+        target: { path: ['children'], typeName: 'ReactNode' },
+      },
+    ];
+
+    const result = resolveSemanticUsage(
+      'Button',
+      '@tashilcar/swiss-army-knife',
+      recipe,
+      { componentProperties: { label: 'متن دکمه' } },
+    );
+
+    expect(result.issues).toEqual([]);
+    expect(result.usage.jsx).toBe([
+      '<Button size={"small"} onClick={onClick /* Set in application. */}>',
+      '  متن دکمه',
+      '</Button>',
+    ].join('\n'));
   });
 
   it('omits a hidden Button icon instead of emitting a bare boolean prop', () => {

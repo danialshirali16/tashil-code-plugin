@@ -24,6 +24,7 @@ import {
   OPTION_STATIC,
   SECTION_LABELS,
   buildTargetRows,
+  getAuthoringSourceContract,
   getUsedSourceOptionIds,
   hasStructuralMismatch,
   nestedOptionId,
@@ -95,7 +96,7 @@ export function SemanticMappingView(props: SemanticMappingViewProps): h.JSX.Elem
   const [filter, setFilter] = useState<'all' | 'review'>('all');
   const [query, setQuery] = useState('');
   const recipe = props.recipe;
-  if (!recipe?.sourceContract) {
+  if (!recipe || !getAuthoringSourceContract(recipe)) {
     return null;
   }
 
@@ -108,14 +109,10 @@ export function SemanticMappingView(props: SemanticMappingViewProps): h.JSX.Elem
     completed: progressRows.filter((row) => targetState(row) === 'done').length,
     total: progressRows.length,
   };
-  const contract = recipe.sourceContract;
+  const contract = getAuthoringSourceContract(recipe)!;
   const preview = createPreview(props.componentName, props.importPath, recipe);
   const uploadDisabled = props.disabled || props.sourceUploading === true;
 
-  const firstUnresolved = rows.find((row) => row.optionId === '' && row.target.required)
-    ?? rows.find((row) => row.optionId === '');
-  const focusedPath = activePath ?? firstUnresolved?.targetPath ?? rows[0]?.targetPath;
-  const focusedRow = rows.find((row) => row.targetPath === focusedPath) ?? rows[0];
   // ponytail: plain substring match across targetPath + typeName + the resolved
   // value label. No fuzzy ranking — the lists are short and owners search by
   // the prop name they already know. Empty query = no filtering by search.
@@ -127,6 +124,16 @@ export function SemanticMappingView(props: SemanticMappingViewProps): h.JSX.Elem
   const visibleRows = rows.filter((row) => (
     (filter === 'review' ? targetState(row) !== 'done' : true) && matchesQuery(row)
   ));
+  const firstUnresolved = visibleRows.find(
+    (row) => row.optionId === '' && row.target.required,
+  ) ?? visibleRows.find((row) => row.optionId === '');
+  const requestedFocusedPath = activePath
+    ?? firstUnresolved?.targetPath
+    ?? visibleRows[0]?.targetPath;
+  const focusedRow = visibleRows.find((row) => row.targetPath === requestedFocusedPath)
+    ?? firstUnresolved
+    ?? visibleRows[0];
+  const focusedPath = focusedRow?.targetPath;
 
   const usedSources = getUsedSourceOptionIds(recipe);
   const inventory = buildFigmaInventory(props.figmaSnapshot, recipe.figmaSnapshot);
@@ -268,6 +275,18 @@ export function SemanticMappingView(props: SemanticMappingViewProps): h.JSX.Elem
             onApplyProposal={props.onApplyProposal}
             proposals={props.proposals}
           />
+        ) : null}
+        {recipe.figmaSnapshot.extraction?.partial ? (
+          <div class="mapping-help" role="status">
+            <strong>Figma scan is partial.</strong>
+            <ul>
+              {recipe.figmaSnapshot.extraction.diagnostics.map((diagnostic) => (
+                <li key={`${diagnostic.code}-${diagnostic.path ?? ''}`}>
+                  {diagnostic.message}
+                </li>
+              ))}
+            </ul>
+          </div>
         ) : null}
         {hasStructuralMismatch(recipe) ? (
           <div class="mapping-help" role="note">
@@ -535,6 +554,8 @@ function ReconciliationPanel(props: {
       <ul>
         {props.proposals.map((proposal) => {
           const removeOnly = isRemoveOnly(proposal.kind);
+          const contractUpdate = proposal.kind === 'source-contract-update'
+            || proposal.kind === 'component-alias-changed';
           return (
             <li key={`${proposal.bindingId}-${proposal.kind}`}>
               <span>{proposal.message}</span>
@@ -546,16 +567,18 @@ function ReconciliationPanel(props: {
                     onClick={() => props.onApplyProposal?.(proposal, 'accept')}
                     type="button"
                   >
-                    Accept remap
+                    {contractUpdate ? 'Accept source update' : 'Accept remap'}
                   </button>
                 ) : null}
                 <button
-                  aria-label={`Remove mapping for ${proposal.targetPath}`}
+                  aria-label={contractUpdate
+                    ? 'Keep the current source contract'
+                    : `Remove mapping for ${proposal.targetPath}`}
                   disabled={props.disabled}
                   onClick={() => props.onApplyProposal?.(proposal, 'remove')}
                   type="button"
                 >
-                  Remove mapping
+                  {contractUpdate ? 'Keep current source' : 'Remove mapping'}
                 </button>
               </div>
             </li>

@@ -176,10 +176,10 @@ function readInstanceProperties(node: InstanceNode): Record<string, string | boo
 
 async function readInstanceSwaps(
   node: InstanceNode,
-): Promise<Record<string, { componentId: string; componentName: string }>> {
+): Promise<Record<string, { componentId: string; componentName: string; importPath?: string }>> {
   const swaps = Object.create(null) as Record<
     string,
-    { componentId: string; componentName: string }
+    { componentId: string; componentName: string; importPath?: string }
   >;
 
   try {
@@ -194,9 +194,11 @@ async function readInstanceSwaps(
         continue;
       }
       if (component?.type === 'COMPONENT') {
+        const connection = readOwnConnection(component);
         swaps[normalizePropertyName(rawName)] = {
           componentId: component.id,
           componentName: component.name,
+          ...(connection ? { importPath: connection.importPath } : {}),
         };
       }
     }

@@ -334,6 +334,7 @@ export function Plugin(): h.JSX.Element {
               </div>
               <ConnectComponentView
             componentName={formValues.componentName}
+            figmaComponentName={formValues.figmaComponentName}
             connectionHealth={connectionHealth}
             customPropMappings={formValues.customPropMappings}
             clearCancelButtonRef={(element) => {
@@ -700,6 +701,7 @@ function ConnectComponentView(props: {
   customPropMappings: string;
   errorMessage: string;
   fieldErrors: FormErrors;
+  figmaComponentName: string;
   handleCancelClear: () => void;
   handleClear: () => void;
   handleSave: () => void;
@@ -808,9 +810,23 @@ function ConnectComponentView(props: {
             </div>
           <div class="form-stack">
             <Field
+              id={FORM_FIELD_IDS.figmaComponentName}
+              label="Figma component name"
+            >
+              <Textbox
+                disabled
+                id={FORM_FIELD_IDS.figmaComponentName}
+                value={props.figmaComponentName}
+              />
+            </Field>
+            <small class="field-hint">
+              The selected Figma main component or component set used by this connection.
+            </small>
+
+            <Field
               error={props.fieldErrors.componentName}
               id={FORM_FIELD_IDS.componentName}
-              label="Component name"
+              label="Source component name"
             >
               <Textbox
                 aria-describedby={getFieldErrorId('componentName', props.fieldErrors)}
@@ -824,8 +840,8 @@ function ConnectComponentView(props: {
               />
             </Field>
             <small class="field-hint">
-              Also selects the props interface read from uploaded source
-              (<code>Button</code> → <code>ButtonProps</code>).
+              The exported React component used by generated code. Source upload
+              detects this name independently from the Figma component name.
             </small>
 
             <Field
@@ -2408,7 +2424,7 @@ function HowItWorksView(): h.JSX.Element {
             <ol class="help-list">
               <li>Select a main component, component set, or component instance in Figma.</li>
               <li>Open Plugins, Tashil Code, Connect component.</li>
-              <li>Fill Component name and Import path.</li>
+              <li>Confirm the Figma name, then enter the Source component name and Import path.</li>
               <li>Add optional Storybook and source references.</li>
               <li>Upload the component's .ts/.tsx source files.</li>
               <li>Connect each code prop and value to its matching Figma property and variant.</li>
@@ -2426,7 +2442,8 @@ function HowItWorksView(): h.JSX.Element {
 
           <HelpSection title="Connection fields">
             <div class="help-table">
-              <HelpRow label="Component name" value="React component export, for example Button." />
+              <HelpRow label="Figma component name" value="Selected design component used as the connection reference." />
+              <HelpRow label="Source component name" value="React component export used in generated code, for example Button." />
               <HelpRow label="Import path" value="Package import path, for example tashil-ui." />
               <HelpRow label="Storybook URL" value="The matching Storybook story or docs page." />
               <HelpRow label="Source path" value="The source file path for developer reference." />

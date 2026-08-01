@@ -97,6 +97,53 @@ describe('extractFigmaSemanticSnapshot', () => {
     expect(partial).toBe(true);
     expect(snapshot.nestedSources).toHaveLength(SEMANTIC_LIMITS.maxNestedSources);
     expect(diagnostics.length).toBeGreaterThan(0);
+    expect(snapshot.extraction).toMatchObject({ partial: true });
+  });
+
+  it('accepts safe per-scan limits and reports exactly which limit truncated extraction', () => {
+    const root: SemanticNodeLike = {
+      children: [
+        { characters: 'One', name: 'One', type: 'TEXT' },
+        { characters: 'Two', name: 'Two', type: 'TEXT' },
+      ],
+      name: 'Limited',
+      type: 'COMPONENT',
+    };
+
+    const result = extractFigmaSemanticSnapshot(root, '2:2', { maxNestedSources: 1 });
+
+    expect(result.partial).toBe(true);
+    expect(result.snapshot.nestedSources).toHaveLength(1);
+    expect(result.extractionDiagnostics).toEqual([
+      expect.objectContaining({ code: 'nested-source-limit', limit: 1 }),
+    ]);
+  });
+
+  it('captures nested INSTANCE_SWAP identity as a locatable component candidate', () => {
+    const result = extractFigmaSemanticSnapshot({
+      children: [{
+        instanceSwaps: {
+          'Leading icon': {
+            componentId: 'icon:1',
+            componentName: 'Trash',
+            importPath: '@ui/icons',
+          },
+        },
+        mainComponentKey: 'button-key',
+        name: 'Button',
+        type: 'INSTANCE',
+      }],
+      name: 'Root',
+      type: 'COMPONENT',
+    }, '3:3');
+
+    expect(result.snapshot.nestedSources).toContainEqual(expect.objectContaining({
+      connectedComponentName: 'Trash',
+      connectedImportPath: '@ui/icons',
+      displayPath: 'Button / Leading icon',
+      instancePropertyName: 'Leading icon',
+      kind: 'nested-instance',
+    }));
   });
 });
 

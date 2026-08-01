@@ -40,7 +40,10 @@ Use this flow whenever the component evolves in code or Figma:
    fill missing values, or deliberately leave Figma-only properties unmapped.
 6. For obsolete rows, choose **Remove stale _prop_ mapping**. This is an explicit
    action; nothing is silently deleted during reconciliation.
-7. Click **Save** to confirm the new snapshots. The connection revision and
+7. When source was replaced, resolve each proposal and choose **Accept source
+   update**. Until then, the previous source contract remains active and Save is
+   blocked. Choose **Keep current source** to discard only the pending upload.
+8. Click **Save** to confirm the new snapshots. The connection revision and
    validation timestamp advance only after save succeeds.
 
 ## What the plugin detects
@@ -61,8 +64,13 @@ on a removed property, type, or option, the connection is Broken.
 
 After a source re-upload, the plugin compares the newly parsed source snapshot
 with the saved one. It reports added, removed, potentially renamed, and
-type-changed props. A removed or changed prop that an existing mapping uses is
-Broken; an unrelated change is normally Needs review.
+type-changed props; changed exported component aliases; inherited dependency
+type changes; and changed array/object item schemas. A removed or changed prop
+that an existing mapping uses is Broken; an unrelated change is normally Needs
+review.
+
+The replacement contract stays pending until explicitly accepted. Merely
+uploading changed source cannot alter the active generated output.
 
 The source comparison is based on the uploaded files. The plugin does not scan
 the repository, retrieve source over the network, or persist the source text.
@@ -73,6 +81,14 @@ For source props the visual editor supports, the plugin also checks that each
 prop is connected and that boolean/union values have mappings. It flags a
 conflict when a mapping refers to a source prop or Figma property that no longer
 exists.
+
+### Large or deeply nested Figma components
+
+Semantic extraction is bounded. If a component exceeds the node, locator-depth,
+or nested-source limit, the editor shows **Figma scan is partial** with the
+specific limit that was reached. Existing candidates remain usable, but the
+connection owner should simplify the component or confirm that omitted regions
+do not contain required values before saving.
 
 ## Design-only Figma properties
 
@@ -120,7 +136,7 @@ is left exactly as it was.
 | Malformed JSON | The stored string is not valid JSON. | Clear the connection and reconnect. The design is unaffected. |
 | Does not match schema version *N* | The data claims a version whose shape it does not have. | Clear and reconnect with a current build. |
 | Uses schema version *N*, newer than this plugin supports | The file was connected by a newer plugin build. | **Update the plugin.** Do not clear — a current build reads it correctly. |
-| Unsupported schema version | The version predates the supported range. | Clear and reconnect. |
+| Unsupported schema version | The version predates the supported migration range. | Clear and reconnect. |
 
 Two rules make recovery safe:
 

@@ -679,11 +679,14 @@ describe('SemanticMappingView', () => {
 
     // Typing a query that matches only confirmAction narrows the list.
     fireEvent.input(search, { target: { value: 'confirmAction' } });
-    expect(screen.getByText('confirmAction.label')).toBeTruthy();
+    expect(screen.getAllByText('confirmAction.label')).toHaveLength(2);
     expect(screen.queryByText('cancelAction.label')).toBeNull();
+    expect(screen.getByRole('heading', { level: 3 }).textContent)
+      .toBe('confirmAction.label');
 
     // A query that matches nothing shows the no-match empty state.
     fireEvent.input(search, { target: { value: 'zzzznotreal' } });
     expect(screen.getByText(/No code props match/)).toBeTruthy();
+    expect(screen.queryByRole('heading', { level: 3 })).toBeNull();
   });
 });

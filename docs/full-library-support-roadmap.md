@@ -1,7 +1,8 @@
 # Full-Library Support Roadmap
 
 Status: In progress  
-Last updated: 2026-07-30  
+Last updated: 2026-08-01
+
 Scope: `@tashilcar/swiss-army-knife`
 
 ## Objective
@@ -572,19 +573,19 @@ Status: Completed
 Goal: provide intentional workflows for components whose API cannot be inferred
 from one Figma instance alone.
 
-Status: In progress
+Status: Completed (2026-08-01)
 
 ### Recipe families
 
 #### Data-driven components
 
-- `TashilDataGrid`
-- `TashilDataGridPro`
+- [x] `TashilDataGrid`
+- [x] `TashilDataGridPro`
 - [x] `TashilDropdown`
-- `TashilMenu`
-- `TashilTab`
-- `Sessions`
-- `Pagination`
+- [x] `TashilMenu`
+- [x] `TashilTab`
+- [x] `Sessions`
+- [x] `Pagination`
 
 Required support:
 
@@ -602,14 +603,45 @@ Required support:
   Optional advanced callbacks, render functions, and object overrides start as
   `Left out`, while appearance targets such as `size` continue to map from
   Figma. Users can still opt into any omitted target in the editor.
+- `TashilMenu` now defaults `options`, `handleClose`, inherited `anchorEl`, and
+  inherited `open` to named application placeholders. Search presentation can
+  still come from Figma, while optional MUI event and object overrides start as
+  `Left out` and remain available for explicit opt-in.
+- `TashilTab` models its two public content APIs as mutually exclusive. It
+  starts with runtime `items`; selecting ordered connected `components`
+  automatically leaves `items` out, so generated code never supplies both
+  branches of the library component's render logic.
+- `Sessions` defaults its collection, optional active-session record, required
+  application name, and delete callbacks to named runtime placeholders. The
+  recipe can intentionally treat `appName` as runtime even though its source
+  type is a plain string; loading and secondary-title flags remain Figma-owned.
+- `Pagination` defaults `count`, controlled `page`, and `onChange` to runtime
+  placeholders while appearance stays design-derived. `page` and `defaultPage`
+  form an exclusive controlled/uncontrolled pair; selecting one automatically
+  leaves the other out.
+- `TashilDataGrid` was checked against the wrapper's inherited
+  `@mui/x-data-grid@5.17.2` declarations. `rows` and `columns` are its required
+  application data; optional identifiers, controlled selection, callbacks, and
+  render hooks remain available for explicit opt-in instead of being emitted by
+  default.
+- `TashilDataGrid` defaults required `rows` and `columns` to named runtime
+  placeholders. Optional selection state, callbacks, render hooks, and MUI
+  overrides start as `Left out`; loading and selection appearance remain
+  Figma-derived. The recipe applies after the uploaded bundle resolves the
+  inherited `@mui/x-data-grid` declarations.
+- `TashilDataGridPro` defaults its required `rows` and `columns` to named
+  runtime placeholders after resolving the inherited
+  `@mui/x-data-grid-pro@6.9.1` declarations. Its v6 row-selection controls and
+  Pro-only tree, detail, pinning, and event hooks begin as `Left out`, while
+  visual flags remain available for Figma mapping.
 
 #### Form and authentication components
 
-- `TashilAuthentication`
-- `TashilCheckout`
-- `TashilOtpInput`
-- `TashilUpload`
-- `TashilNewMessage`
+- [x] `TashilAuthentication`
+- [x] `TashilCheckout`
+- [x] `TashilOtpInput`
+- [x] `TashilUpload`
+- [x] `TashilNewMessage`
 
 Required support:
 
@@ -619,14 +651,38 @@ Required support:
 - nested field components;
 - form-specific diagnostics.
 
+### Form recipe progress — 2026-08-01
+
+- `TashilAuthentication` treats `pageState`, `childProps`, and `onBack` as
+  application-owned workflow inputs while content and presentation remain
+  Figma-derived. The extractor now preserves the heterogeneous `PagesProps`
+  union as one runtime record, so challenge-specific submit, OTP, loading, and
+  validation fields are never flattened into an invalid combined object.
+- `TashilCheckout` keeps `checkoutData`, `banks`, `defaultBank`, `onBack`, and
+  `onSubmit` as named application inputs. The component continues to own bank
+  selection after its initial value, and the recipe leaves `totalAmount` out by
+  default so the source component can derive it from checkout rows.
+- `TashilOtpInput` keeps `values`, `onChange`, and `onComplete` as named runtime
+  inputs. Error/helper/loading/disabled/size state remains design-derived, and
+  optional array overrides such as `placeholder` begin as `Left out`.
+- `TashilUpload` keeps `files`, `onChangeFiles`, `onRetry`, and `onRemove` as
+  named runtime inputs so its controlled file list stays synchronized. Upload
+  text and validation/sending/required/size state remain Figma-derived;
+  `onRejectFiles` begins as `Left out` because built-in feedback still works.
+- `TashilNewMessage` keeps inherited attachment state/actions plus `onSubmit`
+  as named runtime inputs. Composer copy, attachment visibility, sending state,
+  and close-ticket presentation remain Figma-derived. Declarative omitted
+  targets prevent `textInputProps.value` and `textInputProps.onChange` from
+  being emitted because the source implementation overwrites both.
+
 #### Overlay components
 
-- `Drawer`
-- `TashilDesktopModal`
-- `TashilInfoModal`
-- `TashilMobileDrawer`
-- `TashilPopover`
-- `TashilTooltip`
+- [x] `Drawer`
+- [x] `TashilDesktopModal`
+- [x] `TashilInfoModal`
+- [x] `TashilMobileDrawer`
+- [x] `TashilPopover`
+- [x] `TashilTooltip`
 
 Required support:
 
@@ -635,12 +691,41 @@ Required support:
 - content and action slots;
 - transition/framework props kept runtime or left out.
 
+### Overlay recipe progress — 2026-08-01
+
+- `Drawer` keeps `open`, `onClose`, content, and action-button collections in
+  application code. Drawer appearance remains Figma-derived; MUI paper/modal
+  overrides begin as **Left out**.
+- `TashilDesktopModal` keeps visibility, close handling, and modal content in
+  application code. Full-screen, width, scrolling, and escape-key appearance
+  remain available for Figma mapping; paper and transition customization begin
+  as **Left out**.
+- `TashilInfoModal` keeps visibility plus submit/cancel behavior and custom
+  action-button collections in application code. Title, description, mode,
+  loading, button visibility, sizes, and other presentation state remain
+  Figma-derived; advanced button-prop objects begin as **Left out**.
+- `TashilMobileDrawer` keeps visibility, close handling, and content in
+  application code. Backdrop and drawer presentation remain Figma-derived;
+  MUI modal, paper, and slide overrides begin as **Left out**.
+- `TashilPopover` keeps visibility, close handling, anchor element, and content
+  in application code. Portal/appearance flags remain Figma-derived; origin,
+  paper, and transition objects begin as **Left out**.
+- `TashilTooltip` keeps its required trigger and default tooltip content in
+  application code. Arrow, placement, and interaction appearance remain
+  Figma-derived. Optional controlled-open callbacks stay **Left out** so the
+  default hover/focus behavior is not accidentally converted to controlled
+  state.
+- The recommendations are declarative entries in
+  `src/semantic/complex-recipes.ts`; resolver JSX has no overlay-specific
+  branches. `src/semantic/complex-recipes.test.ts` protects all six defaults
+  and production-shaped Popover placeholder generation.
+
 #### Date and range components
 
-- `TashilDatePicker`
-- `TashilJalaliDatePicker`
-- `TashilSlider`
-- `Slider`
+- [x] `TashilDatePicker`
+- [x] `TashilJalaliDatePicker`
+- [x] `TashilSlider`
+- [x] `Slider`
 
 Required support:
 
@@ -649,11 +734,34 @@ Required support:
 - controlled-state placeholders;
 - safe formatting of dates and numeric arrays.
 
+### Date and range recipe progress — 2026-08-01
+
+- `TashilDatePicker` keeps required date-change and submit callbacks in
+  application code. Copy, bounds, direction, disabled/required state, and
+  validation appearance remain Figma-derived. The optional initial date leaves
+  begin as **Left out** because the component owns its selected date after
+  initialization.
+- `TashilJalaliDatePicker` keeps single-date/range change callbacks and action
+  callbacks in application code. Picker mode, copy, open/error/reset state,
+  and visual sizing remain Figma-derived. Initial single and range dates begin
+  as **Left out** to avoid inventing serialized date objects from a Figma
+  instance.
+- `TashilSlider` and `Slider` keep the controlled `value` and `onChange` in
+  application code while bounds and appearance remain Figma-derived.
+  `defaultValue` and `marks` begin as **Left out**; explicitly selecting
+  `defaultValue` automatically leaves `value` out so generated code never mixes
+  the controlled and uncontrolled APIs. Number-array values stay named runtime
+  placeholders instead of being formatted as unsafe source literals.
+- These recommendations are declarative entries in
+  `src/semantic/complex-recipes.ts`; resolver JSX has no date- or slider-specific
+  branches. `src/semantic/complex-recipes.test.ts` protects all four defaults,
+  controlled/uncontrolled exclusivity, and generated slider placeholders.
+
 ### Acceptance criteria
 
-- Every complex component has a documented recommended mapping strategy.
-- The editor chooses suitable defaults by prop category.
-- Component-specific behavior is implemented through declarative recipes, not
+- [x] Every complex component has a documented recommended mapping strategy.
+- [x] The editor chooses suitable defaults by prop category.
+- [x] Component-specific behavior is implemented through declarative recipes, not
   hard-coded JSX branches.
 
 ## Milestone 7 — Editor and diagnostics
@@ -670,6 +778,8 @@ overwhelming.
       from whichever extraction path wins: the AST heritage walker accumulates
       them in `source-props.ts`, and the type-checker path adds a best-effort
       `collectLocalBaseTypeNames` (`getBaseTypes`, local interfaces only). The
+      two results are merged so transitive, alias, and uploaded dependency bases
+      discovered by the AST walk are not lost when type-checker extraction wins. The
       semantic Connect editor renders `Component → propsTypeName → BaseA → BaseB`
       in the source header. No schema-version bump — the permissive
       `isPersistedSourceContract` tolerates the new optional field, so existing
@@ -702,14 +812,17 @@ overwhelming.
 - [x] Add searchable runtime-placeholder names (2026-07-30). The Connect editor
       gained a `SearchTextbox` above the code-prop list that filters rows by a
       case-insensitive substring across target path, type name, and the resolved
-      value label. It composes with the existing All/Review filter, and an
-      empty-result search shows a distinct "No code props match …" state.
+      value label. It composes with the existing All/Review filter, keeps the
+      inspector focused on a visible result, and an empty-result search shows a
+      distinct "No code props match …" state without a stale inspector.
 - [x] Add a compatibility summary before saving (2026-07-30). `validateRecipeDraft`
       now returns a `summary` with counts of unresolved required props, unmarked
       runtime inputs, incompatible slots, total blocking, and review items. The
       Connect editor shows a scannable "Cannot save — …" / "Saveable with …"
-      status line above the per-message lists. `src/semantic/authoring.ts`,
-      `src/semantic-editor-view.tsx`.
+      status line above the per-message lists. Required runtime inputs remain
+      blocking if an older recipe explicitly omitted them, and repeated-slot
+      incompatibilities are counted per slot rather than per child.
+      `src/semantic/authoring.ts`, `src/semantic-editor-view.tsx`.
 - [x] Export the component compatibility report as Markdown or JSON (2026-07-30).
       `createComponentAuditReport` derives per-kind target counts and unsupported
       paths from the live source contract; the Connect editor exports both
@@ -723,23 +836,49 @@ overwhelming.
 
 ## Milestone 8 — Scale, drift, and compatibility
 
+Status: Completed
+
 Goal: make full-library support durable as both Figma and source evolve.
 
 ### Deliverables
 
-- [ ] Reconcile renamed source props and exported component aliases.
-- [ ] Detect changed inherited dependency types.
-- [ ] Detect changed array/object schemas.
-- [ ] Detect stale nested-instance and instance-swap locators.
-- [ ] Increase or make configurable the current limits where safe:
+- [x] Reconcile renamed source props and exported component aliases (2026-08-01).
+      Source replacements now enter a pending-contract state. Existing bindings
+      receive explicit rename proposals, and a changed exported component alias
+      is promoted only through **Accept source update**.
+- [x] Detect changed inherited dependency types (2026-08-01). Source targets
+      retain their declaration file; changes to targets declared outside the
+      selected component file are reported as inherited dependency drift.
+- [x] Detect changed array/object schemas (2026-08-01). Reconciliation compares
+      deterministic target signatures covering collection item schemas,
+      literal values, requiredness, defaults, and controlled-state companions,
+      even when the outer TypeScript type text is unchanged.
+- [x] Detect stale nested-instance and instance-swap locators (2026-08-01).
+      Connected instances and repeated-slot items remap by stable component key;
+      nested `INSTANCE_SWAP` property identity and selected component changes
+      are persisted and reviewed explicitly.
+- [x] Increase or make configurable the current limits where safe (2026-08-01):
   - 64 bindings;
   - two target-path segments;
   - eight locator segments;
   - 400 extracted nodes;
   - 64 nested sources.
-- [ ] Provide partial-extraction diagnostics for large component sets.
-- [ ] Preserve old recipes until the user explicitly accepts migration.
-- [ ] Add recipe schema migrations for every new target kind.
+      Defaults are now 256 bindings, eight target segments, sixteen locator
+      segments, 2,000 extracted nodes, and 256 nested sources. Extraction also
+      accepts lower per-scan overrides while schema hard limits remain bounded.
+- [x] Provide partial-extraction diagnostics for large component sets
+      (2026-08-01). Snapshots persist structured node/depth/source truncation
+      diagnostics and the editor reports a partial Figma scan on reopen.
+- [x] Preserve old recipes until the user explicitly accepts migration
+      (2026-08-01). `pendingSourceContract` is authoring-only; resolution keeps
+      the accepted contract and bindings until all drift is resolved and the
+      user accepts the source update. Saving is blocked while a contract is
+      pending.
+- [x] Add recipe schema migrations for every new target kind (2026-08-01).
+      Recipe schema v2 has an ordered migration registry. Its v1→v2 migration
+      preserves bindings/output while enabling pending contracts, extraction
+      diagnostics, and nested instance-swap identity; migrated data is written
+      only on explicit save.
 
 ### Acceptance criteria
 

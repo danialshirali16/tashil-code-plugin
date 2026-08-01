@@ -202,6 +202,29 @@ export interface WidgetProps {
     }
   });
 
+  it('uses an exported source component when its name differs from Figma', () => {
+    const result = extractSourceContract(
+      [{
+        fileName: 'info-modal.tsx',
+        contents: `
+interface StyleProps { compact?: boolean }
+export interface InfoModalProps { title: string; open: boolean }
+export const TashilInfoModal: React.FC<InfoModalProps> = () => null;
+`,
+      }],
+      'Dialogbox',
+    );
+
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.contract.componentName).toBe('TashilInfoModal');
+      expect(result.contract.propsTypeName).toBe('InfoModalProps');
+      expect(result.contract.targets.map((target) => target.path.join('.')))
+        .toEqual(['title', 'open']);
+      expect(result.warnings.join(' ')).toMatch(/InfoModalProps.*DialogboxProps/);
+    }
+  });
+
   it('rejects files without a Props interface', () => {
     const result = extractSourceContract([
       { contents: 'export const x = 1;', fileName: 'x.ts' },
@@ -376,6 +399,45 @@ export interface CardProps {
     const title = result.contract.targets.find((t) => t.path.join('.') === 'title');
     expect(title).toMatchObject({ kind: 'visual' });
     expect(title?.values).toBeUndefined();
+  });
+
+  it('keeps a union of local object interfaces as one runtime record', () => {
+    const result = extractSourceContract([
+      {
+        contents: `
+type PagesProps = LoginProps | OtpProps;
+interface PageBaseProps {
+  onSubmit: (value: string) => void;
+  loading?: boolean;
+}
+interface LoginProps extends PageBaseProps {
+  footer?: string;
+}
+interface OtpProps extends PageBaseProps {
+  resendOtp: () => void;
+  hasError?: boolean;
+}
+export interface TashilAuthenticationProps {
+  childProps: PagesProps;
+}
+`,
+        fileName: 'tashil-authentication/type.ts',
+      },
+    ], 'TashilAuthentication');
+    if (!result.ok) {
+      throw new Error(result.message);
+    }
+
+    expect(result.contract.targets).toEqual([
+      {
+        kind: 'record',
+        ownerProp: 'childProps',
+        path: ['childProps'],
+        required: true,
+        typeName: 'PagesProps',
+      },
+    ]);
+    expect(result.warnings).toEqual([]);
   });
 
   it('assembles an Omit<Interface, keys> object prop into nested leaves', () => {
@@ -1197,6 +1259,30 @@ export interface ButtonProps extends BaseProps, OwnProps {
       const chain = result.contract.propsTypeChain ?? [];
       expect(chain).toContain('BaseProps');
       expect(chain).toContain('OwnProps');
+    }
+  });
+
+  it('keeps transitive bases when type-checker extraction wins', () => {
+    const result = extractSourceContract([
+      {
+        contents: `
+export interface RootProps {
+  id?: string;
+}
+export interface BaseProps extends RootProps {
+  label: string;
+}
+export interface ButtonProps extends BaseProps {
+  disabled?: boolean;
+}
+`,
+        fileName: 'button/Button.types.ts',
+      },
+    ], 'Button');
+
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.contract.propsTypeChain).toEqual(['BaseProps', 'RootProps']);
     }
   });
 
