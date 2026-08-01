@@ -218,7 +218,8 @@ describe('Plugin rendered interactions', () => {
 
   it('renders, filters, searches, and opens the file-wide component inventory', async () => {
     renderPlugin();
-    const scanRequest = emittedPayloads<{ scanId: string }>('SCAN_COMPONENTS')[0];
+    const scanRequest = emittedPayloads<{ includeCoverage?: boolean; scanId: string }>('SCAN_COMPONENTS')[0];
+    expect(scanRequest.includeCoverage).toBe(false);
 
     receive('COMPONENT_INVENTORY_STATE', {
       scanId: scanRequest.scanId,
@@ -324,6 +325,10 @@ describe('Plugin rendered interactions', () => {
     });
     expect((screen.getByLabelText('Search components') as HTMLInputElement).value)
       .toBe('components');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Scan coverage' }));
+    expect(emittedPayloads<{ includeCoverage?: boolean }>('SCAN_COMPONENTS')[1])
+      .toEqual(expect.objectContaining({ includeCoverage: true }));
   });
 
   it('renders through the real Preact component library and moves tab focus with arrows/Home/End', () => {
@@ -331,7 +336,7 @@ describe('Plugin rendered interactions', () => {
 
     const connectTab = screen.getByRole('tab', { name: 'Components' });
     const inspectTab = screen.getByRole('tab', { name: 'Inspect Code' });
-    const syncTokensTab = screen.getByRole('tab', { name: 'Sync Tokens' });
+    const settingsTab = screen.getByRole('tab', { name: 'Settings' });
     connectTab.focus();
 
     fireEvent.keyDown(connectTab, { key: 'ArrowRight' });
@@ -343,12 +348,22 @@ describe('Plugin rendered interactions', () => {
     expect(connectTab.getAttribute('aria-selected')).toBe('true');
 
     fireEvent.keyDown(connectTab, { key: 'End' });
-    expect(document.activeElement).toBe(syncTokensTab);
+    expect(document.activeElement).toBe(settingsTab);
 
     // ArrowLeft from the Inspect Code tab returns focus to Components.
     fireEvent.click(inspectTab);
     fireEvent.keyDown(inspectTab, { key: 'ArrowLeft' });
     expect(document.activeElement).toBe(connectTab);
+  });
+
+  it('loads and saves per-user output settings', () => {
+    renderPlugin();
+    expect(emittedPayloads('LOAD_OUTPUT_PREFERENCES')).toHaveLength(1);
+    fireEvent.click(screen.getByRole('tab', { name: 'Settings' }));
+    expect(screen.getByRole('heading', { name: 'Output settings' })).toBeTruthy();
+    fireEvent.click(screen.getByText('Single'));
+    expect(emittedPayloads<{ preferences: { quoteStyle: string } }>('SAVE_OUTPUT_PREFERENCES')[0])
+      .toEqual(expect.objectContaining({ preferences: expect.objectContaining({ quoteStyle: 'single' }) }));
   });
 
   it('builds token outputs with live settings previews and accurate export payloads', async () => {
@@ -385,8 +400,8 @@ describe('Plugin rendered interactions', () => {
 
     expect(screen.getByRole('heading', { name: 'Sync tokens' })).toBeTruthy();
     expect(screen.getByLabelText('Root font size in pixels')).toBeTruthy();
-    expect(screen.getByLabelText('CSS token preview').textContent)
-      .toContain('Select a collection to preview its generated CSS.');
+    expect(screen.getByLabelText('Token output preview').textContent)
+      .toContain('Select a collection to preview its generated token output.');
 
     const collectionSearch = screen.getByRole('textbox', { name: 'Search collections' });
     fireEvent.input(collectionSearch, { target: { value: 'Product' } });
@@ -419,7 +434,7 @@ describe('Plugin rendered interactions', () => {
         },
       ),
     ]);
-    expect(screen.getByLabelText('CSS token preview').textContent)
+    expect(screen.getByLabelText('Token output preview').textContent)
       .toContain('--color-text-primary: #0d99ff;');
     expect(screen.getAllByText(/294 variables → 293 declarations/).length).toBeGreaterThan(0);
     expect(screen.getByText(/Color\/Text\/Muted: The referenced variable/)).toBeTruthy();
@@ -459,7 +474,7 @@ describe('Plugin rendered interactions', () => {
         ':root {\n  --color-text-primary: #033366;\n}',
       ),
     ]);
-    expect(screen.getByLabelText('CSS token preview').textContent)
+    expect(screen.getByLabelText('Token output preview').textContent)
       .toContain('--color-text-primary: #033366;');
 
     fireEvent.click(screen.getByRole('checkbox', { name: 'Tashilpay' }));
@@ -479,7 +494,7 @@ describe('Plugin rendered interactions', () => {
       previewFile('product-tokens-zhina.css', ':root {\n  --color\\/text\\/primary: #0d99ff;\n}'),
       previewFile('product-tokens-tashilpay.css', ':root {\n  --color\\/text\\/primary: #033366;\n}'),
     ]);
-    expect(screen.getByLabelText('CSS token preview').textContent)
+    expect(screen.getByLabelText('Token output preview').textContent)
       .toContain('--color\\/text\\/primary: #0d99ff;');
 
     fireEvent.click(screen.getByRole('radio', { name: 'dot' }));
@@ -487,7 +502,7 @@ describe('Plugin rendered interactions', () => {
       previewFile('product-tokens-zhina.css', ':root {\n  --color\\.text\\.primary: #0d99ff;\n  --spacing\\.4: 1rem;\n}'),
       previewFile('product-tokens-tashilpay.css', ':root {\n  --color\\.text\\.primary: #033366;\n}'),
     ]);
-    expect(screen.getByLabelText('CSS token preview').textContent)
+    expect(screen.getByLabelText('Token output preview').textContent)
       .toContain('--color\\.text\\.primary: #0d99ff;');
 
     fireEvent.click(screen.getByRole('checkbox', { name: 'Convert px to rem' }));
@@ -496,10 +511,10 @@ describe('Plugin rendered interactions', () => {
       previewFile('product-tokens-zhina.css', ':root {\n  --color\\.text\\.primary: #0d99ff;\n  --spacing\\.4: 16;\n}'),
       previewFile('product-tokens-tashilpay.css', ':root {\n  --color\\.text\\.primary: #033366;\n}'),
     ]);
-    expect(screen.getByLabelText('CSS token preview').textContent)
+    expect(screen.getByLabelText('Token output preview').textContent)
       .toContain('--spacing\\.4: 16;');
 
-    fireEvent.click(screen.getByRole('button', { name: 'Export 2 CSS files' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Export 2 files' }));
     const request = emittedPayloads<{
       operationId: string;
       collectionIds: readonly string[];
@@ -510,12 +525,14 @@ describe('Plugin rendered interactions', () => {
         ];
         convertPxToRem: boolean;
         nameStyle: string;
+        outputFormat?: string;
       };
     }>('EXPORT_TOKENS')[0];
     expect(request.collectionIds).toEqual(['product']);
     expect(request.options.modesByCollection.product).toEqual(['zhina', 'tashilpay']);
     expect(request.options.convertPxToRem).toBe(false);
     expect(request.options.nameStyle).toBe('dot');
+    expect(request.options.outputFormat).toBe('css');
     expect(
       request.options.aliasModeOverridesByCollectionMode
         ?.product?.zhina?.references,
@@ -586,6 +603,16 @@ describe('Plugin rendered interactions', () => {
     });
     expect((screen.getByRole('button', { name: 'Save' }) as HTMLButtonElement).disabled)
       .toBe(true);
+  });
+
+  it('requests Code Connect download only from the explicit connected action', () => {
+    renderPlugin();
+    receive('SELECTION_STATE', readySelection(existingConnection(), undefined, 'button-target'));
+    fireEvent.click(screen.getByRole('button', { name: 'Download Code Connect' }));
+    expect(emittedPayloads('GENERATE_CODE_CONNECT')).toContainEqual({
+      selectionToken: 'button-target',
+      targetToken: 'button-target',
+    });
   });
 
   it('renders content and RTL icon-slot mappings as first-class rows', () => {

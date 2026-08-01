@@ -12,7 +12,7 @@ component using the **Tashil Code** plugin. For mapping rules and examples, see
 
 ## Goal
 
-After a component is connected, developers can select an instance in Figma Dev Mode and choose **Tashil UI** in the Code section. The plugin will show a production usage snippet, for example:
+After a component is connected, developers can select an instance in Figma Dev Mode and choose **Tashil UI** in the Code section. The plugin shows the production usage snippet and a Storybook CSF block, for example:
 
 ```tsx
 import { Button } from "tashil-ui";
@@ -29,6 +29,23 @@ Make sure:
 - The plugin is imported into Figma from `manifest.json`.
 - The latest plugin build is available by running `npm run build` or `npm run watch`.
 - You are selecting a main component, component set, or component instance in Figma.
+
+## File-wide tools
+
+The component inventory includes three design-system maintenance tools:
+
+- **Export connections** downloads one local, versioned JSON file. **Import
+  connections** validates that file and shows matched, conflicting, and missing
+  components before anything is written. Conflicts default to **Keep existing**;
+  shared plugin data changes only after **Confirm import**.
+- **Scan coverage** explicitly scans instances in bounded chunks, then shows
+  connected-instance percentage, components sorted by instance count, and
+  broken instance layer paths. The heavier coverage traversal does not run on
+  selection changes.
+- After opening a saved connection, **Generate stories** creates a CSF 3
+  `<Component>.stories.tsx` file using the saved imports and prop mappings.
+  Copy or download the result. Component sets over 32 combinations require you
+  to select a subset first.
 
 ## Connect a Component
 

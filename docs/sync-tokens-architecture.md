@@ -1,7 +1,7 @@
 # Sync Tokens — How It Works (Developer Guide)
 
 Status: Active
-Last updated: 2026-07-28
+Last updated: 2026-08-01
 Companion user guide: [`sync-tokens.md`](./sync-tokens.md)
 
 This document is for engineers working on the **Sync Tokens** tab. It covers
@@ -10,21 +10,22 @@ decisions. Read this before changing anything in the export pipeline.
 
 ## At a glance
 
-Sync Tokens exports Figma Variable collections as CSS files. The work splits
-cleanly into three layers, matching the rest of the plugin:
+Sync Tokens exports Figma Variable collections as CSS, JSON, SCSS, or Tailwind
+files. The work splits cleanly into three layers, matching the rest of the
+plugin:
 
 ```text
 UI (src/ui.tsx)               user picks collections + options
    │  emit PREVIEW_TOKENS / EXPORT_TOKENS
    ▼
 Backend (src/main.ts)         reads Figma Variables API → pure domain model
-   │  emit *_TOKENS_RESULT (CSS + preflight data per file)
+   │  emit *_TOKENS_RESULT (content + preflight data per file)
    ▼
 UI (src/ui-controller.ts)     zips the files, triggers a download
 ```
 
 The key rule: **the Figma API is only touched in `src/main.ts`**. Everything
-that transforms variable data into CSS lives in a pure, Figma-runtime-free
+that transforms variable data into output files lives in a pure, Figma-runtime-free
 module (`src/sync-tokens/`) that the unit tests exercise directly. This mirrors
 the `semantic/` and `inspect/` layering.
 
@@ -189,7 +190,7 @@ Local state holds:
   collection → explicit target mode. A fallback warning exposes the control
   that writes this mapping, and preview/export share the same option payload.
 - the advanced-option fields (`convertPxToRem`, `rootFontSize`, `colorFormat`,
-  `nameStyle`)
+  `nameStyle`, `outputFormat`)
 
 The view is mounted as the third tab. Adding it required generalizing the
 `workflowTab` union from `'connect' | 'generate'` to include `'sync-tokens'`,
@@ -200,11 +201,12 @@ plus the tab-bar and keyboard-nav (`handleTabKeyDown`) arrays — see the
 
 ### One file per (collection × mode)
 
-When a collection exports multiple modes, each mode becomes its own CSS file
-(`colors-light.css`, `colors-dark.css`), each a flat `:root {}`. The
-alternative — one file with `[data-theme="dark"]` scoped blocks — was rejected
-in favor of simpler per-file output. If you want scoped output, that's a
-backend change in `exportTokens` + `serializeCollection`, not a UI change.
+When a collection exports multiple modes, each mode becomes its own output file
+(`colors-light.css`, `colors-dark.scss`, or the corresponding JSON/TS name).
+CSS output remains a flat `:root {}`. The alternative — one file with
+`[data-theme="dark"]` scoped blocks — was rejected in favor of simpler per-file
+output. If you want scoped output, that's a backend change in `exportTokens` +
+the format dispatcher, not a UI change.
 
 ### Export options are not persisted
 
@@ -212,11 +214,13 @@ Selections and advanced settings reset when the plugin reopens. There is no
 `setSharedPluginData` round-trip for them. Add one if repeat-export workflows
 demand it — the persistence pattern already exists for connections.
 
-### Why CSS only
+### Multiple output formats
 
-`.scss` and `.json` outputs are not supported. The serializer is pure and could
-emit other formats by adding a format selector + a sibling to
-`serializeCollection`; the domain model is format-agnostic.
+The pure format dispatcher supports CSS, flat JSON, W3C DTCG JSON, SCSS, and a
+Tailwind theme extension. CSS is the compatibility default; JSON always uses
+hex colors to keep its values stable and tool-friendly. Each generated file
+also carries hashed token snapshots so the backend can compare it with the
+last successful export without storing raw token values.
 
 ## Gotchas
 
@@ -239,7 +243,7 @@ Common requests and where they land:
 
 | Want | Change |
 | --- | --- |
-| `.scss` / `.json` output | Add an output-format option; new serializer alongside `serializeCollection`. |
+| Another output format | Extend `OutputFormat`, the dispatcher, filename extension mapping, and serializer snapshot tests. |
 | Scoped `[data-theme]` blocks instead of per-mode files | `exportTokens` (one file) + `serializeCollection` (scoped blocks). |
 | Persist export settings | `setSharedPluginData` on save; load on tab mount. |
 | Recursive non-color alias resolution | Generalize `resolveColorValue` to `resolveValue` across types. |

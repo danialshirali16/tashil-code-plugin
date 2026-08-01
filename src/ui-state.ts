@@ -22,6 +22,7 @@ export type ConnectionFormValues = {
   iconComponentName: string;
   iconImportPath: string;
   importPath: string;
+  intentionalFigmaPropertyPrefixes: string;
   mappingDocument: string;
   propMappings: string;
   semanticRecipe: string;
@@ -94,6 +95,7 @@ export const FORM_FIELD_IDS: Record<FormField, string> = {
   iconComponentName: 'tashil-icon-component-name',
   iconImportPath: 'tashil-icon-import-path',
   importPath: 'tashil-import-path',
+  intentionalFigmaPropertyPrefixes: 'tashil-intentional-figma-prefixes',
   mappingDocument: 'tashil-mapping-document',
   propMappings: 'tashil-prop-mappings',
   semanticRecipe: 'tashil-semantic-recipe',
@@ -247,6 +249,8 @@ export function createFormValues(
     iconComponentName: connection?.iconComponentName || '',
     iconImportPath: connection?.iconImportPath || '',
     importPath: connection?.importPath || '',
+    intentionalFigmaPropertyPrefixes:
+      connection?.healthPolicy?.intentionalFigmaPropertyPrefixes.join(', ') || '',
     mappingDocument: connection?.mappingDocument
       ? JSON.stringify(connection.mappingDocument, null, 2)
       : '',
@@ -338,6 +342,7 @@ export function areFormValuesEqual(
     && first.iconComponentName === second.iconComponentName
     && first.iconImportPath === second.iconImportPath
     && first.importPath === second.importPath
+    && first.intentionalFigmaPropertyPrefixes === second.intentionalFigmaPropertyPrefixes
     && first.mappingDocument === second.mappingDocument
     && first.propMappings === second.propMappings
     && first.semanticRecipe === second.semanticRecipe
@@ -358,6 +363,7 @@ void ({
   iconComponentName: true,
   iconImportPath: true,
   importPath: true,
+  intentionalFigmaPropertyPrefixes: true,
   mappingDocument: true,
   propMappings: true,
   semanticRecipe: true,
@@ -501,6 +507,13 @@ export function validateConnectionForm(
       ...(figmaComponentName ? { figmaComponentName } : {}),
       componentName,
       importPath,
+      ...(parseIntentionalFigmaPropertyPrefixes(values.intentionalFigmaPropertyPrefixes).length > 0 ? {
+        healthPolicy: {
+          intentionalFigmaPropertyPrefixes: parseIntentionalFigmaPropertyPrefixes(
+            values.intentionalFigmaPropertyPrefixes,
+          ),
+        },
+      } : {}),
       storybookUrl: storybookUrl ?? undefined,
       sourcePath: values.sourcePath.trim() || undefined,
       sourceUrl: sourceUrl ?? undefined,
@@ -515,6 +528,10 @@ export function validateConnectionForm(
     },
     ok: true,
   };
+}
+
+export function parseIntentionalFigmaPropertyPrefixes(value: string): string[] {
+  return [...new Set(value.split(/[\n,]/).map((prefix) => prefix.trim()).filter(Boolean))];
 }
 
 export function getFirstInvalidField(errors: FormErrors): FormField | undefined {

@@ -69,6 +69,14 @@ Dev Mode also includes the selected node's **Layout** and **Style** CSS blocks
 from `getCSSAsync()`. These are passed through unmodified, so bound values keep
 their `var(--token, fallback)` form.
 
+### Accessibility checks
+
+Inspect Code shows advisory badges when the selected layer exposes enough CSS
+for local analysis: WCAG AA/AAA contrast between resolved foreground and
+background colors, the 24×24px minimum touch target, and a 12px minimum
+font-size heuristic for text. Variable-based or unsupported colors are skipped
+rather than guessed. Warnings never block copying generated code.
+
 ### Generation notes
 
 Anything the generator could not safely turn into code becomes a note instead of

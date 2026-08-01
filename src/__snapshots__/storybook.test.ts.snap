@@ -1,0 +1,28 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`Storybook CSF generation > reuses usage imports and emits deterministic unique stories 1`] = `
+"import type { Meta, StoryObj } from "@storybook/react";
+import { Button } from "@acme/ui";
+
+const meta = {
+  component: Button,
+  title: "Components/Button",
+} satisfies Meta<typeof Button>;
+
+export default meta;
+type Story = StoryObj<typeof meta>;
+
+export const SizeSmallStateDefault: Story = {
+  args: {
+    size: "small",
+  },
+};
+
+export const SizeSmallStateDefault2: Story = {
+  args: {
+    size: "small",
+    disabled: true,
+  },
+};
+"
+`;

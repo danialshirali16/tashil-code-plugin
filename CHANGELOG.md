@@ -10,6 +10,34 @@ is the version of record.
 
 ### Added
 
+- Added a local-first privacy policy, structured GitHub issue forms, a runnable
+  React quick-start companion, a Community demo-file publication checklist, and
+  a real-plugin UI demo to make first-use onboarding easier.
+- Added per-user output settings for quotes, semicolons, indentation, trailing
+  commas, styled-component names, and import-aware copy modes. Defaults preserve
+  existing output byte-for-byte.
+- Added flat JSON, W3C DTCG JSON, SCSS variables/maps, and Tailwind theme token
+  outputs, plus informational added/changed/removed summaries based on the last
+  local export.
+- Added local accessibility badges in Inspect Code for WCAG contrast, 24×24px
+  touch targets, and minimum font-size heuristics. Findings never block copying.
+
+- Added versioned connection export/import with a validated dry-run, explicit
+  per-conflict choices, and confirmation before document data is changed.
+- Added on-demand connection coverage to the component inventory, including
+  prioritized instance counts, connected-instance percentage, and broken
+  instance layer paths.
+- Added deterministic Storybook CSF 3 generation in the Connect editor and Dev
+  Mode, with mapped `args`, copy/download actions, and an explicit 32-variant
+  selection guard for large component sets.
+- Added combined Dev Mode output for up to 50 selected layers, preserving
+  selection order while deduplicating compatible production imports.
+- Added source and Figma descriptions, saved intentional-property health
+  prefixes, and a user-local LTR/RTL preview setting.
+- Added a read-only connection-manifest CI reviewer and explicit downloadable
+  React Code Connect `.figma.tsx` output. See the
+  [Core Connect guide](docs/section-core-connect.md).
+
 - Added full-library semantic authoring for complex Swiss Army Knife APIs,
   including recursive object and collection contracts, controlled values,
   runtime callbacks, React-node slots, data-driven components, overlays,
@@ -23,6 +51,9 @@ is the version of record.
   and adoption work.
 
 ### Changed
+
+- Moved custom SVG assets out of the main Preact UI module so interface code
+  and visual assets can be maintained independently.
 
 - Source upload and connection authoring now keep the Figma component name and
   source-code component name separate, preserve partial extraction results,

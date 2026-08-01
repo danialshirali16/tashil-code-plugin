@@ -55,6 +55,7 @@ import {
   getPendingMutationForTarget,
   getTargetStatusAnnouncement,
   markFormDraftSaved,
+  parseIntentionalFigmaPropertyPrefixes,
   selectFormDraft,
   startPendingMutation,
   updateFormDraft,
@@ -77,6 +78,22 @@ import {
   type ComponentTargetStateHandler,
   type ExportTokensHandler,
   type ExportTokensResultHandler,
+  type ApplyConnectionImportHandler,
+  type ApplyConnectionImportResultHandler,
+  type ConnectionImportPlanEntry,
+  type ExportConnectionsHandler,
+  type ExportConnectionsResultHandler,
+  type PreviewConnectionImportHandler,
+  type PreviewConnectionImportResultHandler,
+  type GenerateStoriesHandler,
+  type GenerateStoriesResultHandler,
+  type GenerateCodeConnectHandler,
+  type GenerateCodeConnectResultHandler,
+  type StorybookVariantOption,
+  type LoadOutputPreferencesHandler,
+  type LoadOutputPreferencesResultHandler,
+  type SaveOutputPreferencesHandler,
+  type SaveOutputPreferencesResultHandler,
   type InspectCodeState,
   type InspectCodeStateHandler,
   type LoadTokenCollectionsHandler,
@@ -102,6 +119,7 @@ import type {
   TokenCollectionSummary,
 } from './sync-tokens/types';
 import { downloadBlob } from './ui-download';
+import { DEFAULT_OUTPUT_PREFERENCES, type OutputPreferences } from './output-preferences';
 
 export type ConnectionController = {
   activePendingOperation?: PendingMutation['operation'];
@@ -122,7 +140,7 @@ export type ConnectionController = {
   openInventoryTarget: (targetToken: string) => void;
   reconcileFigma: () => void;
   removeStaleMapping: (sourcePropName: string) => void;
-  rescanComponents: () => void;
+  rescanComponents: (includeCoverage?: boolean) => void;
   save: () => void;
   scaffold: () => void;
   targetOrigin?: 'inventory' | 'canvas';
@@ -136,6 +154,7 @@ export type ConnectionController = {
   ) => void;
   exportDebugBundle: () => void;
   exportReport: (format: 'markdown' | 'json') => void;
+  generateCodeConnect: (targetToken: string) => void;
   isSourceReplacementPending: boolean;
   sourceReplacementCancelRef: { current: HTMLButtonElement | null };
   confirmSourceReplacement: () => void;
@@ -178,6 +197,22 @@ export type ConnectionController = {
   loadTokenCollections: () => void;
   exportTokens: (collectionIds: readonly string[], options: ExportOptions) => void;
   previewTokens: (collectionIds: readonly string[], options: ExportOptions) => void;
+  connectionImportEntries: readonly ConnectionImportPlanEntry[];
+  connectionPortabilityMessage: string;
+  exportConnections: () => void;
+  previewConnectionImport: (file: File) => Promise<void>;
+  applyConnectionImport: (choices: Array<{ action: 'overwrite' | 'skip'; imported: import('./types').ConnectionMetadata; targetToken: string }>) => void;
+  generateStories: (targetToken: string, selectedVariantTokens?: string[]) => void;
+  storybookGeneration: {
+    code?: string;
+    fileName?: string;
+    message?: string;
+    status: 'idle' | 'loading' | 'ready' | 'select' | 'error';
+    variants?: readonly StorybookVariantOption[];
+  };
+  outputPreferences: OutputPreferences;
+  outputPreferencesMessage: string;
+  setOutputPreferences: (preferences: OutputPreferences) => void;
 };
 
 export function useConnectionController(): ConnectionController {
@@ -192,6 +227,11 @@ export function useConnectionController(): ConnectionController {
     status: 'scanning',
     totalPages: 0,
   });
+  const [connectionImportEntries, setConnectionImportEntries] = useState<readonly ConnectionImportPlanEntry[]>([]);
+  const [connectionPortabilityMessage, setConnectionPortabilityMessage] = useState('');
+  const [storybookGeneration, setStorybookGeneration] = useState<ConnectionController['storybookGeneration']>({ status: 'idle' });
+  const [outputPreferences, setOutputPreferencesState] = useState<OutputPreferences>({ ...DEFAULT_OUTPUT_PREFERENCES });
+  const [outputPreferencesMessage, setOutputPreferencesMessage] = useState('');
   const initialFormValues = createFormValues();
   const [formValues, setFormValuesState] = useState(initialFormValues);
   const formValuesRef = useRef(initialFormValues);
@@ -293,6 +333,45 @@ export function useConnectionController(): ConnectionController {
         }
       },
     );
+    const offConnectionExport = on<ExportConnectionsResultHandler>('EXPORT_CONNECTIONS_RESULT', (result) => {
+      if (!result.ok || !result.json) { setConnectionPortabilityMessage(result.message || 'Could not export connections.'); return; }
+      downloadBlob(new Blob([result.json], { type: 'application/json' }), 'tashil-connections.json');
+      setConnectionPortabilityMessage('Downloaded tashil-connections.json.');
+    });
+    const offConnectionImportPreview = on<PreviewConnectionImportResultHandler>('PREVIEW_CONNECTION_IMPORT_RESULT', (result) => {
+      setConnectionImportEntries(result.entries ?? []);
+      setConnectionPortabilityMessage(result.ok ? 'Import preview ready. Review conflicts before applying.' : result.message || 'Could not read the import.');
+    });
+    const offConnectionImportApply = on<ApplyConnectionImportResultHandler>('APPLY_CONNECTION_IMPORT_RESULT', (result) => {
+      setConnectionPortabilityMessage(result.ok ? `Imported ${result.applied} connection${result.applied === 1 ? '' : 's'}.` : result.message || 'Could not apply the import.');
+      if (result.ok) { setConnectionImportEntries([]); rescanComponents(false); }
+    });
+    const offStories = on<GenerateStoriesResultHandler>('GENERATE_STORIES_RESULT', (result) => {
+      if (result.ok && result.code) {
+        setStorybookGeneration({ code: result.code, fileName: result.fileName, status: 'ready' });
+      } else if (result.variants) {
+        setStorybookGeneration({ message: result.message, status: 'select', variants: result.variants });
+      } else {
+        setStorybookGeneration({ message: result.message || 'Could not generate stories.', status: 'error' });
+      }
+    });
+    const offCodeConnect = on<GenerateCodeConnectResultHandler>('GENERATE_CODE_CONNECT_RESULT', (result) => {
+      if (!result.ok || !result.code || !result.fileName) {
+        setStatusMessage('');
+        setErrorMessage(result.message || 'Could not generate Code Connect output.');
+        return;
+      }
+      downloadBlob(new Blob([result.code], { type: 'text/typescript' }), result.fileName);
+      setErrorMessage('');
+      setStatusMessage(`Downloaded ${result.fileName}.`);
+    });
+    const offOutputPreferences = on<LoadOutputPreferencesResultHandler>('LOAD_OUTPUT_PREFERENCES_RESULT', ({ preferences }) => {
+      setOutputPreferencesState(preferences);
+    });
+    const offSaveOutputPreferences = on<SaveOutputPreferencesResultHandler>('SAVE_OUTPUT_PREFERENCES_RESULT', (result) => {
+      setOutputPreferencesMessage(result.ok ? 'Settings saved for this user.' : result.message || 'Could not save settings.');
+      if (result.ok) emit<RefreshSelectionHandler>('REFRESH_SELECTION');
+    });
 
     const offSaveResult = on<SaveResultHandler>('SAVE_RESULT', (result) => {
       handleSaveResult(result);
@@ -364,13 +443,21 @@ export function useConnectionController(): ConnectionController {
       setTokensPreviewStatus('idle');
     });
 
-    rescanComponents();
+    rescanComponents(false);
     emit<RefreshSelectionHandler>('REFRESH_SELECTION');
+    emit<LoadOutputPreferencesHandler>('LOAD_OUTPUT_PREFERENCES');
 
     return () => {
       offCanvasTargetState();
       offComponentTargetState();
       offInventoryState();
+      offConnectionExport();
+      offConnectionImportPreview();
+      offConnectionImportApply();
+      offStories();
+      offCodeConnect();
+      offOutputPreferences();
+      offSaveOutputPreferences();
       offSaveResult();
       offInspectCodeState();
       offScaffoldResult();
@@ -414,6 +501,7 @@ export function useConnectionController(): ConnectionController {
       savedMappingDocumentsRef.current.delete(state.targetToken);
     }
     if (previousToken !== state.targetToken) {
+      setStorybookGeneration({ status: 'idle' });
       sourceUploadIdRef.current += 1;
       setIsSourceUploading(false);
     }
@@ -433,7 +521,7 @@ export function useConnectionController(): ConnectionController {
     }
   }
 
-  function rescanComponents(): void {
+  function rescanComponents(includeCoverage = true): void {
     const scanId = `scan-${Date.now()}-${++scanSequenceRef.current}`;
     currentScanIdRef.current = scanId;
     setInventoryState({
@@ -441,7 +529,32 @@ export function useConnectionController(): ConnectionController {
       status: 'scanning',
       totalPages: 0,
     });
-    emit<ScanComponentsHandler>('SCAN_COMPONENTS', { scanId });
+    emit<ScanComponentsHandler>('SCAN_COMPONENTS', { includeCoverage, scanId });
+  }
+
+  function exportConnections(): void { setConnectionPortabilityMessage('Preparing connection export…'); emit<ExportConnectionsHandler>('EXPORT_CONNECTIONS'); }
+  async function previewConnectionImport(file: File): Promise<void> {
+    if (file.size > 2_000_000) { setConnectionPortabilityMessage('The import is larger than the 2 MB safety limit.'); return; }
+    setConnectionPortabilityMessage('Reading connection import…');
+    emit<PreviewConnectionImportHandler>('PREVIEW_CONNECTION_IMPORT', { raw: await file.text() });
+  }
+  function applyConnectionImport(choices: Array<{ action: 'overwrite' | 'skip'; imported: import('./types').ConnectionMetadata; targetToken: string }>): void {
+    setConnectionPortabilityMessage('Applying confirmed connections…');
+    emit<ApplyConnectionImportHandler>('APPLY_CONNECTION_IMPORT', { choices });
+  }
+  function generateStories(targetToken: string, selectedVariantTokens?: string[]): void {
+    setStorybookGeneration({ status: 'loading' });
+    emit<GenerateStoriesHandler>('GENERATE_STORIES', { selectedVariantTokens, targetToken });
+  }
+  function generateCodeConnect(targetToken: string): void {
+    setErrorMessage('');
+    setStatusMessage('Generating Code Connect output…');
+    emit<GenerateCodeConnectHandler>('GENERATE_CODE_CONNECT', { targetToken });
+  }
+  function setOutputPreferences(preferences: OutputPreferences): void {
+    setOutputPreferencesState(preferences);
+    setOutputPreferencesMessage('Saving settings…');
+    emit<SaveOutputPreferencesHandler>('SAVE_OUTPUT_PREFERENCES', { preferences });
   }
 
   function openInventoryTarget(targetToken: string): void {
@@ -1305,6 +1418,11 @@ export function useConnectionController(): ConnectionController {
         targetState.figmaSnapshot,
         readMappingDocument(formValues.mappingDocument),
         sourceVerifiedSelectionsRef.current.has(targetState.targetToken),
+        {
+          intentionalFigmaPropertyPrefixes: parseIntentionalFigmaPropertyPrefixes(
+            formValues.intentionalFigmaPropertyPrefixes,
+          ),
+        },
       )
     : undefined;
 
@@ -1374,7 +1492,7 @@ export function useConnectionController(): ConnectionController {
     }
     try {
       if (files.length === 1) {
-        downloadBlob(new Blob([files[0].css], { type: 'text/css' }), files[0].name);
+        downloadBlob(new Blob([files[0].css], { type: 'text/plain' }), files[0].name);
         setTokensExportStatus('idle');
         setTokensExportSuccess(`Downloaded ${files[0].name}.`);
         return;
@@ -1387,7 +1505,7 @@ export function useConnectionController(): ConnectionController {
       downloadBlob(bytes, 'sync-tokens.zip');
       setTokensExportStatus('idle');
       setTokensExportSuccess(
-        `Downloaded sync-tokens.zip with ${files.length} CSS files.`,
+          `Downloaded sync-tokens.zip with ${files.length} files.`,
       );
     } catch {
       setTokensExportSuccess('');
@@ -1426,6 +1544,7 @@ export function useConnectionController(): ConnectionController {
     applySemanticProposal,
     exportDebugBundle,
     exportReport,
+    generateCodeConnect,
     isSourceReplacementPending,
     sourceReplacementCancelRef,
     confirmSourceReplacement,
@@ -1452,5 +1571,15 @@ export function useConnectionController(): ConnectionController {
     loadTokenCollections,
     exportTokens: exportTokensAction,
     previewTokens: previewTokensAction,
+    connectionImportEntries,
+    connectionPortabilityMessage,
+    exportConnections,
+    previewConnectionImport,
+    applyConnectionImport,
+    generateStories,
+    storybookGeneration,
+    outputPreferences,
+    outputPreferencesMessage,
+    setOutputPreferences,
   };
 }

@@ -181,7 +181,11 @@ export function createComponentUsage(
   const imports = collectComponentImports(metadata, mappedProps.namedImports);
   const jsx = renderComponentJsx(metadata, mappedProps.props, childrenMode, resolvedChildren);
 
-  return { imports, jsx, diagnostics };
+  const storyArgs = [...mappedProps.props];
+  if (resolvedChildren?.text !== undefined && childrenMode === 'text') {
+    storyArgs.push(`children={${JSON.stringify(resolvedChildren.text)}}`);
+  }
+  return { imports, jsx, diagnostics, storyArgs };
 }
 
 export function createMappedProps(
@@ -692,7 +696,7 @@ export function formatJsxChildren(value: string): string {
 
 export type PersistedConnectionMetadata = {
   metadata: Record<string, unknown>;
-  schemaVersion: 1 | 2 | 3 | typeof CURRENT_SCHEMA_VERSION;
+  schemaVersion: 1 | 2 | 3 | 4 | typeof CURRENT_SCHEMA_VERSION;
 };
 
 export type PersistedConnectionValidationResult =
@@ -750,6 +754,11 @@ export function validatePersistedConnectionMetadata(
         return invalidPersistedMetadata(schemaVersion);
       }
       return { metadata: { metadata: value, schemaVersion }, ok: true };
+    case 4:
+      if (!isVersion4ConnectionMetadata(value)) {
+        return invalidPersistedMetadata(schemaVersion);
+      }
+      return { metadata: { metadata: value, schemaVersion }, ok: true };
     case CURRENT_SCHEMA_VERSION:
       if (!isConnectionMetadata(value)) {
         return invalidPersistedMetadata(schemaVersion);
@@ -770,7 +779,7 @@ export function validatePersistedConnectionMetadata(
         'unsupported-schema-version',
         [
           `Stored Storybook connection data uses unsupported schema version ${schemaVersion}.`,
-          `This plugin supports versions 1, 2, 3, and ${CURRENT_SCHEMA_VERSION}; the data was left unchanged.`,
+          `This plugin supports versions 1, 2, 3, 4, and ${CURRENT_SCHEMA_VERSION}; the data was left unchanged.`,
         ].join(' '),
       );
   }
@@ -791,6 +800,8 @@ export function migratePersistedConnectionMetadata(
     }
     case 3:
       return migrateVersion3ConnectionMetadata(persisted.metadata);
+    case 4:
+      return migrateVersion4ConnectionMetadata(persisted.metadata);
     case CURRENT_SCHEMA_VERSION:
       return persisted.metadata as ConnectionMetadata;
   }
@@ -882,6 +893,12 @@ function isVersion3ConnectionMetadata(value: Record<string, unknown>): boolean {
     && hasValidConnectionMetadataShape(value, false);
 }
 
+function isVersion4ConnectionMetadata(value: Record<string, unknown>): boolean {
+  return value.schemaVersion === 4
+    && value.healthPolicy === undefined
+    && hasValidConnectionMetadataShape(value, true);
+}
+
 function hasValidConnectionMetadataShape(
   value: Record<string, unknown>,
   allowMappingDocument: boolean,
@@ -941,7 +958,19 @@ function hasValidConnectionMetadataShape(
     return false;
   }
 
+  if (value.healthPolicy !== undefined && !isConnectionHealthPolicy(value.healthPolicy)) {
+    return false;
+  }
+
   return true;
+}
+
+function isConnectionHealthPolicy(value: unknown): boolean {
+  return isRecord(value)
+    && Array.isArray(value.intentionalFigmaPropertyPrefixes)
+    && value.intentionalFigmaPropertyPrefixes.every((prefix) => (
+      typeof prefix === 'string' && prefix.trim().length > 0
+    ));
 }
 
 function hasValidCommonConnectionFields(value: Record<string, unknown>): boolean {
@@ -1004,6 +1033,19 @@ function migrateVersion3ConnectionMetadata(
     throw new TypeError('Validated schema version 3 connection metadata could not be migrated.');
   }
 
+  return migrated;
+}
+
+function migrateVersion4ConnectionMetadata(
+  metadata: Record<string, unknown>,
+): ConnectionMetadata {
+  const migrated = {
+    ...metadata,
+    schemaVersion: CURRENT_SCHEMA_VERSION,
+  };
+  if (!isConnectionMetadata(migrated)) {
+    throw new TypeError('Validated schema version 4 connection metadata could not be migrated.');
+  }
   return migrated;
 }
 

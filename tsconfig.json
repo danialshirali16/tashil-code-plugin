@@ -7,9 +7,13 @@
   "include": [
     "src/main.ts",
     "src/codegen.ts",
+    "src/connection-portability.ts",
+    "src/storybook.ts",
+    "src/output-preferences.ts",
     "src/external-url.ts",
     "src/types.ts",
     "src/inspect/types.ts",
+    "src/inspect/accessibility.ts",
     "src/inspect/css-partition.ts",
     "src/inspect/node-css.ts",
     "src/inspect/inspect-frame.ts",
@@ -34,6 +38,8 @@
     "src/semantic/fixtures.ts",
     "src/semantic/authoring.ts",
     "src/sync-tokens/types.ts",
-    "src/sync-tokens/serialize.ts"
+    "src/sync-tokens/serialize.ts",
+    "src/sync-tokens/serialize-formats.ts",
+    "src/sync-tokens/export-diff.ts"
   ]
 }

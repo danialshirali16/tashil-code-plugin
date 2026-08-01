@@ -27,6 +27,7 @@ import type {
   ComponentInventoryState,
   ConnectionMetadata,
   FigmaComponentSnapshot,
+  InspectCodeState,
   UiTargetState,
 } from '../../src/types';
 
@@ -223,6 +224,22 @@ function targetState(): UiTargetState {
   };
 }
 
+function inspectCodeState(): InspectCodeState {
+  return {
+    status: 'connected',
+    output: {
+      code: `import { Button } from "@tashilcar/swiss-army-knife";
+
+<Button size={"small"} onClick={onClick}>Delete account</Button>`,
+      diagnostics: 'State is intentionally unmapped because it describes an interaction preview.',
+      references: {
+        storybookUrl: 'https://storybook.example/?path=/story/button',
+      },
+      runtimeRequirements: 'onClick — Set in application.',
+    },
+  };
+}
+
 const INVENTORY: ComponentInventoryState = {
   items: [
     { componentName: 'Button', nodeType: 'COMPONENT', pageName: 'Components', status: 'connected', targetToken: '1094:17504' },
@@ -388,6 +405,7 @@ function respond(name: string, payload: unknown): void {
       break;
     case 'REFRESH_SELECTION':
       send('CANVAS_TARGET_STATE', { source: 'initial', state: targetState() });
+      send('INSPECT_CODE_STATE', inspectCodeState());
       break;
     case 'LOAD_TOKEN_COLLECTIONS':
       send('LOAD_TOKEN_COLLECTIONS_RESULT', {
@@ -437,5 +455,6 @@ export function startHarness(): void {
   window.setTimeout(() => {
     send('CANVAS_TARGET_STATE', { source: 'initial', state: targetState() });
     send('COMPONENT_INVENTORY_STATE', { scanId: 'harness', state: INVENTORY });
+    send('INSPECT_CODE_STATE', inspectCodeState());
   }, 0);
 }

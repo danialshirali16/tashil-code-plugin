@@ -37,6 +37,8 @@ export type ComponentUsage = {
   imports: ComponentImport[];
   jsx: string;
   diagnostics: MappingDiagnostic[];
+  /** JSX attribute fragments reused as CSF args by Storybook generation. */
+  storyArgs?: string[];
   /** Application-owned values required by a semantic component recipe. */
   runtimeRequirements?: string[];
 };

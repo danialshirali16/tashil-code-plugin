@@ -5,7 +5,7 @@
  * way and add a migration in the read path. Stored data written by older plugin
  * builds (without this field) is treated as version 1.
  */
-export const CURRENT_SCHEMA_VERSION = 4;
+export const CURRENT_SCHEMA_VERSION = 5;
 export const DEFAULT_CHILDREN_TEXT_PROPERTY = 'label';
 
 export const CONNECTION_NAMESPACE = 'tashil_storybook';
@@ -35,6 +35,7 @@ export type SourcePropRole =
   | 'unsupported';
 
 export type SourcePropDescriptor = {
+  description?: string;
   defaultValue?: SourcePropValue;
   name: string;
   required: boolean;
@@ -46,6 +47,7 @@ export type SourcePropDescriptor = {
 export type SourceComponentSnapshot = {
   componentName: string;
   contentHash: string;
+  description?: string;
   fileName: string;
   propsTypeName?: string;
   props: SourcePropDescriptor[];
@@ -65,7 +67,12 @@ export type FigmaPropertyDescriptor = {
 export type FigmaComponentSnapshot = {
   componentId: string;
   componentName: string;
+  description?: string;
   properties: FigmaPropertyDescriptor[];
+};
+
+export type ConnectionHealthPolicy = {
+  intentionalFigmaPropertyPrefixes: string[];
 };
 
 export type PropertyValueMapping = {
@@ -105,6 +112,7 @@ export type ConnectionMetadata = {
   /** Exported source-code component used for imports and generated JSX. */
   componentName: string;
   importPath: string;
+  healthPolicy?: ConnectionHealthPolicy;
   storybookUrl?: string;
   sourcePath?: string;
   sourceUrl?: string;
@@ -159,7 +167,44 @@ export type ComponentInventoryItem = {
   pageName: string;
   status: ComponentConnectionStatus;
   targetToken: string;
+  instanceCount?: number;
 };
+
+export type ConnectionImportPlanEntry = {
+  componentName: string;
+  imported: ConnectionMetadata;
+  status: 'conflict' | 'matched' | 'missing';
+  targetToken?: string;
+};
+
+export type BrokenInstanceReference = {
+  layerPath: string;
+  pageName: string;
+};
+
+export type ConnectionCoverageReport = {
+  brokenInstanceCount: number;
+  brokenInstances: BrokenInstanceReference[];
+  connectedInstanceCount: number;
+  totalInstanceCount: number;
+};
+
+export type ExportConnectionsHandler = { name: 'EXPORT_CONNECTIONS'; handler: () => void };
+export type ExportConnectionsResultHandler = { name: 'EXPORT_CONNECTIONS_RESULT'; handler: (result: { ok: boolean; json?: string; message?: string }) => void };
+export type PreviewConnectionImportHandler = { name: 'PREVIEW_CONNECTION_IMPORT'; handler: (payload: { raw: string }) => void };
+export type PreviewConnectionImportResultHandler = { name: 'PREVIEW_CONNECTION_IMPORT_RESULT'; handler: (result: { entries?: ConnectionImportPlanEntry[]; message?: string; ok: boolean }) => void };
+export type ApplyConnectionImportHandler = { name: 'APPLY_CONNECTION_IMPORT'; handler: (payload: { choices: Array<{ action: 'overwrite' | 'skip'; imported: ConnectionMetadata; targetToken: string }> }) => void };
+export type ApplyConnectionImportResultHandler = { name: 'APPLY_CONNECTION_IMPORT_RESULT'; handler: (result: { applied: number; message?: string; ok: boolean }) => void };
+
+export type StorybookVariantOption = { label: string; targetToken: string };
+export type GenerateStoriesHandler = { name: 'GENERATE_STORIES'; handler: (payload: { selectedVariantTokens?: string[]; targetToken: string }) => void };
+export type GenerateStoriesResultHandler = { name: 'GENERATE_STORIES_RESULT'; handler: (result: { code?: string; fileName?: string; message?: string; ok: boolean; variants?: StorybookVariantOption[] }) => void };
+export type GenerateCodeConnectHandler = { name: 'GENERATE_CODE_CONNECT'; handler: (payload: { targetToken: string }) => void };
+export type GenerateCodeConnectResultHandler = { name: 'GENERATE_CODE_CONNECT_RESULT'; handler: (result: { code?: string; fileName?: string; message?: string; ok: boolean }) => void };
+export type LoadOutputPreferencesHandler = { name: 'LOAD_OUTPUT_PREFERENCES'; handler: () => void };
+export type LoadOutputPreferencesResultHandler = { name: 'LOAD_OUTPUT_PREFERENCES_RESULT'; handler: (result: { preferences: import('./output-preferences').OutputPreferences }) => void };
+export type SaveOutputPreferencesHandler = { name: 'SAVE_OUTPUT_PREFERENCES'; handler: (payload: { preferences: import('./output-preferences').OutputPreferences }) => void };
+export type SaveOutputPreferencesResultHandler = { name: 'SAVE_OUTPUT_PREFERENCES_RESULT'; handler: (result: { message?: string; ok: boolean }) => void };
 
 export type ComponentInventoryState =
   | {
@@ -168,12 +213,14 @@ export type ComponentInventoryState =
       totalPages: number;
     }
   | {
+      coverage?: ConnectionCoverageReport;
       items: ComponentInventoryItem[];
       scannedPages: number;
       status: 'ready';
       totalPages: number;
     }
   | {
+      coverage?: ConnectionCoverageReport;
       items: ComponentInventoryItem[];
       message: string;
       scannedPages: number;
@@ -209,6 +256,7 @@ export type UiTargetState =
 
 export type InspectCodeComponentOutput = {
   code: string;
+  descriptions?: { figma?: string; source?: string };
   diagnostics?: string;
   references?: ConnectionReferences;
   /** Semantic connections: which design values produced each code prop. */
@@ -300,7 +348,7 @@ export type RefreshSelectionHandler = {
 
 export type ScanComponentsHandler = {
   name: 'SCAN_COMPONENTS';
-  handler: (payload: { scanId: string }) => void;
+  handler: (payload: { includeCoverage?: boolean; scanId: string }) => void;
 };
 
 export type OpenComponentTargetHandler = {
@@ -398,7 +446,7 @@ export type PreviewTokensResultHandler = {
   }) => void;
 };
 
-/** main -> UI: the generated CSS files (one per collection), or a failure. */
+/** main -> UI: generated token files (one per collection/mode), or a failure. */
 export type ExportTokensResultHandler = {
   name: 'EXPORT_TOKENS_RESULT';
   handler: (result: {

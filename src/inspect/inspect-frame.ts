@@ -24,6 +24,7 @@ import {
 } from '../layout/generation-context';
 import { resolveInstance, type InstanceLike } from '../layout/figma-component-resolver';
 import { getNodeCss, type CssSourceNode } from './node-css';
+import { analyzeAccessibility } from './accessibility';
 import type {
   ConnectedComponentEntry,
   FrameInspection,
@@ -84,6 +85,7 @@ export async function inspectFrame(
   }
 
   return {
+    accessibility: analyzeAccessibility(cssResult.css, root.type),
     nodeName: root.name,
     nodeType: root.type,
     css: cssResult.css,

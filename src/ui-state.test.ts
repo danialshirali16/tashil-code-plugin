@@ -31,6 +31,7 @@ const EMPTY_FORM: ConnectionFormValues = {
   iconComponentName: '',
   iconImportPath: '',
   importPath: '',
+  intentionalFigmaPropertyPrefixes: '',
   mappingDocument: '',
   propMappings: '',
   semanticRecipe: '',

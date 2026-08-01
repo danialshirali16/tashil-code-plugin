@@ -48,6 +48,17 @@ const Button = (props: ButtonProps) => {
 `;
 
 describe('source schema', () => {
+  it('extracts plain-text component and prop JSDoc descriptions', () => {
+    const result = parseSourceComponent([{
+      fileName: 'Button.tsx',
+      contents: '/** Primary action button. */\nexport interface ButtonProps {\n  /** Prevents interaction. */\n  disabled?: boolean;\n}',
+    }], 'Button');
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.snapshot.description).toBe('Primary action button.');
+      expect(result.snapshot.props[0].description).toBe('Prevents interaction.');
+    }
+  });
   it('extracts the Volkswagen Button standard prop surface', () => {
     const result = parseSourceComponent([
       { contents: buttonTypes, fileName: 'types.ts' },

@@ -1,6 +1,7 @@
 import { getPropertyMappingKind } from './mapping-editor';
 import type {
   FigmaComponentSnapshot,
+  ConnectionHealthPolicy,
   MappingDocument,
   SourceComponentSnapshot,
   SourcePropDescriptor,
@@ -44,6 +45,7 @@ export function evaluateConnectionHealth(
   currentFigma: FigmaComponentSnapshot | undefined,
   workingDocument: MappingDocument | undefined,
   sourceVerified: boolean,
+  policy?: ConnectionHealthPolicy,
 ): ConnectionHealth | undefined {
   if (!savedDocument && !workingDocument) {
     return undefined;
@@ -59,7 +61,7 @@ export function evaluateConnectionHealth(
       : []),
     ...findMappingConflicts(document),
     ...findIncompleteMappings(document),
-  ];
+  ].filter((change) => !isIntentionalFigmaChange(change, document, currentFigma, policy));
 
   if (changes.some((change) => change.severity === 'error')) {
     return { changes, status: 'broken' };
@@ -71,6 +73,19 @@ export function evaluateConnectionHealth(
     return { changes: [], status: 'source-refresh-required' };
   }
   return { changes: [], status: 'healthy' };
+}
+
+function isIntentionalFigmaChange(
+  change: ConnectionDrift,
+  document: MappingDocument,
+  current: FigmaComponentSnapshot | undefined,
+  policy: ConnectionHealthPolicy | undefined,
+): boolean {
+  if (change.kind !== 'figma-property-added' || !change.figmaPropertyId) return false;
+  const property = current?.properties.find(({ id }) => id === change.figmaPropertyId)
+    ?? document.figmaSnapshot.properties.find(({ id }) => id === change.figmaPropertyId);
+  return property !== undefined && (policy?.intentionalFigmaPropertyPrefixes ?? [])
+    .some((prefix) => prefix !== '' && property.name.startsWith(prefix));
 }
 
 export function findMappingConflicts(document: MappingDocument): ConnectionDrift[] {

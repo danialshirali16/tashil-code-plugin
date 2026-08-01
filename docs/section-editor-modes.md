@@ -91,6 +91,15 @@ section; Figma invokes `figma.codegen.on('generate', …)` →
 
 Dev Mode reads connections; it never authors them.
 
+Connected selections also emit a deterministic `<Component>.stories.tsx` CSF
+3 block. For component sets larger than 32 variants, Dev Mode treats the
+currently selected variant as the explicit subset; the Design-mode editor
+offers the full capped subset picker. Story generation remains read-only.
+
+The codegen handler loads per-user output preferences from `clientStorage` and
+formats TypeScript blocks only. The same formatter is applied to Design-mode
+Inspect output; CSS inspection remains verbatim.
+
 ## Inspect Code is the parity bridge
 
 Inspect Code exists *because* of this split: it runs the **same**
