@@ -12,21 +12,25 @@ import {
   IconVariant16,
   IconWarning16,
   SegmentedControl,
+  SearchTextbox,
   Textbox,
   type DropdownOption,
 } from '@create-figma-plugin/ui';
 import { renderImportLines } from './layout/imports';
 import {
   OPTION_OMITTED,
+  OPTION_REPEATED,
   OPTION_RUNTIME,
   OPTION_STATIC,
   SECTION_LABELS,
   buildTargetRows,
+  getAuthoringSourceContract,
   getUsedSourceOptionIds,
   hasStructuralMismatch,
   nestedOptionId,
   propertyOptionId,
   validateRecipeDraft,
+  type RecipeValidationSummary,
   type SemanticTargetRow,
 } from './semantic/authoring';
 import { resolveSemanticUsage } from './semantic/resolver';
@@ -36,7 +40,13 @@ import {
   type ReconciliationProposal,
 } from './semantic/reconcile';
 import type { SemanticConnectionRecipe } from './semantic/types';
-import type { SourceTargetDescriptor } from './semantic/source-contract';
+import {
+  isRuntimeSourceTargetKind,
+  summarizeCollectionItemSchema,
+  targetKindReason,
+  type SourceTargetDescriptor,
+} from './semantic/source-contract';
+import { configureDirectoryInput } from './source-upload';
 import type { FigmaComponentSnapshot, SourcePropValue } from './types';
 
 export type SemanticMappingViewProps = {
@@ -49,6 +59,8 @@ export type SemanticMappingViewProps = {
   proposals?: readonly ReconciliationProposal[];
   onApplyProposal?: (proposal: ReconciliationProposal, action: ReconciliationAction) => void;
   onExportDebugBundle?: () => void;
+  /** Export the compatibility report for the current component (roadmap M7). */
+  onExportReport?: (format: 'markdown' | 'json') => void;
   onValueMappingChange?: (
     targetPath: readonly string[],
     sourceValue: SourcePropValue,
@@ -61,6 +73,10 @@ export type SemanticMappingViewProps = {
     targetPath: readonly string[],
     optionId: string,
     staticValue?: SourcePropValue,
+  ) => void;
+  onRepeatedInstancesChange?: (
+    targetPath: readonly string[],
+    orderedOptionIds: readonly string[],
   ) => void;
 };
 
@@ -78,8 +94,9 @@ export function SemanticMappingView(props: SemanticMappingViewProps): h.JSX.Elem
   const [isDragging, setIsDragging] = useState(false);
   const [activePath, setActivePath] = useState<string>();
   const [filter, setFilter] = useState<'all' | 'review'>('all');
+  const [query, setQuery] = useState('');
   const recipe = props.recipe;
-  if (!recipe?.sourceContract) {
+  if (!recipe || !getAuthoringSourceContract(recipe)) {
     return null;
   }
 
@@ -92,17 +109,31 @@ export function SemanticMappingView(props: SemanticMappingViewProps): h.JSX.Elem
     completed: progressRows.filter((row) => targetState(row) === 'done').length,
     total: progressRows.length,
   };
-  const contract = recipe.sourceContract;
+  const contract = getAuthoringSourceContract(recipe)!;
   const preview = createPreview(props.componentName, props.importPath, recipe);
   const uploadDisabled = props.disabled || props.sourceUploading === true;
 
-  const firstUnresolved = rows.find((row) => row.optionId === '' && row.target.required)
-    ?? rows.find((row) => row.optionId === '');
-  const focusedPath = activePath ?? firstUnresolved?.targetPath ?? rows[0]?.targetPath;
-  const focusedRow = rows.find((row) => row.targetPath === focusedPath) ?? rows[0];
-  const visibleRows = filter === 'review'
-    ? rows.filter((row) => targetState(row) !== 'done')
-    : rows;
+  // ponytail: plain substring match across targetPath + typeName + the resolved
+  // value label. No fuzzy ranking — the lists are short and owners search by
+  // the prop name they already know. Empty query = no filtering by search.
+  const normalizedQuery = query.trim().toLowerCase();
+  const matchesQuery = (row: SemanticTargetRow): boolean => normalizedQuery === ''
+    || row.targetPath.toLowerCase().includes(normalizedQuery)
+    || row.target.typeName.toLowerCase().includes(normalizedQuery)
+    || describeRowValue(row).toLowerCase().includes(normalizedQuery);
+  const visibleRows = rows.filter((row) => (
+    (filter === 'review' ? targetState(row) !== 'done' : true) && matchesQuery(row)
+  ));
+  const firstUnresolved = visibleRows.find(
+    (row) => row.optionId === '' && row.target.required,
+  ) ?? visibleRows.find((row) => row.optionId === '');
+  const requestedFocusedPath = activePath
+    ?? firstUnresolved?.targetPath
+    ?? visibleRows[0]?.targetPath;
+  const focusedRow = visibleRows.find((row) => row.targetPath === requestedFocusedPath)
+    ?? firstUnresolved
+    ?? visibleRows[0];
+  const focusedPath = focusedRow?.targetPath;
 
   const usedSources = getUsedSourceOptionIds(recipe);
   const inventory = buildFigmaInventory(props.figmaSnapshot, recipe.figmaSnapshot);
@@ -139,25 +170,54 @@ export function SemanticMappingView(props: SemanticMappingViewProps): h.JSX.Elem
           <div class="mapping-workbench-source">
             <span class="source-icon" aria-hidden="true">{'</>'}</span>
             <span>
-              <strong>{contract.componentName}</strong>
+              <strong>
+                {contract.componentName}
+                {contract.propsTypeName
+                  ? ` → ${contract.propsTypeName}`
+                  : ''}
+                {contract.propsTypeChain && contract.propsTypeChain.length > 0
+                  ? contract.propsTypeChain.map((base) => ` → ${base}`).join('')
+                  : ''}
+              </strong>
               <small class="source-file">{contract.fileName}</small>
             </span>
           </div>
           {props.onFilesSelected ? (
-            <label class={uploadDisabled ? 'file-button file-button-disabled' : 'file-button'}>
-              {props.sourceUploading ? 'Analyzing…' : 'Replace source'}
-              <input
-                accept=".ts,.tsx"
-                disabled={uploadDisabled}
-                multiple
-                onInput={(event) => {
-                  const files = Array.from(event.currentTarget.files ?? []);
-                  submitFiles(files);
-                  event.currentTarget.value = '';
-                }}
-                type="file"
-              />
-            </label>
+            <div class="source-upload-actions">
+              <label class={uploadDisabled ? 'file-button file-button-disabled' : 'file-button'}>
+                {props.sourceUploading ? 'Analyzing…' : 'Replace source'}
+                <input
+                  accept=".ts,.tsx,.d.ts"
+                  disabled={uploadDisabled}
+                  multiple
+                  onInput={(event) => {
+                    const files = Array.from(event.currentTarget.files ?? []);
+                    submitFiles(files);
+                    event.currentTarget.value = '';
+                  }}
+                  type="file"
+                />
+              </label>
+              <label
+                class={uploadDisabled
+                  ? 'file-button file-button-secondary file-button-disabled'
+                  : 'file-button file-button-secondary'}
+                title="Upload a source folder with dependency declarations"
+              >
+                Folder
+                <input
+                  disabled={uploadDisabled}
+                  multiple
+                  onInput={(event) => {
+                    const files = Array.from(event.currentTarget.files ?? []);
+                    submitFiles(files);
+                    event.currentTarget.value = '';
+                  }}
+                  ref={configureDirectoryInput}
+                  type="file"
+                />
+              </label>
+            </div>
           ) : null}
         </div>
         <div class="mapping-header-summary-row">
@@ -216,6 +276,18 @@ export function SemanticMappingView(props: SemanticMappingViewProps): h.JSX.Elem
             proposals={props.proposals}
           />
         ) : null}
+        {recipe.figmaSnapshot.extraction?.partial ? (
+          <div class="mapping-help" role="status">
+            <strong>Figma scan is partial.</strong>
+            <ul>
+              {recipe.figmaSnapshot.extraction.diagnostics.map((diagnostic) => (
+                <li key={`${diagnostic.code}-${diagnostic.path ?? ''}`}>
+                  {diagnostic.message}
+                </li>
+              ))}
+            </ul>
+          </div>
+        ) : null}
         {hasStructuralMismatch(recipe) ? (
           <div class="mapping-help" role="note">
             The Figma layers and the code structure differ. That is expected: values from
@@ -248,6 +320,12 @@ export function SemanticMappingView(props: SemanticMappingViewProps): h.JSX.Elem
               </button>
             </div>
           </div>
+          <SearchTextbox
+            aria-label="Search code props"
+            onValueInput={setQuery}
+            placeholder="Search props, types, or values"
+            value={query}
+          />
           <div class="prop-list">
             {visibleRows.map((row) => {
               const sectionLabel = row.section !== previousSection
@@ -268,7 +346,11 @@ export function SemanticMappingView(props: SemanticMappingViewProps): h.JSX.Elem
               );
             })}
             {visibleRows.length === 0 ? (
-              <div class="mapping-list-empty">Everything is resolved.</div>
+              <div class="mapping-list-empty">
+                {normalizedQuery !== ''
+                  ? `No code props match "${query.trim()}".`
+                  : 'Everything is resolved.'}
+              </div>
             ) : null}
           </div>
         </aside>
@@ -281,6 +363,12 @@ export function SemanticMappingView(props: SemanticMappingViewProps): h.JSX.Elem
                 setActivePath(focusedRow.targetPath);
                 props.onOptionChange(...args);
               }}
+              onRepeatedInstancesChange={props.onRepeatedInstancesChange
+                ? (targetPath, orderedOptionIds) => {
+                    setActivePath(focusedRow.targetPath);
+                    props.onRepeatedInstancesChange?.(targetPath, orderedOptionIds);
+                  }
+                : undefined}
               onValueMappingChange={props.onValueMappingChange
                 ? (...args) => {
                     setActivePath(focusedRow.targetPath);
@@ -293,6 +381,15 @@ export function SemanticMappingView(props: SemanticMappingViewProps): h.JSX.Elem
             <div class="mapping-list-empty">No mappable code props were found.</div>
           )}
 
+          {validation.summary.blocking > 0 || validation.summary.review > 0 ? (
+            <p
+              aria-live="polite"
+              class={validation.summary.blocking > 0 ? 'field-error' : 'mapping-help'}
+              role="status"
+            >
+              <CompatibilitySummary summary={validation.summary} />
+            </p>
+          ) : null}
           {validation.errors.length > 0 ? (
             <ul class="field-error" role="list">
               {validation.errors.map((error) => <li key={error}>{error}</li>)}
@@ -318,18 +415,46 @@ export function SemanticMappingView(props: SemanticMappingViewProps): h.JSX.Elem
         </main>
       </div>
 
-      {props.onExportDebugBundle ? (
+      {props.onExportDebugBundle || props.onExportReport ? (
         <div class="mapping-card-footer">
-          <button
-            class="link-button"
-            disabled={props.disabled}
-            onClick={props.onExportDebugBundle}
-            title="Records schema versions, mapping structure, and health only — no source code, URLs, design text, or layer names."
-            type="button"
-          >
-            Export debug bundle
-          </button>
-          <small>Redacted: structure and health only.</small>
+          {props.onExportReport ? (
+            <Fragment>
+              <button
+                class="link-button"
+                disabled={props.disabled}
+                onClick={() => props.onExportReport?.('markdown')}
+                title="Target-kind counts and unsupported props for this component."
+                type="button"
+              >
+                Compatibility report (Markdown)
+              </button>
+              <button
+                class="link-button"
+                disabled={props.disabled}
+                onClick={() => props.onExportReport?.('json')}
+                title="Same data as the Markdown report, as JSON."
+                type="button"
+              >
+                JSON
+              </button>
+            </Fragment>
+          ) : null}
+          {props.onExportDebugBundle ? (
+            <button
+              class="link-button"
+              disabled={props.disabled}
+              onClick={props.onExportDebugBundle}
+              title="Records schema versions, mapping structure, and health only — no source code, URLs, design text, or layer names."
+              type="button"
+            >
+              Export debug bundle
+            </button>
+          ) : null}
+          <small>
+            {props.onExportReport
+              ? 'Report: per-kind counts and unsupported props only.'
+              : 'Redacted: structure and health only.'}
+          </small>
         </div>
       ) : null}
     </section>
@@ -384,7 +509,10 @@ function targetState(row: SemanticTargetRow): 'done' | 'todo' | 'blocked' {
   if (row.optionId !== '') {
     return 'done';
   }
-  return row.target.required && row.target.kind === 'visual' ? 'blocked' : 'todo';
+  return row.target.required
+    && (row.target.kind === 'visual' || isRuntimeSourceTargetKind(row.target.kind))
+    ? 'blocked'
+    : 'todo';
 }
 
 /** One-line answer to "what does this prop resolve to right now?". */
@@ -397,6 +525,9 @@ function describeRowValue(row: SemanticTargetRow): string {
   }
   if (row.optionId === OPTION_STATIC) {
     return `static · ${String(row.staticValue ?? '')}`;
+  }
+  if (row.optionId === OPTION_REPEATED) {
+    return `${row.repeatedOptionIds?.length ?? 0} connected`;
   }
   const option = row.options.find((candidate) => candidate.id === row.optionId);
   return option ? option.label : 'not mapped';
@@ -423,6 +554,8 @@ function ReconciliationPanel(props: {
       <ul>
         {props.proposals.map((proposal) => {
           const removeOnly = isRemoveOnly(proposal.kind);
+          const contractUpdate = proposal.kind === 'source-contract-update'
+            || proposal.kind === 'component-alias-changed';
           return (
             <li key={`${proposal.bindingId}-${proposal.kind}`}>
               <span>{proposal.message}</span>
@@ -434,16 +567,18 @@ function ReconciliationPanel(props: {
                     onClick={() => props.onApplyProposal?.(proposal, 'accept')}
                     type="button"
                   >
-                    Accept remap
+                    {contractUpdate ? 'Accept source update' : 'Accept remap'}
                   </button>
                 ) : null}
                 <button
-                  aria-label={`Remove mapping for ${proposal.targetPath}`}
+                  aria-label={contractUpdate
+                    ? 'Keep the current source contract'
+                    : `Remove mapping for ${proposal.targetPath}`}
                   disabled={props.disabled}
                   onClick={() => props.onApplyProposal?.(proposal, 'remove')}
                   type="button"
                 >
-                  Remove mapping
+                  {contractUpdate ? 'Keep current source' : 'Remove mapping'}
                 </button>
               </div>
             </li>
@@ -452,6 +587,40 @@ function ReconciliationPanel(props: {
       </ul>
     </section>
   );
+}
+
+/**
+ * Pre-save compatibility summary (roadmap M7). One scannable line that says
+ * whether the recipe is saveable and, if not, how many of each blocking category
+ * remain — before the user scrolls the per-message lists.
+ */
+function CompatibilitySummary(props: {
+  summary: RecipeValidationSummary;
+}): h.JSX.Element {
+  const { summary } = props;
+  const parts: string[] = [];
+
+  if (summary.blocking === 0 && summary.review === 0) {
+    return <span>Ready to save.</span>;
+  }
+
+  if (summary.unresolvedRequired > 0) {
+    parts.push(`${summary.unresolvedRequired} required prop${summary.unresolvedRequired === 1 ? '' : 's'} unresolved`);
+  }
+  if (summary.unresolvedRuntime > 0) {
+    parts.push(`${summary.unresolvedRuntime} runtime input${summary.unresolvedRuntime === 1 ? '' : 's'} unmarked`);
+  }
+  if (summary.incompatibleSlots > 0) {
+    parts.push(`${summary.incompatibleSlots} incompatible slot${summary.incompatibleSlots === 1 ? '' : 's'}`);
+  }
+  if (summary.review > 0) {
+    parts.push(`${summary.review} to review`);
+  }
+
+  const lead = summary.blocking > 0
+    ? `Cannot save — ${parts.join(', ')}.`
+    : `Saveable with ${parts.join(', ')}.`;
+  return <span>{lead}</span>;
 }
 
 /**
@@ -526,13 +695,16 @@ function TargetStatusIcon(props: {
 function PropInspector(props: {
   disabled: boolean;
   onOptionChange: SemanticMappingViewProps['onOptionChange'];
+  onRepeatedInstancesChange?: SemanticMappingViewProps['onRepeatedInstancesChange'];
   onValueMappingChange?: SemanticMappingViewProps['onValueMappingChange'];
   row: SemanticTargetRow;
 }): h.JSX.Element {
   const { row } = props;
   const target = row.target;
   const allowedValues = allowedStaticValues(target);
-  const mappable = target.kind === 'visual' || target.kind === 'node';
+  const repeatedSlot = target.kind === 'array'
+    && target.itemSchemas?.some((item) => item.role === 'item' && item.kind === 'node') === true;
+  const mappable = target.kind === 'visual' || target.kind === 'node' || repeatedSlot;
   const mode = row.optionId === OPTION_RUNTIME || row.optionId === OPTION_STATIC
     ? 'code'
     : row.optionId === OPTION_OMITTED
@@ -562,12 +734,20 @@ function PropInspector(props: {
 
       {target.kind === 'excluded' ? (
         <p class="mapping-help">
-          Excluded by policy — styling and DOM props stay in application code.
+          {targetKindReason(target.kind)}
         </p>
       ) : target.kind === 'unsupported' ? (
-        <p class="mapping-help">This type cannot be mapped visually yet.</p>
+        <p class="mapping-help">{targetKindReason(target.kind)}</p>
       ) : (
         <Fragment>
+          {isRuntimeSourceTargetKind(target.kind) && target.kind !== 'node' ? (
+            <p class="mapping-help">{targetKindReason(target.kind)}</p>
+          ) : null}
+          {summarizeCollectionItemSchema(target.itemSchemas ?? []) ? (
+            <p class="mapping-help">
+              Item shape: <code>{summarizeCollectionItemSchema(target.itemSchemas ?? [])}</code>
+            </p>
+          ) : null}
           <div
             aria-label={`Source mode for ${row.targetPath}`}
             class="mapping-mode-control"
@@ -578,7 +758,7 @@ function PropInspector(props: {
               onValueChange={(value) => {
                 if (value === 'figma') {
                   choose(row.optionId && ![
-                    OPTION_RUNTIME, OPTION_STATIC, OPTION_OMITTED,
+                    OPTION_RUNTIME, OPTION_STATIC, OPTION_OMITTED, OPTION_REPEATED,
                   ].includes(row.optionId) ? row.optionId : row.options[0]?.id ?? '');
                 } else if (value === 'code') {
                   choose(row.optionId === OPTION_STATIC ? OPTION_STATIC : OPTION_RUNTIME);
@@ -632,6 +812,14 @@ function PropInspector(props: {
                 <p class="choice-none">
                   No component or nested-instance properties can feed a {target.typeName} prop.
                 </p>
+              ) : repeatedSlot ? (
+                <RepeatedSlotEditor
+                  disabled={props.disabled}
+                  onChange={(orderedOptionIds) => {
+                    props.onRepeatedInstancesChange?.(target.path, orderedOptionIds);
+                  }}
+                  row={row}
+                />
               ) : (
                 <div class="mapping-candidate-control">
                   <Dropdown
@@ -734,6 +922,97 @@ function PropInspector(props: {
         </Fragment>
       )}
     </section>
+  );
+}
+
+function RepeatedSlotEditor(props: {
+  disabled: boolean;
+  onChange: (orderedOptionIds: readonly string[]) => void;
+  row: SemanticTargetRow;
+}): h.JSX.Element {
+  const compatible = props.row.options.filter((option) => option.needsCheck !== true);
+  const selected = props.row.repeatedOptionIds ?? [];
+
+  return (
+    <div class="repeated-slot-editor">
+      <div
+        aria-label={`Connected components for ${props.row.targetPath}`}
+        class="repeated-slot-options"
+        role="group"
+      >
+        {compatible.map((option) => {
+          const checked = selected.includes(option.id);
+          return (
+            <label class="repeated-slot-option" key={option.id}>
+              <input
+                checked={checked}
+                disabled={props.disabled}
+                onChange={() => props.onChange(
+                  checked
+                    ? selected.filter((id) => id !== option.id)
+                    : [...selected, option.id],
+                )}
+                type="checkbox"
+              />
+              <span>{option.label}</span>
+              {option.detail ? <small>{option.detail}</small> : null}
+            </label>
+          );
+        })}
+      </div>
+
+      {selected.length > 0 ? (
+        <ol class="repeated-slot-order" aria-label={`Order for ${props.row.targetPath}`}>
+          {selected.map((optionId, index) => {
+            const option = props.row.options.find((candidate) => candidate.id === optionId);
+            const label = option?.label ?? 'Connected component';
+            return (
+              <li key={optionId}>
+                <span>{label}</span>
+                <div>
+                  <button
+                    aria-label={`Move ${label} up`}
+                    disabled={props.disabled || index === 0}
+                    onClick={() => {
+                      const next = [...selected];
+                      [next[index - 1], next[index]] = [next[index], next[index - 1]];
+                      props.onChange(next);
+                    }}
+                    type="button"
+                  >
+                    ↑
+                  </button>
+                  <button
+                    aria-label={`Move ${label} down`}
+                    disabled={props.disabled || index === selected.length - 1}
+                    onClick={() => {
+                      const next = [...selected];
+                      [next[index], next[index + 1]] = [next[index + 1], next[index]];
+                      props.onChange(next);
+                    }}
+                    type="button"
+                  >
+                    ↓
+                  </button>
+                  <button
+                    aria-label={`Remove ${label}`}
+                    disabled={props.disabled}
+                    onClick={() => props.onChange(
+                      selected.filter((id) => id !== optionId),
+                    )}
+                    type="button"
+                  >
+                    Remove
+                  </button>
+                </div>
+              </li>
+            );
+          })}
+        </ol>
+      ) : (
+        <p class="mapping-help">Choose one or more components. Their order is preserved in code.</p>
+      )}
+    </div>
   );
 }
 

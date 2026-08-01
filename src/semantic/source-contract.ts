@@ -11,10 +11,14 @@
  */
 
 import * as ts from 'typescript';
+import {
+  collectSourcePropsMembers,
+  selectSourcePropsDeclaration,
+  type ParsedSourceFile,
+} from '../source-props';
 import type { SourcePropValue } from '../types';
 import {
   createSourceContentHash,
-  selectSourcePropsInterface,
   type SourceFileInput,
 } from '../source-schema';
 import { SEMANTIC_LIMITS } from './types';
@@ -26,6 +30,22 @@ export type SourceTargetKind =
   | 'event'
   /** React node slot (children or render prop). */
   | 'node'
+  /** Array, tuple, set, or other collection supplied by application data. */
+  | 'array'
+  /** Object/record value that must be assembled by application code. */
+  | 'record'
+  /** Date-like value supplied by application code. */
+  | 'date'
+  /** Browser file/blob value supplied by application code. */
+  | 'file'
+  /** Render function or component type supplied by application code. */
+  | 'render'
+  /** Framework styling/system value kept out of design-value mapping. */
+  | 'styling'
+  /** State value paired with a public change/close callback. */
+  | 'controlled'
+  /** Framework or host value such as a theme, anchor, or MUI slot config. */
+  | 'environment'
   /** Excluded by policy (className, style, ref, ...). */
   | 'excluded'
   /** Type the parser cannot model; kept visible with its type text. */
@@ -44,12 +64,119 @@ export type SourceTargetDescriptor = {
   insideOptionalObject?: boolean;
   values?: SourcePropValue[];
   defaultValue?: SourcePropValue;
+  /** Bounded item/key/value schemas for application-provided collections. */
+  itemSchemas?: SourceCollectionItemSchema[];
+  /** Companion callback that updates this controlled value. */
+  controlledBy?: string[];
+  /** File that declares the owning prop, used to identify inherited drift. */
+  declaredIn?: string;
 };
+
+export type SourceCollectionItemSchema = {
+  kind: SourceTargetKind;
+  role: 'item' | 'key' | 'value';
+  /** Nested field within an object-valued item, e.g. `component`. */
+  path?: string[];
+  typeName: string;
+  values?: SourcePropValue[];
+};
+
+export function isRuntimeSourceTargetKind(kind: SourceTargetKind): boolean {
+  return kind === 'event'
+    || kind === 'array'
+    || kind === 'record'
+    || kind === 'date'
+    || kind === 'file'
+    || kind === 'render'
+    || kind === 'styling'
+    || kind === 'controlled'
+    || kind === 'environment';
+}
+
+// ponytail: hand-maintained kind→reason map. Ceiling: a new SourceTargetKind
+// added without an entry here returns undefined and the UI falls back to the
+// generic static/runtime copy. The map mirrors the JSDoc on the union above,
+// which is the single source of truth for each kind's intent.
+const TARGET_KIND_REASON: Readonly<Record<SourceTargetKind, string>> = {
+  visual: 'Design value — can come from a Figma property.',
+  event: 'Callback — application code supplies the handler.',
+  node: 'React node slot — a connected component fills it.',
+  array: 'Collection — application code supplies the data.',
+  record: 'Object value — application code assembles it.',
+  date: 'Date value — application code supplies it.',
+  file: 'Browser file or blob — application code supplies it.',
+  render: 'Render function or component type — application code supplies it.',
+  styling: 'Framework styling value — stays in application code.',
+  controlled: 'Controlled state — application code owns the value.',
+  environment: 'Framework or host value (theme, anchor, slot config).',
+  excluded: 'Excluded by policy — styling and DOM props stay in application code.',
+  unsupported: 'This type cannot be mapped visually yet.',
+};
+
+/**
+ * Human reason for why a target is the way it is (roadmap M7: "show why a value
+ * is runtime-only or unsupported"). Mirrors the JSDoc intent on each
+ * {@link SourceTargetKind}. Returns undefined for an unknown kind so callers can
+ * fall back rather than render a wrong reason.
+ */
+export function targetKindReason(kind: SourceTargetKind): string | undefined {
+  return TARGET_KIND_REASON[kind];
+}
+
+/**
+ * Render a collection's item shape as a compact TypeScript-like summary for the
+ * M7 "structured editors" deliverable — display-only. Groups item fields by
+ * role: `item` fields become object members, `key`/`value` describe a Record.
+ * Returns undefined when there is nothing structured to show.
+ *
+ * ponytail: this is a presentational flatten of `itemSchemas`, not a type
+ * reconstruction. Generic parameterization and nested item objects are shown as
+ * their typeName verbatim; the ceiling is one level of item fields, which covers
+ * every public Swiss Army Knife collection audited so far.
+ */
+export function summarizeCollectionItemSchema(
+  items: readonly SourceCollectionItemSchema[],
+): string | undefined {
+  if (items.length === 0) {
+    return undefined;
+  }
+
+  // Record-like: `{ [key]: value }`.
+  const keyItem = items.find((item) => item.role === 'key');
+  const valueItem = items.find((item) => item.role === 'value');
+  if (keyItem && valueItem) {
+    return `{ [${formatField(keyItem)}]: ${valueItem.typeName} }`;
+  }
+
+  // Object-like: `{ field: type, … }`. A single pathless item (e.g. just
+  // `ReactNode`) is the collection's element type, not a named field.
+  const fields = items.filter((item) => item.role === 'item');
+  const namedFields = fields.filter((item) => item.path && item.path.length > 0);
+  if (namedFields.length === 0) {
+    return fields[0]?.typeName ?? items[0]?.typeName;
+  }
+  const members = namedFields.map((item) => {
+    const name = item.path?.[item.path.length - 1] ?? item.typeName;
+    return `${name}: ${item.typeName}`;
+  });
+  return `{ ${members.join(', ')} }`;
+}
+
+function formatField(item: SourceCollectionItemSchema): string {
+  return item.path?.[item.path.length - 1] ?? item.typeName;
+}
 
 export type SourceContract = {
   componentName: string;
   fileName: string;
   contentHash: string;
+  propsTypeName?: string;
+  /**
+   * Resolved base-type names behind `propsTypeName`, for the M7 "resolved props
+   * source and inheritance chain" display. Empty/absent when no local heritage
+   * could be named (e.g. unresolved external bases). Display-only.
+   */
+  propsTypeChain?: string[];
   targets: SourceTargetDescriptor[];
 };
 
@@ -80,7 +207,7 @@ export function extractSourceContract(
     };
   }
 
-  const parsedFiles = files.map((file) => ({
+  const parsedFiles: ParsedSourceFile[] = files.map((file) => ({
     ...file,
     sourceFile: ts.createSourceFile(
       file.fileName,
@@ -91,25 +218,11 @@ export function extractSourceContract(
     ),
   }));
 
-  const candidates = parsedFiles.flatMap((file) => {
-    return file.sourceFile.statements
-      .filter(ts.isInterfaceDeclaration)
-      .filter((declaration) => declaration.name.text.endsWith('Props'))
-      .map((declaration) => ({ declaration, file }));
-  });
-  const expectedInterfaceName = requestedComponentName
-    ? `${requestedComponentName}Props`
-    : undefined;
-  const exactMatch = expectedInterfaceName
-    ? candidates.find(({ declaration }) => declaration.name.text === expectedInterfaceName)
-    : undefined;
-  // Keep this selection aligned with `parseSourceComponent` so the visual and
-  // semantic editors always describe the same interface.
-  const selected = exactMatch ?? selectSourcePropsInterface(candidates, requestedComponentName);
+  const selected = selectSourcePropsDeclaration(parsedFiles, requestedComponentName);
 
   if (!selected) {
     return {
-      message: 'Could not find an interface whose name ends with Props.',
+      message: 'Could not resolve a props interface or type alias for this component.',
       ok: false,
     };
   }
@@ -117,31 +230,44 @@ export function extractSourceContract(
   const symbols = buildSymbolTable(parsedFiles);
   const aliases = symbols.aliases;
   const warnings: string[] = [];
-
-  if (expectedInterfaceName && !exactMatch) {
+  const expectedPropsName = requestedComponentName
+    ? `${requestedComponentName}Props`
+    : undefined;
+  if (
+    expectedPropsName
+    && selected.declaration.name.text !== expectedPropsName
+  ) {
     warnings.push(
-      `Used ${selected.declaration.name.text} because no ${expectedInterfaceName} was found.`,
+      `Used ${selected.declaration.name.text} because no ${expectedPropsName} was found.`,
     );
   }
   const targets: SourceTargetDescriptor[] = [];
+  const declarationFiles = new Map<string, string>();
 
-  const members = collectInterfaceMembers(
-    selected.declaration,
-    selected.file.sourceFile,
-    symbols,
-    new Set(),
+  const { members, chain: propsTypeChain } = collectSourcePropsMembers(
+    selected,
+    parsedFiles,
     warnings,
   );
 
-  for (const { member, sourceFile } of members) {
+  for (const {
+    member,
+    required: checkedRequired,
+    sourceFile,
+    typeName: checkedTypeName,
+    typeNode: checkedTypeNode,
+  } of members) {
     const name = getPropertyName(member.name);
     if (!name) {
       warnings.push('Skipped a computed prop name that cannot be mapped safely.');
       continue;
     }
 
-    const required = member.questionToken === undefined;
-    const typeName = member.type?.getText(sourceFile) ?? 'unknown';
+    const required = checkedRequired ?? member.questionToken === undefined;
+    const typeName = checkedTypeName ?? member.type?.getText(sourceFile) ?? 'unknown';
+    const typeNode = checkedTypeNode ?? member.type;
+    const typeSourceFile = checkedTypeNode?.getSourceFile() ?? sourceFile;
+    declarationFiles.set(name, sourceFile.fileName);
 
     if (EXCLUDED_PROPS.has(name)) {
       targets.push({ kind: 'excluded', ownerProp: name, path: [name], required, typeName });
@@ -149,10 +275,21 @@ export function extractSourceContract(
     }
 
     // Object-shaped prop (type literal, interface ref, or Omit/Pick of one):
-    // flatten one level into nested targets like `submitProps.variant`.
-    const objectMembers = resolveObjectMembers(member.type, symbols, warnings);
+    // recursively flatten safe leaves into paths like
+    // `submitProps.button.appearance.variant`.
+    const objectMembers = resolveObjectMembers(typeNode, symbols, warnings);
     if (objectMembers.length > 0) {
-      const leaves = extractObjectLeaves(name, required, objectMembers, symbols, aliases, warnings);
+      const leaves = extractObjectLeaves(
+        name,
+        required,
+        objectMembers,
+        symbols,
+        aliases,
+        warnings,
+        [name],
+        !required,
+        createObjectTypeTrail(typeNode, typeSourceFile),
+      );
       if (leaves.length > 0) {
         targets.push(...leaves);
         continue;
@@ -161,8 +298,19 @@ export function extractSourceContract(
       continue;
     }
 
-    const typeNode = dealias(member.type, aliases, new Set());
-    const leaf = resolveLeafType(name, typeNode, sourceFile);
+    const resolvedTypeNode = dealias(typeNode, aliases, new Set());
+    const leaf = isLocalObjectUnion(resolvedTypeNode, symbols, warnings)
+      ? { kind: 'record' as const }
+      : resolveLeafType(name, resolvedTypeNode, typeSourceFile);
+    const itemSchemas = leaf.kind === 'array'
+      ? resolveCollectionItemSchemas(
+          resolvedTypeNode,
+          typeSourceFile,
+          symbols,
+          aliases,
+          warnings,
+        )
+      : [];
     targets.push({
       kind: leaf.kind,
       ownerProp: name,
@@ -170,21 +318,149 @@ export function extractSourceContract(
       required,
       typeName,
       ...(leaf.values ? { values: leaf.values } : {}),
+      ...(itemSchemas.length > 0 ? { itemSchemas } : {}),
     });
   }
 
-  const componentName = selected.declaration.name.text.replace(/Props$/, '');
+  const classifiedTargets = classifyControlledTargets(
+    classifyFrameworkTargets(targets),
+  ).map((target) => ({
+    ...target,
+    ...(isDependencyDeclaration(
+      declarationFiles.get(target.ownerProp),
+      selected.file.fileName,
+    )
+      ? { declaredIn: declarationFiles.get(target.ownerProp) }
+      : {}),
+  }));
+  const propsComponentName = selected.declaration.name.text
+    .replace(/Props(?:Type)?$/i, '')
+    .replace(/^I(?=[A-Z])/, '');
+  const componentName = selected.componentName
+    ?? ((selected.reason === 'name-affinity' || selected.reason === 'fallback')
+      && propsComponentName
+      ? propsComponentName
+      : requestedComponentName ?? propsComponentName);
 
   return {
     contract: {
       componentName,
       contentHash: createSourceContentHash(files),
       fileName: selected.file.fileName,
-      targets,
+      propsTypeName: selected.declaration.name.text,
+      ...(propsTypeChain.length > 0 ? { propsTypeChain } : {}),
+      targets: classifiedTargets,
     },
     ok: true,
     warnings,
   };
+}
+
+function isDependencyDeclaration(
+  declaredIn: string | undefined,
+  componentFile: string,
+): declaredIn is string {
+  if (declaredIn === undefined) {
+    return false;
+  }
+  const normalize = (value: string) => value.replace(/\\/g, '/').replace(/^\/+/, '');
+  return normalize(declaredIn) !== normalize(componentFile);
+}
+
+function classifyFrameworkTargets(
+  targets: readonly SourceTargetDescriptor[],
+): SourceTargetDescriptor[] {
+  return targets.map((target) => {
+    if (target.kind !== 'unsupported') {
+      return target;
+    }
+
+    const leafName = target.path[target.path.length - 1] ?? target.ownerProp;
+    if (/Component$/.test(leafName)) {
+      return { ...target, kind: 'render' };
+    }
+    if (
+      /^(?:theme|typography|anchorEl|container|portalContainer|transitionDuration|PaperProps|TransitionProps)$/
+        .test(leafName)
+      || target.path[0] === 'componentsProps'
+      || target.path[0] === 'slotProps'
+    ) {
+      return { ...target, kind: 'environment' };
+    }
+    return target;
+  });
+}
+
+function classifyControlledTargets(
+  targets: readonly SourceTargetDescriptor[],
+): SourceTargetDescriptor[] {
+  const callbacks = targets.filter(
+    (target) => target.kind === 'event' && target.path.length === 1,
+  );
+  const candidates = targets.filter(
+    (target) => target.path.length === 1 && isControlledValueName(target.ownerProp),
+  );
+  const controlledBy = new Map<string, SourceTargetDescriptor>();
+
+  for (const callback of callbacks) {
+    const matches = candidates
+      .filter((candidate) => controlsValue(callback.ownerProp, candidate.ownerProp))
+      .sort((left, right) => (
+        controlledValuePriority(left.ownerProp) - controlledValuePriority(right.ownerProp)
+      ));
+    const controlled = matches[0];
+    if (controlled !== undefined && !controlledBy.has(controlled.ownerProp)) {
+      controlledBy.set(controlled.ownerProp, callback);
+    }
+  }
+
+  return targets.map((target) => {
+    if (target.path.length !== 1 || !isControlledValueName(target.ownerProp)) {
+      return target;
+    }
+
+    const callback = controlledBy.get(target.ownerProp);
+    return callback === undefined
+      ? target
+      : {
+          ...target,
+          controlledBy: [...callback.path],
+          kind: 'controlled',
+        };
+  });
+}
+
+function controlledValuePriority(name: string): number {
+  return [
+    'value',
+    'checked',
+    'selectedValue',
+    'selected',
+    'selection',
+    'inputValue',
+    'expanded',
+    'activeStep',
+    'open',
+    'isOpen',
+  ].indexOf(name);
+}
+
+function isControlledValueName(name: string): boolean {
+  return /^(?:value|inputValue|checked|selected|selectedValue|selection|open|isOpen|expanded|activeStep)$/
+    .test(name);
+}
+
+function controlsValue(callbackName: string, valueName: string): boolean {
+  if (callbackName === 'onChange') {
+    return valueName !== 'open' && valueName !== 'isOpen';
+  }
+  if (valueName === 'open' || valueName === 'isOpen') {
+    return callbackName === 'onOpenChange' || callbackName === 'onClose';
+  }
+  const stem = valueName.startsWith('is') && valueName.length > 2
+    ? valueName.slice(2)
+    : valueName;
+  return callbackName === `on${stem[0]?.toUpperCase() ?? ''}${stem.slice(1)}Change`;
 }
 
 function extractObjectLeaves(
@@ -194,6 +470,9 @@ function extractObjectLeaves(
   symbols: SymbolTable,
   aliases: ReadonlyMap<string, ts.TypeNode>,
   warnings: string[],
+  parentPath: readonly string[] = [ownerProp],
+  insideOptionalObject = !ownerRequired,
+  objectTypeTrail: ReadonlySet<string> = new Set(),
 ): SourceTargetDescriptor[] {
   const leaves: SourceTargetDescriptor[] = [];
 
@@ -212,33 +491,237 @@ function extractObjectLeaves(
 
     const memberRequired = member.questionToken === undefined;
     const typeName = member.type?.getText(sourceFile) ?? 'unknown';
-    const path = [ownerProp, name];
+    const path = [...parentPath, name];
     const required = ownerRequired && memberRequired;
 
     if (EXCLUDED_PROPS.has(name)) {
-      leaves.push({ insideOptionalObject: !ownerRequired, kind: 'excluded', ownerProp, path, required, typeName });
+      leaves.push({
+        insideOptionalObject,
+        kind: 'excluded',
+        ownerProp,
+        path,
+        required,
+        typeName,
+      });
       continue;
     }
 
-    // v1 supports one nested level only; deeper objects stay unsupported.
-    if (resolveObjectMembers(member.type, symbols, warnings).length > 0) {
-      leaves.push({ insideOptionalObject: !ownerRequired, kind: 'unsupported', ownerProp, path, required, typeName });
+    const nestedMembers = resolveObjectMembers(member.type, symbols, warnings);
+    const nestedTypeIdentity = getObjectTypeIdentity(member.type, sourceFile);
+    const repeatsObjectType = nestedTypeIdentity !== undefined
+      && objectTypeTrail.has(nestedTypeIdentity);
+    if (
+      nestedMembers.length > 0
+      && path.length < SEMANTIC_LIMITS.maxTargetPathDepth
+      && !repeatsObjectType
+    ) {
+      const nextTypeTrail = new Set(objectTypeTrail);
+      if (nestedTypeIdentity !== undefined) {
+        nextTypeTrail.add(nestedTypeIdentity);
+      }
+      const nestedLeaves = extractObjectLeaves(
+        ownerProp,
+        required,
+        nestedMembers,
+        symbols,
+        aliases,
+        warnings,
+        path,
+        insideOptionalObject || !memberRequired,
+        nextTypeTrail,
+      );
+      leaves.push(...nestedLeaves);
       continue;
     }
 
-    const leaf = resolveLeafType(name, dealias(member.type, aliases, new Set()), sourceFile);
+    // At the bounded depth, preserve the remaining object as one explicit
+    // runtime record instead of silently dropping its public API.
+    if (nestedMembers.length > 0) {
+      leaves.push({
+        insideOptionalObject,
+        kind: 'record',
+        ownerProp,
+        path,
+        required,
+        typeName,
+      });
+      continue;
+    }
+
+    const resolvedMemberType = dealias(member.type, aliases, new Set());
+    const leaf = resolveLeafType(name, resolvedMemberType, sourceFile);
+    const itemSchemas = leaf.kind === 'array'
+      ? resolveCollectionItemSchemas(
+          resolvedMemberType,
+          sourceFile,
+          symbols,
+          aliases,
+          warnings,
+        )
+      : [];
     leaves.push({
-      insideOptionalObject: !ownerRequired,
+      insideOptionalObject,
       kind: leaf.kind,
       ownerProp,
       path,
       required,
       typeName,
       ...(leaf.values ? { values: leaf.values } : {}),
+      ...(itemSchemas.length > 0 ? { itemSchemas } : {}),
     });
   }
 
   return leaves;
+}
+
+function createObjectTypeTrail(
+  node: ts.TypeNode | undefined,
+  sourceFile: ts.SourceFile,
+): ReadonlySet<string> {
+  const identity = getObjectTypeIdentity(node, sourceFile);
+  return identity === undefined ? new Set() : new Set([identity]);
+}
+
+function getObjectTypeIdentity(
+  node: ts.TypeNode | undefined,
+  sourceFile: ts.SourceFile,
+): string | undefined {
+  if (!node) {
+    return undefined;
+  }
+  if (ts.isTypeReferenceNode(node)) {
+    return node.typeName.getText(sourceFile);
+  }
+  return undefined;
+}
+
+function resolveCollectionItemSchemas(
+  node: ts.TypeNode | undefined,
+  sourceFile: ts.SourceFile,
+  symbols: SymbolTable,
+  aliases: ReadonlyMap<string, ts.TypeNode>,
+  warnings: string[],
+): SourceCollectionItemSchema[] {
+  if (!node) {
+    return [];
+  }
+
+  if (ts.isArrayTypeNode(node)) {
+    return createCollectionItemSchemas(
+      'item',
+      node.elementType,
+      sourceFile,
+      symbols,
+      aliases,
+      warnings,
+    );
+  }
+
+  if (ts.isTupleTypeNode(node)) {
+    return node.elements.slice(0, 16).flatMap((element) => createCollectionItemSchemas(
+      'item',
+      unwrapTupleElement(element),
+      sourceFile,
+      symbols,
+      aliases,
+      warnings,
+    )).slice(0, 16);
+  }
+
+  if (!ts.isTypeReferenceNode(node)) {
+    return [];
+  }
+
+  const typeName = node.typeName.getText(sourceFile);
+  const typeArguments = node.typeArguments ?? [];
+  if (/^(?:Array|ReadonlyArray|Set|ReadonlySet)$/.test(typeName)) {
+    const itemType = typeArguments[0];
+    return itemType === undefined
+      ? []
+      : createCollectionItemSchemas(
+          'item',
+          itemType,
+          sourceFile,
+          symbols,
+          aliases,
+          warnings,
+        );
+  }
+
+  if (/^(?:Map|ReadonlyMap)$/.test(typeName) && typeArguments.length >= 2) {
+    return [
+      ...createCollectionItemSchemas(
+        'key',
+        typeArguments[0],
+        sourceFile,
+        symbols,
+        aliases,
+        warnings,
+      ),
+      ...createCollectionItemSchemas(
+        'value',
+        typeArguments[1],
+        sourceFile,
+        symbols,
+        aliases,
+        warnings,
+      ),
+    ];
+  }
+
+  return [];
+}
+
+function createCollectionItemSchemas(
+  role: SourceCollectionItemSchema['role'],
+  node: ts.TypeNode,
+  sourceFile: ts.SourceFile,
+  symbols: SymbolTable,
+  aliases: ReadonlyMap<string, ts.TypeNode>,
+  warnings: string[],
+): SourceCollectionItemSchema[] {
+  const resolvedNode = dealias(node, aliases, new Set());
+  const objectMembers = resolveObjectMembers(resolvedNode, symbols, warnings);
+  if (objectMembers.length > 0) {
+    const leaves = extractObjectLeaves(
+      'item',
+      true,
+      objectMembers,
+      symbols,
+      aliases,
+      warnings,
+      ['item'],
+      false,
+      createObjectTypeTrail(resolvedNode, sourceFile),
+    );
+    if (leaves.some((leaf) => leaf.kind === 'node')) {
+      return leaves.slice(0, 16).map((leaf) => ({
+        kind: leaf.kind,
+        path: leaf.path.slice(1),
+        role,
+        typeName: leaf.typeName,
+        ...(leaf.values ? { values: leaf.values } : {}),
+      }));
+    }
+    return [{ kind: 'record', role, typeName: node.getText(sourceFile) }];
+  }
+  const leaf = resolveLeafType('item', resolvedNode, sourceFile);
+  return [{
+    kind: leaf.kind,
+    role,
+    typeName: node.getText(sourceFile),
+    ...(leaf.values ? { values: leaf.values } : {}),
+  }];
+}
+
+function unwrapTupleElement(node: ts.TypeNode): ts.TypeNode {
+  if (ts.isNamedTupleMember(node)) {
+    return node.type;
+  }
+  if (ts.isOptionalTypeNode(node) || ts.isRestTypeNode(node)) {
+    return node.type;
+  }
+  return node;
 }
 
 /**
@@ -255,6 +738,28 @@ function resolveObjectMembers(
   return node === undefined ? [] : resolveTypeToMembers(node, symbols, new Set(), warnings);
 }
 
+/**
+ * A union of local object interfaces is a runtime record, but it is not safe to
+ * flatten: each branch can require a different shape. Keep the declared union
+ * type intact and let application code provide one complete branch.
+ */
+function isLocalObjectUnion(
+  node: ts.TypeNode | undefined,
+  symbols: SymbolTable,
+  warnings: string[],
+): boolean {
+  if (!node || !ts.isUnionTypeNode(node)) {
+    return false;
+  }
+  const members = node.types.filter(
+    (member) => member.kind !== ts.SyntaxKind.UndefinedKeyword
+      && !(ts.isLiteralTypeNode(member) && member.literal.kind === ts.SyntaxKind.NullKeyword),
+  );
+  return members.length > 1 && members.every(
+    (member) => resolveTypeToMembers(member, symbols, new Set(), warnings).length > 0,
+  );
+}
+
 function resolveLeafType(
   name: string,
   node: ts.TypeNode | undefined,
@@ -264,8 +769,14 @@ function resolveLeafType(
     return { kind: 'unsupported' };
   }
 
+  if (/^(?:sx|classes|slotProps|componentsProps)$/.test(name)) {
+    return { kind: 'styling' };
+  }
+
   if (ts.isFunctionTypeNode(node)) {
-    return { kind: 'event' };
+    return /^(?:render[A-Z].*|.*Renderer|.*Component)$/.test(name)
+      ? { kind: 'render' }
+      : { kind: 'event' };
   }
 
   if (/^on[A-Z]/.test(name)) {
@@ -291,6 +802,17 @@ function resolveLeafType(
     if (meaningful.some((member) => member.kind === ts.SyntaxKind.StringKeyword)) {
       return { kind: 'visual' };
     }
+    const resolvedKinds = meaningful.map(
+      (member) => resolveLeafType(name, member, sourceFile).kind,
+    );
+    const firstKind = resolvedKinds[0];
+    if (
+      firstKind !== undefined
+      && firstKind !== 'unsupported'
+      && resolvedKinds.every((kind) => kind === firstKind)
+    ) {
+      return { kind: firstKind };
+    }
     return { kind: 'unsupported' };
   }
 
@@ -302,15 +824,51 @@ function resolveLeafType(
     return { kind: 'visual' };
   }
 
+  if (ts.isArrayTypeNode(node) || ts.isTupleTypeNode(node)) {
+    return { kind: 'array' };
+  }
+
+  if (node.kind === ts.SyntaxKind.ObjectKeyword || ts.isTypeLiteralNode(node)) {
+    return { kind: 'record' };
+  }
+
   if (ts.isTypeReferenceNode(node)) {
     const typeName = node.typeName.getText(sourceFile);
 
-    if (/ReactNode|ReactElement|JSX\.Element/.test(typeName)) {
+    if (typeName === 'Node' || /ReactNode|ReactElement|JSX\.Element/.test(typeName)) {
       return { kind: 'node' };
     }
 
     if (/Handler$|EventHandler$/.test(typeName)) {
       return { kind: 'event' };
+    }
+
+    if (/^(?:Array|ReadonlyArray|Set|ReadonlySet|Map|ReadonlyMap)$/.test(typeName)) {
+      return { kind: 'array' };
+    }
+
+    if (/^(?:Record|Object|WeakMap|WeakSet)$/.test(typeName)) {
+      return { kind: 'record' };
+    }
+
+    if (/^(?:Date|Dayjs|Moment)$/.test(typeName) || /Date$/.test(typeName)) {
+      return { kind: 'date' };
+    }
+
+    if (/^(?:File|FileList|Blob|FormData|DataTransfer)$/.test(typeName)) {
+      return { kind: 'file' };
+    }
+
+    if (
+      /(?:ComponentType|ElementType|FunctionComponent|React\.FC|Renderer)$/.test(typeName)
+    ) {
+      return { kind: 'render' };
+    }
+
+    if (
+      /(?:SxProps|SystemStyleObject|CSSProperties|ClassNameMap|Classes)$/.test(typeName)
+    ) {
+      return { kind: 'styling' };
     }
   }
 

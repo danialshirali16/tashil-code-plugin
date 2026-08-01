@@ -193,6 +193,7 @@ async function createConnectedUsage(
       metadata.semanticRecipe,
       {
         componentProperties: selection.componentProperties,
+        instanceSwaps: selection.instanceSwaps,
         root,
       },
     );

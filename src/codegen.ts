@@ -429,14 +429,15 @@ function createResolvedInstanceSwapMapping(
   };
 }
 
-function createIconName(componentName: string): string {
-  return componentName
+export function createIconName(componentName: string): string {
+  const normalized = componentName
     .trim()
     .replace(/([a-z0-9])([A-Z])/g, '$1-$2')
     .replace(/([A-Z]+)([A-Z][a-z])/g, '$1-$2')
     .replace(/[^A-Za-z0-9]+/g, '-')
     .replace(/^-+|-+$/g, '')
     .toLowerCase();
+  return normalized.replace(/^icon-(?=.+)/, '');
 }
 
 export function formatMappingDiagnostics(diagnostics: MappingDiagnostic[]): string {
@@ -947,6 +948,10 @@ function hasValidCommonConnectionFields(value: Record<string, unknown>): boolean
   return (
     typeof value.componentName === 'string'
     && isComponentIdentifier(value.componentName)
+    && (value.figmaComponentName === undefined || (
+      typeof value.figmaComponentName === 'string'
+      && value.figmaComponentName.trim().length > 0
+    ))
     && typeof value.importPath === 'string'
     && value.importPath.length > 0
     && (value.storybookUrl === undefined || typeof value.storybookUrl === 'string')

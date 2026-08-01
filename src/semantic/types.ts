@@ -21,25 +21,51 @@ import type { SourceContract } from './source-contract';
  * metadata schema version so authoring changes do not force a bump of all
  * connection metadata.
  */
-export const SEMANTIC_RECIPE_SCHEMA_VERSION = 1;
+export const SEMANTIC_RECIPE_SCHEMA_VERSION = 2;
 
 /** Bounded limits enforced by schema validation and extraction. */
 export const SEMANTIC_LIMITS = {
   /** Maximum bindings per recipe. */
-  maxBindings: 64,
-  /** Maximum code prop path depth (v1 supports one nested level). */
-  maxTargetPathDepth: 2,
+  maxBindings: 256,
+  /** Maximum code prop path depth, bounded to prevent pathological type trees. */
+  maxTargetPathDepth: 8,
   /** Maximum segments in a Figma name-path locator. */
-  maxLocatorDepth: 8,
+  maxLocatorDepth: 16,
   /** Maximum nodes visited during semantic extraction. */
-  maxExtractionNodes: 400,
+  maxExtractionNodes: 2_000,
   /** Maximum nested sources captured in one snapshot. */
-  maxNestedSources: 64,
+  maxNestedSources: 256,
   /** Maximum persisted recipe size in JSON characters. */
-  maxSerializedLength: 32_000,
+  maxSerializedLength: 128_000,
   /** Maximum source contract targets persisted with a recipe. */
-  maxContractTargets: 128,
+  maxContractTargets: 512,
+  /** Maximum connected children in one repeated React-element slot. */
+  maxRepeatedSlotItems: 64,
 } as const;
+
+export type SemanticExtractionLimits = {
+  maxExtractionNodes: number;
+  maxLocatorDepth: number;
+  maxNestedSources: number;
+};
+
+export type SemanticExtractionDiagnosticCode =
+  | 'locator-depth-limit'
+  | 'nested-source-limit'
+  | 'node-limit';
+
+export type SemanticExtractionDiagnostic = {
+  code: SemanticExtractionDiagnosticCode;
+  limit: number;
+  message: string;
+  path?: string;
+};
+
+export type SemanticExtractionStatus = {
+  diagnostics: SemanticExtractionDiagnostic[];
+  partial: boolean;
+  visitedNodes: number;
+};
 
 /**
  * A code prop target as validated path segments, e.g. `['confirmAction',
@@ -48,6 +74,8 @@ export const SEMANTIC_LIMITS = {
 export type CodePropTarget = {
   path: string[];
   typeName: string;
+  /** Accepted structured-contract shape while a replacement contract is pending. */
+  schemaSignature?: string;
 };
 
 /**
@@ -108,6 +136,23 @@ export type InstanceSource = {
   locator: SemanticLocator;
   componentName: string;
   importPath: string;
+  /** Nested INSTANCE_SWAP property used to select this child, when applicable. */
+  instancePropertyName?: string;
+};
+
+export type ConnectedInstanceItem = {
+  locator: SemanticLocator;
+  componentName: string;
+  importPath: string;
+  instancePropertyName?: string;
+};
+
+/** Ordered connected children rendered into an array-valued component slot. */
+export type InstanceListSource = {
+  kind: 'instances';
+  items: ConnectedInstanceItem[];
+  /** Field inside each array item that receives the connected child. */
+  itemPath?: string[];
 };
 
 /**
@@ -122,6 +167,7 @@ export type SemanticBindingSource =
   | NestedTextSource
   | NestedPropertySource
   | InstanceSource
+  | InstanceListSource
   | StaticValueSource
   | OmittedValueSource
   | RuntimeValueSource;
@@ -173,6 +219,8 @@ export type FigmaNestedSourceDescriptor = {
   /** Connected component identity, for `nested-instance` descriptors only. */
   connectedComponentName?: string;
   connectedImportPath?: string;
+  /** Nested INSTANCE_SWAP property that produced this candidate. */
+  instancePropertyName?: string;
 };
 
 /**
@@ -184,6 +232,8 @@ export type FigmaSemanticSnapshot = {
   componentId: string;
   componentName: string;
   nestedSources: FigmaNestedSourceDescriptor[];
+  /** Persisted so reopening a large component still reports a truncated scan. */
+  extraction?: SemanticExtractionStatus;
 };
 
 export type RecipeLifecycleState =
@@ -214,6 +264,11 @@ export type SemanticConnectionRecipe = {
   figmaSnapshot: FigmaSemanticSnapshot;
   /** Derived source API (never source text) so authoring can reopen later. */
   sourceContract?: SourceContract;
+  /**
+   * Freshly uploaded source awaiting explicit reconciliation acceptance.
+   * Resolution continues to use sourceContract until this is promoted.
+   */
+  pendingSourceContract?: SourceContract;
   bindings: SemanticBinding[];
   revision: number;
   lastValidatedAt?: string;
@@ -230,5 +285,8 @@ export const LOCATOR_KEY_SEPARATOR = String.fromCharCode(0);
 
 /** Stable key for locator lookup tables. */
 export function locatorKey(locator: SemanticLocator): string {
-  return locator.namePath.join(LOCATOR_KEY_SEPARATOR);
+  const path = locator.namePath.join(LOCATOR_KEY_SEPARATOR);
+  return locator.componentKey === undefined
+    ? path
+    : `${locator.componentKey}${LOCATOR_KEY_SEPARATOR}${path}`;
 }

@@ -38,6 +38,17 @@ module.exports = tseslint.config(
     },
   },
   {
+    files: ['scripts/**/*.mjs'],
+    languageOptions: {
+      globals: {
+        console: 'readonly',
+      },
+      parserOptions: {
+        project: false,
+      },
+    },
+  },
+  {
     ignores: [
       '.kilo',
       '.zcode',

@@ -57,6 +57,7 @@ declare const styles: {
   readonly "fields": string;
   readonly "file-button": string;
   readonly "file-button-disabled": string;
+  readonly "file-button-secondary": string;
   readonly "footer": string;
   readonly "footer-confirmation-copy": string;
   readonly "form-error": string;
@@ -194,6 +195,10 @@ declare const styles: {
   readonly "reference-url": string;
   readonly "reference-value": string;
   readonly "reference-warning": string;
+  readonly "repeated-slot-editor": string;
+  readonly "repeated-slot-option": string;
+  readonly "repeated-slot-options": string;
+  readonly "repeated-slot-order": string;
   readonly "resize-corner": string;
   readonly "root": string;
   readonly "root-no-footer": string;
@@ -210,6 +215,7 @@ declare const styles: {
   readonly "source-icon": string;
   readonly "source-prop": string;
   readonly "source-summary": string;
+  readonly "source-upload-actions": string;
   readonly "spacer": string;
   readonly "static-value-label": string;
   readonly "static-value-row": string;

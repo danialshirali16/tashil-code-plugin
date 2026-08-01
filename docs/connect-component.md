@@ -42,8 +42,14 @@ Make sure:
 
 4. Fill the fields:
 
-   **Component name (required)**
-   The exported React component name.
+   **Figma component name**
+   The selected Figma main component or component-set name. The plugin keeps
+   this design-side identity separately and uses it as the connection reference.
+
+   **Source component name (required)**
+   The exported React component name used in imports and generated JSX. It may
+   differ from the Figma component name. Uploading source detects and fills this
+   name when the exported component can be resolved.
 
    ```txt
    Button
@@ -93,7 +99,9 @@ Make sure:
    **Source & prop mappings (optional)**
 
    Upload or drop the component's `.ts`/`.tsx` props file. The props declaration
-   must be an interface named `<ComponentName>Props`, such as `ButtonProps`.
+   does not need to match the Figma component name. The parser follows the
+   exported source component to its props type when possible, then falls back to
+   the strongest exported props declaration and reports the choice as a warning.
    When types and the implementation are split, select both files together.
    Local literal-union aliases are resolved when they live in the props file.
    Parsing happens locally; only the extracted prop names, types, values,

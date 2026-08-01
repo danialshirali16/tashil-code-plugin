@@ -15,8 +15,10 @@ import {
 } from './mapping-editor';
 import { mergePropMappingsJson } from './prop-mappings';
 import { parseSourceComponent } from './source-schema';
+import { collectSourceUploadInputs } from './source-upload';
 import {
   createRecipeDraft,
+  setRepeatedTargetInstances,
   setTargetOption,
   setTargetValueMapping,
 } from './semantic/authoring';
@@ -25,8 +27,13 @@ import {
   createConnectionDebugBundle,
   serializeConnectionDebugBundle,
 } from './semantic/debug-bundle';
+import {
+  createComponentAuditReport,
+  formatComponentAuditMarkdown,
+  serializeComponentAuditJson,
+} from './semantic/audit-report';
 import { evaluateSemanticHealth } from './semantic/health';
-import { isSemanticConnectionRecipe } from './semantic/schema';
+import { validateSemanticRecipe } from './semantic/schema';
 import { extractSourceContract } from './semantic/source-contract';
 import {
   applyProposal,
@@ -128,6 +135,7 @@ export type ConnectionController = {
     action: ReconciliationAction,
   ) => void;
   exportDebugBundle: () => void;
+  exportReport: (format: 'markdown' | 'json') => void;
   isSourceReplacementPending: boolean;
   sourceReplacementCancelRef: { current: HTMLButtonElement | null };
   confirmSourceReplacement: () => void;
@@ -145,6 +153,10 @@ export type ConnectionController = {
     targetPath: readonly string[],
     optionId: string,
     staticValue?: SourcePropValue,
+  ) => void;
+  setSemanticRepeatedInstances: (
+    targetPath: readonly string[],
+    orderedOptionIds: readonly string[],
   ) => void;
   setSemanticValueMapping: (
     targetPath: readonly string[],
@@ -678,7 +690,8 @@ export function useConnectionController(): ConnectionController {
 
     try {
       const parsed = JSON.parse(value) as unknown;
-      return isSemanticConnectionRecipe(parsed) ? parsed : undefined;
+      const validation = validateSemanticRecipe(parsed);
+      return validation.ok ? validation.recipe : undefined;
     } catch (_error) {
       return undefined;
     }
@@ -702,6 +715,18 @@ export function useConnectionController(): ConnectionController {
       optionId,
       staticValue,
     );
+    setFormField('semanticRecipe', JSON.stringify(updated));
+  }
+
+  function setSemanticRepeatedInstances(
+    targetPath: readonly string[],
+    orderedOptionIds: readonly string[],
+  ): void {
+    const recipe = readSemanticRecipe();
+    if (!recipe) {
+      return;
+    }
+    const updated = setRepeatedTargetInstances(recipe, targetPath, orderedOptionIds);
     setFormField('semanticRecipe', JSON.stringify(updated));
   }
 
@@ -754,6 +779,39 @@ export function useConnectionController(): ConnectionController {
     }
   }
 
+  /**
+   * Export the compatibility report for the current component (roadmap M7).
+   * Derived from the live source contract — target-kind counts and unsupported
+   * paths only — so it matches the CI audit without re-parsing source or
+   * touching raw uploads. The report never leaves the browser.
+   */
+  function exportReport(format: 'markdown' | 'json'): void {
+    const recipe = readSemanticRecipe();
+    const contract = recipe?.pendingSourceContract ?? recipe?.sourceContract;
+    if (!contract) {
+      setErrorMessage('Upload source before exporting a compatibility report.');
+      return;
+    }
+
+    const report = createComponentAuditReport(contract);
+    const isMarkdown = format === 'markdown';
+    const body = isMarkdown
+      ? formatComponentAuditMarkdown(report)
+      : serializeComponentAuditJson(report);
+    const fileName = `tashil-compatibility-${report.componentName}.${isMarkdown ? 'md' : 'json'}`;
+    try {
+      downloadBlob(
+        new Blob([body], { type: isMarkdown ? 'text/markdown' : 'application/json' }),
+        fileName,
+      );
+      setErrorMessage('');
+      setStatusMessage(`Exported ${fileName}.`);
+    } catch (_error) {
+      setStatusMessage('');
+      setErrorMessage('Could not export the compatibility report.');
+    }
+  }
+
   function setSemanticValueMapping(
     targetPath: readonly string[],
     sourceValue: SourcePropValue,
@@ -779,11 +837,24 @@ export function useConnectionController(): ConnectionController {
     }
     const updated = applyProposal(recipe, proposal, action);
     setFormField('semanticRecipe', JSON.stringify(updated));
-    setStatusMessage(
-      action === 'remove'
+    if (
+      action === 'accept'
+      && (
+        proposal.kind === 'source-contract-update'
+        || proposal.kind === 'component-alias-changed'
+      )
+    ) {
+      setFormField('componentName', proposal.newContract.componentName);
+    }
+    const contractUpdate = proposal.kind === 'source-contract-update'
+      || proposal.kind === 'component-alias-changed';
+    setStatusMessage(contractUpdate
+      ? action === 'accept'
+        ? 'Accepted the uploaded source contract.'
+        : 'Kept the current source contract.'
+      : action === 'remove'
         ? `Removed the stale mapping for ${proposal.targetPath}.`
-        : `Remapped ${proposal.targetPath}.`,
-    );
+        : `Remapped ${proposal.targetPath}.`);
   }
 
   function readPropMappings(): PropMappings {
@@ -933,10 +1004,13 @@ export function useConnectionController(): ConnectionController {
     setStatusMessage('Analyzing source files…');
 
     try {
-      const inputs = await Promise.all(files.map(async (file) => ({
-        contents: await file.text(),
-        fileName: file.name,
-      })));
+      const collected = await collectSourceUploadInputs(files);
+      if (!collected.ok) {
+        setStatusMessage('');
+        setErrorMessage(collected.message);
+        return;
+      }
+      const inputs = collected.inputs;
       const result = parseSourceComponent(
         inputs,
         formValuesRef.current.componentName.trim() || currentTarget.componentName,
@@ -953,6 +1027,14 @@ export function useConnectionController(): ConnectionController {
         setStatusMessage('');
         setErrorMessage(result.message);
         return;
+      }
+
+      const acceptedRecipe = readSemanticRecipe();
+      // Figma and source components have independent identities. A first
+      // upload can select the parsed source export immediately; replacement
+      // source stays pending so existing generation keeps its prior export.
+      if (!acceptedRecipe?.sourceContract) {
+        setFormField('componentName', result.snapshot.componentName);
       }
 
       const document = createMappingDocumentDraft(
@@ -984,7 +1066,7 @@ export function useConnectionController(): ConnectionController {
             contractResult.contract,
             currentTarget.figmaSnapshot,
             semanticSnapshot,
-            readSemanticRecipe(),
+            acceptedRecipe,
           );
           setFormField('semanticRecipe', JSON.stringify(recipe));
         }
@@ -1230,10 +1312,10 @@ export function useConnectionController(): ConnectionController {
   const semanticProposals: ReconciliationProposal[] = SEMANTIC_CONNECT_AUTHORING_ENABLED
     && workingRecipe
     && targetState.status === 'ready'
-    ? planReconciliation(
+      ? planReconciliation(
         workingRecipe,
         targetState.semanticSnapshot,
-        workingRecipe.sourceContract,
+        workingRecipe.pendingSourceContract ?? workingRecipe.sourceContract,
       )
     : [];
 
@@ -1343,6 +1425,7 @@ export function useConnectionController(): ConnectionController {
     semanticProposals,
     applySemanticProposal,
     exportDebugBundle,
+    exportReport,
     isSourceReplacementPending,
     sourceReplacementCancelRef,
     confirmSourceReplacement,
@@ -1351,6 +1434,7 @@ export function useConnectionController(): ConnectionController {
     setCustomPropMappings,
     setFormField,
     setSemanticOption,
+    setSemanticRepeatedInstances,
     setSemanticValueMapping,
     setMappedProperty,
     setMappedValue,

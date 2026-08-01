@@ -10,6 +10,7 @@
 import { locatorKey, type SemanticBinding, type SemanticConnectionRecipe, formatTargetPath } from './types';
 import type { FigmaSemanticSnapshot } from './types';
 import type { SourceContract } from './source-contract';
+import { targetSchemaSignature } from './reconcile';
 
 export type SemanticHealthSeverity = 'broken' | 'needs-review' | 'warning';
 
@@ -37,7 +38,7 @@ export function evaluateSemanticHealth(
     ? undefined
     : new Set(
         currentDesign.nestedSources.map(
-          (source) => `${source.kind}:${locatorKey(source.locator)}:${source.propertyName ?? ''}`,
+          (source) => `${source.kind}:${locatorKey(source.locator)}:${source.propertyName ?? source.instancePropertyName ?? ''}`,
         ),
       );
   const contractTargets = currentContract === undefined
@@ -67,6 +68,21 @@ export function evaluateSemanticHealth(
           severity: 'needs-review',
           targetPath,
         });
+      } else {
+        const acceptedTarget = recipe.sourceContract?.targets.find(
+          (target) => target.path.join('.') === targetPath,
+        );
+        if (
+          acceptedTarget
+          && targetSchemaSignature(acceptedTarget) !== targetSchemaSignature(contractTarget)
+        ) {
+          issues.push({
+            bindingId: binding.id,
+            message: `Source prop ${JSON.stringify(targetPath)} changed its structured schema.`,
+            severity: 'needs-review',
+            targetPath,
+          });
+        }
       }
     }
   }
@@ -81,6 +97,29 @@ function checkDesignSource(
   issues: SemanticHealthIssue[],
 ): void {
   const source = binding.source;
+
+  if (source.kind === 'instances') {
+    for (const [index, item] of source.items.entries()) {
+      if (item.locator.fragile) {
+        issues.push({
+          bindingId: binding.id,
+          message: `Repeated slot item ${index + 1} for ${JSON.stringify(targetPath)} is located by layer names only; renaming a layer will break it.`,
+          severity: 'warning',
+          targetPath,
+        });
+      }
+      const key = `nested-instance:${locatorKey(item.locator)}:${item.instancePropertyName ?? ''}`;
+      if (designKeys !== undefined && !designKeys.has(key)) {
+        issues.push({
+          bindingId: binding.id,
+          message: `Repeated slot item ${index + 1} at ${JSON.stringify(item.locator.namePath.join(' / '))} was not found in the current component.`,
+          severity: binding.requirement === 'required' ? 'broken' : 'needs-review',
+          targetPath,
+        });
+      }
+    }
+    return;
+  }
 
   if (
     source.kind === 'nested-text'
@@ -99,7 +138,9 @@ function checkDesignSource(
     if (designKeys !== undefined) {
       // An `instance` binding corresponds to a `nested-instance` descriptor.
       const descriptorKind = source.kind === 'instance' ? 'nested-instance' : source.kind;
-      const key = `${descriptorKind}:${locatorKey(source.locator)}:${source.kind === 'nested-property' ? source.propertyName : ''}`;
+      const key = `${descriptorKind}:${locatorKey(source.locator)}:${source.kind === 'nested-property'
+        ? source.propertyName
+        : source.kind === 'instance' ? source.instancePropertyName ?? '' : ''}`;
       if (!designKeys.has(key)) {
         issues.push({
           bindingId: binding.id,

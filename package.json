@@ -4,6 +4,7 @@
   "private": true,
   "description": "Figma Dev Mode codegen plugin for Tashil UI components",
   "scripts": {
+    "audit:library": "vite-node scripts/audit-library-compatibility.mjs",
     "build": "npm run typecheck && build-figma-plugin --minify",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",

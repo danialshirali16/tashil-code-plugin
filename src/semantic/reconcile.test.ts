@@ -163,6 +163,150 @@ describe('planReconciliation — source drift', () => {
     const next = applyProposal(recipe, proposal!, 'accept');
     expect(next.bindings.find((b) => b.id === 'binding-intent')!.target.typeName).toContain('info');
   });
+
+  it('detects array/object item schema drift even when the outer type text is unchanged', () => {
+    const recipe = dialogRecipe();
+    const oldTarget = {
+      declaredIn: 'dialog.tsx',
+      itemSchemas: [{ kind: 'visual' as const, path: ['id'], role: 'item' as const, typeName: 'string' }],
+      kind: 'array' as const,
+      ownerProp: 'items',
+      path: ['items'],
+      required: true,
+      typeName: 'Item[]',
+    };
+    recipe.sourceContract = {
+      componentName: 'ConfirmationDialog',
+      contentHash: 'old',
+      fileName: 'dialog.tsx',
+      targets: [oldTarget],
+    };
+    recipe.bindings = [{
+      id: 'binding-items',
+      requirement: 'runtime',
+      source: { kind: 'runtime' },
+      target: { path: ['items'], typeName: 'Item[]' },
+    }];
+    const changed: SourceContract = {
+      ...recipe.sourceContract,
+      contentHash: 'new',
+      targets: [{
+        ...oldTarget,
+        itemSchemas: [
+          ...oldTarget.itemSchemas,
+          { kind: 'visual', path: ['label'], role: 'item', typeName: 'string' },
+        ],
+      }],
+    };
+
+    const proposal = byId(planReconciliation(recipe, undefined, changed), 'binding-items');
+    expect(proposal?.kind).toBe('schema-changed');
+    const accepted = applyProposal(recipe, proposal!, 'accept');
+    expect(byId(planReconciliation(accepted, undefined, changed), 'binding-items'))
+      .toBeUndefined();
+  });
+
+  it('identifies type drift from an inherited dependency', () => {
+    const recipe = dialogRecipe();
+    recipe.sourceContract = dialogContract();
+    const target = recipe.sourceContract.targets.find((item) => item.path.join('.') === 'title')!;
+    target.declaredIn = 'node_modules/shared/base.d.ts';
+    const changed: SourceContract = {
+      ...recipe.sourceContract,
+      contentHash: 'changed-dependency',
+      targets: recipe.sourceContract.targets.map((item) => (
+        item === target ? { ...item, typeName: 'ReactNode' } : item
+      )),
+    };
+
+    expect(byId(planReconciliation(recipe, undefined, changed), 'binding-title')?.kind)
+      .toBe('dependency-type-changed');
+  });
+
+  it('promotes an exported component alias only after explicit acceptance', () => {
+    const recipe = dialogRecipe();
+    recipe.sourceContract = dialogContract();
+    const pending: SourceContract = { ...recipe.sourceContract, componentName: 'AlertDialog' };
+    recipe.pendingSourceContract = pending;
+
+    const proposal = planReconciliation(recipe, undefined, pending).find(
+      (item) => item.kind === 'component-alias-changed',
+    );
+
+    expect(proposal?.kind).toBe('component-alias-changed');
+    expect(recipe.sourceContract?.componentName).not.toBe('AlertDialog');
+    const accepted = applyProposal(recipe, proposal!, 'accept');
+    expect(accepted.sourceContract?.componentName).toBe('AlertDialog');
+    expect(accepted.pendingSourceContract).toBeUndefined();
+  });
+});
+
+describe('planReconciliation — nested instance drift', () => {
+  it('remaps a moved connected instance by stable component key', () => {
+    const recipe = dialogRecipe();
+    recipe.bindings = [{
+      id: 'binding-icon',
+      requirement: 'optional',
+      source: {
+        componentName: 'Icon',
+        importPath: '@ui/icon',
+        kind: 'instance',
+        locator: { componentKey: 'icon-key', fragile: false, namePath: ['Old', 'Icon'] },
+      },
+      target: { path: ['icon'], typeName: 'ReactNode' },
+    }];
+    const design = {
+      componentId: '1:23',
+      componentName: 'Dialog',
+      nestedSources: [{
+        connectedComponentName: 'Icon',
+        connectedImportPath: '@ui/icon',
+        displayPath: 'New / Icon',
+        kind: 'nested-instance' as const,
+        locator: { componentKey: 'icon-key', fragile: false, namePath: ['New', 'Icon'] },
+      }],
+    };
+
+    const proposal = byId(planReconciliation(recipe, design), 'binding-icon');
+    expect(proposal?.kind).toBe('locator-moved');
+    const accepted = applyProposal(recipe, proposal!, 'accept');
+    const source = accepted.bindings[0].source;
+    expect(source.kind === 'instance' && source.locator.namePath).toEqual(['New', 'Icon']);
+  });
+
+  it('detects a changed nested INSTANCE_SWAP selection', () => {
+    const recipe = dialogRecipe();
+    recipe.bindings = [{
+      id: 'binding-icon',
+      requirement: 'optional',
+      source: {
+        componentName: 'Trash',
+        importPath: '@ui/icons',
+        instancePropertyName: 'Leading icon',
+        kind: 'instance',
+        locator: { componentKey: 'button-key', fragile: false, namePath: ['Button'] },
+      },
+      target: { path: ['icon'], typeName: 'ReactNode' },
+    }];
+    const design = {
+      componentId: '1:23',
+      componentName: 'Dialog',
+      nestedSources: [{
+        connectedComponentName: 'Chevron',
+        connectedImportPath: '@ui/icons',
+        displayPath: 'Button / Leading icon',
+        instancePropertyName: 'Leading icon',
+        kind: 'nested-instance' as const,
+        locator: { componentKey: 'button-key', fragile: false, namePath: ['Button'] },
+      }],
+    };
+
+    const proposal = byId(planReconciliation(recipe, design), 'binding-icon');
+    expect(proposal?.kind).toBe('instance-swap-changed');
+    const accepted = applyProposal(recipe, proposal!, 'accept');
+    const source = accepted.bindings[0].source;
+    expect(source.kind === 'instance' && source.componentName).toBe('Chevron');
+  });
 });
 
 describe('applyProposal and markRecipeReconciled', () => {

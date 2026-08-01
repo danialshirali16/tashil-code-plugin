@@ -8,10 +8,10 @@
  */
 
 import type { SourcePropValue } from '../types';
+import { migrateRecipeDocument } from './recipe-migrations';
 import {
   LOCATOR_KEY_SEPARATOR,
   SEMANTIC_LIMITS,
-  SEMANTIC_RECIPE_SCHEMA_VERSION,
   type CodePropTarget,
   type FigmaNestedSourceDescriptor,
   type FigmaSemanticSnapshot,
@@ -39,58 +39,55 @@ export function validateSemanticRecipe(value: unknown): RecipeValidationResult {
     return failure('Semantic recipe must be a JSON object.');
   }
 
-  if (typeof value.schemaVersion !== 'number') {
-    return failure('Semantic recipe is missing a numeric schemaVersion.');
+  const migration = migrateRecipeDocument(value);
+  if (!migration.ok) {
+    return failure(migration.message);
   }
-
-  if (value.schemaVersion > SEMANTIC_RECIPE_SCHEMA_VERSION) {
-    return failure(
-      `Semantic recipe uses schema version ${value.schemaVersion}, newer than this plugin supports (version ${SEMANTIC_RECIPE_SCHEMA_VERSION}). Update the plugin; the data was left unchanged.`,
-    );
-  }
-
-  if (value.schemaVersion !== SEMANTIC_RECIPE_SCHEMA_VERSION) {
-    return failure(
-      `Semantic recipe uses unsupported schema version ${String(value.schemaVersion)}.`,
-    );
-  }
+  const document = migration.value;
 
   if (
-    typeof value.revision !== 'number'
-    || !Number.isInteger(value.revision)
-    || value.revision <= 0
+    typeof document.revision !== 'number'
+    || !Number.isInteger(document.revision)
+    || document.revision <= 0
   ) {
     return failure('Semantic recipe revision must be a positive integer.');
   }
 
-  if (value.lastValidatedAt !== undefined && typeof value.lastValidatedAt !== 'string') {
+  if (document.lastValidatedAt !== undefined && typeof document.lastValidatedAt !== 'string') {
     return failure('Semantic recipe lastValidatedAt must be a string when present.');
   }
 
-  if (value.lifecycle !== undefined && !isRecipeLifecycle(value.lifecycle)) {
+  if (document.lifecycle !== undefined && !isRecipeLifecycle(document.lifecycle)) {
     return failure('Semantic recipe lifecycle metadata is invalid.');
   }
 
-  if (!isFigmaSemanticSnapshot(value.figmaSnapshot)) {
+  if (!isFigmaSemanticSnapshot(document.figmaSnapshot)) {
     return failure('Semantic recipe has an invalid Figma semantic snapshot.');
   }
 
-  if (value.sourceContract !== undefined && !isPersistedSourceContract(value.sourceContract)) {
+  if (document.sourceContract !== undefined && !isPersistedSourceContract(document.sourceContract)) {
     return failure('Semantic recipe has an invalid source contract.');
   }
 
-  if (!Array.isArray(value.bindings)) {
+  if (
+    document.pendingSourceContract !== undefined
+    && !isPersistedSourceContract(document.pendingSourceContract)
+  ) {
+    return failure('Semantic recipe has an invalid pending source contract.');
+  }
+
+  if (!Array.isArray(document.bindings)) {
     return failure('Semantic recipe bindings must be an array.');
   }
 
-  if (value.bindings.length > SEMANTIC_LIMITS.maxBindings) {
+  if (document.bindings.length > SEMANTIC_LIMITS.maxBindings) {
     return failure(
-      `Semantic recipe has ${value.bindings.length} bindings; the limit is ${SEMANTIC_LIMITS.maxBindings}.`,
+      `Semantic recipe has ${document.bindings.length} bindings; the limit is ${SEMANTIC_LIMITS.maxBindings}.`,
     );
   }
 
   const seenIds = new Set<string>();
-  for (const [index, binding] of value.bindings.entries()) {
+  for (const [index, binding] of document.bindings.entries()) {
     const issue = validateBinding(binding, index);
     if (issue) {
       return failure(issue);
@@ -102,14 +99,14 @@ export function validateSemanticRecipe(value: unknown): RecipeValidationResult {
     seenIds.add(id);
   }
 
-  const serializedLength = JSON.stringify(value).length;
+  const serializedLength = JSON.stringify(document).length;
   if (serializedLength > SEMANTIC_LIMITS.maxSerializedLength) {
     return failure(
       `Semantic recipe is ${serializedLength} characters when serialized; the limit is ${SEMANTIC_LIMITS.maxSerializedLength}.`,
     );
   }
 
-  return { ok: true, recipe: value as unknown as SemanticConnectionRecipe };
+  return { ok: true, recipe: document as unknown as SemanticConnectionRecipe };
 }
 
 export function isSemanticConnectionRecipe(
@@ -159,7 +156,8 @@ export function isCodePropTarget(value: unknown): value is CodePropTarget {
       (segment) => typeof segment === 'string' && isValidTargetPathSegment(segment),
     )
     && typeof value.typeName === 'string'
-    && value.typeName.length > 0;
+    && value.typeName.length > 0
+    && (value.schemaSignature === undefined || typeof value.schemaSignature === 'string');
 }
 
 function isBindingSource(value: unknown): value is SemanticBindingSource {
@@ -182,11 +180,20 @@ function isBindingSource(value: unknown): value is SemanticBindingSource {
     case 'instance':
       // The component name must be a valid JSX component identifier so a
       // persisted recipe can never inject arbitrary text into generated JSX.
-      return isLocator(value.locator)
-        && typeof value.componentName === 'string'
-        && COMPONENT_IDENTIFIER_PATTERN.test(value.componentName)
-        && typeof value.importPath === 'string'
-        && value.importPath.length > 0;
+      return isConnectedInstanceItem(value);
+    case 'instances':
+      return Array.isArray(value.items)
+        && value.items.length > 0
+        && value.items.length <= SEMANTIC_LIMITS.maxRepeatedSlotItems
+        && value.items.every(isConnectedInstanceItem)
+        && (value.itemPath === undefined || (
+          Array.isArray(value.itemPath)
+          && value.itemPath.length > 0
+          && value.itemPath.length <= SEMANTIC_LIMITS.maxTargetPathDepth
+          && value.itemPath.every(
+            (segment) => typeof segment === 'string' && isValidTargetPathSegment(segment),
+          )
+        ));
     case 'omitted':
       return true;
     case 'static':
@@ -199,6 +206,19 @@ function isBindingSource(value: unknown): value is SemanticBindingSource {
 }
 
 const COMPONENT_IDENTIFIER_PATTERN = /^[A-Z_$][A-Za-z0-9_$]*$/;
+
+function isConnectedInstanceItem(value: unknown): boolean {
+  return isRecord(value)
+    && isLocator(value.locator)
+    && typeof value.componentName === 'string'
+    && COMPONENT_IDENTIFIER_PATTERN.test(value.componentName)
+    && typeof value.importPath === 'string'
+    && value.importPath.length > 0
+    && (
+      value.instancePropertyName === undefined
+      || (typeof value.instancePropertyName === 'string' && value.instancePropertyName.length > 0)
+    );
+}
 
 export function isLocator(value: unknown): value is SemanticLocator {
   return isRecord(value)
@@ -241,7 +261,30 @@ function isFigmaSemanticSnapshot(value: unknown): value is FigmaSemanticSnapshot
     && value.componentName.length > 0
     && Array.isArray(value.nestedSources)
     && value.nestedSources.length <= SEMANTIC_LIMITS.maxNestedSources
-    && value.nestedSources.every(isNestedSourceDescriptor);
+    && value.nestedSources.every(isNestedSourceDescriptor)
+    && (value.extraction === undefined || isExtractionStatus(value.extraction));
+}
+
+function isExtractionStatus(value: unknown): boolean {
+  return isRecord(value)
+    && typeof value.partial === 'boolean'
+    && typeof value.visitedNodes === 'number'
+    && Number.isInteger(value.visitedNodes)
+    && value.visitedNodes >= 0
+    && Array.isArray(value.diagnostics)
+    && value.diagnostics.every((diagnostic) => (
+      isRecord(diagnostic)
+      && (
+        diagnostic.code === 'locator-depth-limit'
+        || diagnostic.code === 'nested-source-limit'
+        || diagnostic.code === 'node-limit'
+      )
+      && typeof diagnostic.limit === 'number'
+      && Number.isInteger(diagnostic.limit)
+      && diagnostic.limit > 0
+      && typeof diagnostic.message === 'string'
+      && (diagnostic.path === undefined || typeof diagnostic.path === 'string')
+    ));
 }
 
 function isNestedSourceDescriptor(value: unknown): value is FigmaNestedSourceDescriptor {
@@ -262,7 +305,11 @@ function isNestedSourceDescriptor(value: unknown): value is FigmaNestedSourceDes
         && COMPONENT_IDENTIFIER_PATTERN.test(value.connectedComponentName)
       )
     )
-    && (value.connectedImportPath === undefined || typeof value.connectedImportPath === 'string');
+    && (value.connectedImportPath === undefined || typeof value.connectedImportPath === 'string')
+    && (
+      value.instancePropertyName === undefined
+      || (typeof value.instancePropertyName === 'string' && value.instancePropertyName.length > 0)
+    );
 }
 
 /**
@@ -277,6 +324,14 @@ function isPersistedSourceContract(value: unknown): boolean {
     && value.fileName.length > 0
     && typeof value.contentHash === 'string'
     && value.contentHash.length > 0
+    && (value.propsTypeName === undefined || (
+      typeof value.propsTypeName === 'string'
+      && value.propsTypeName.length > 0
+    ))
+    && (value.propsTypeChain === undefined || (
+      Array.isArray(value.propsTypeChain)
+      && value.propsTypeChain.every((name) => typeof name === 'string' && name.length > 0)
+    ))
     && Array.isArray(value.targets)
     && value.targets.length <= SEMANTIC_LIMITS.maxContractTargets
     && value.targets.every(isPersistedSourceTarget);
@@ -291,17 +346,79 @@ function isPersistedSourceTarget(value: unknown): boolean {
     && typeof value.ownerProp === 'string'
     && typeof value.typeName === 'string'
     && typeof value.required === 'boolean'
+    && (value.declaredIn === undefined || (
+      typeof value.declaredIn === 'string' && value.declaredIn.length > 0
+    ))
     && (
       value.kind === 'visual'
       || value.kind === 'event'
       || value.kind === 'node'
+      || value.kind === 'array'
+      || value.kind === 'record'
+      || value.kind === 'date'
+      || value.kind === 'file'
+      || value.kind === 'render'
+      || value.kind === 'styling'
+      || value.kind === 'controlled'
+      || value.kind === 'environment'
       || value.kind === 'excluded'
       || value.kind === 'unsupported'
     )
+    && (value.itemSchemas === undefined || (
+      Array.isArray(value.itemSchemas)
+      && value.itemSchemas.length <= 16
+      && value.itemSchemas.every(isPersistedCollectionItemSchema)
+    ))
+    && (value.controlledBy === undefined || (
+      Array.isArray(value.controlledBy)
+      && value.controlledBy.length > 0
+      && value.controlledBy.length <= SEMANTIC_LIMITS.maxTargetPathDepth
+      && value.controlledBy.every(
+        (segment) => typeof segment === 'string' && isValidTargetPathSegment(segment),
+      )
+    ))
     && (value.insideOptionalObject === undefined || typeof value.insideOptionalObject === 'boolean')
     && (value.values === undefined
       || (Array.isArray(value.values) && value.values.every(isSourcePropValue)))
     && (value.defaultValue === undefined || isSourcePropValue(value.defaultValue));
+}
+
+function isPersistedCollectionItemSchema(value: unknown): boolean {
+  return isRecord(value)
+    && (
+      value.role === 'item'
+      || value.role === 'key'
+      || value.role === 'value'
+    )
+    && typeof value.typeName === 'string'
+    && value.typeName.length > 0
+    && (value.path === undefined || (
+      Array.isArray(value.path)
+      && value.path.length > 0
+      && value.path.length <= SEMANTIC_LIMITS.maxTargetPathDepth
+      && value.path.every(
+        (segment) => typeof segment === 'string' && isValidTargetPathSegment(segment),
+      )
+    ))
+    && (
+      value.kind === 'visual'
+      || value.kind === 'event'
+      || value.kind === 'node'
+      || value.kind === 'array'
+      || value.kind === 'record'
+      || value.kind === 'date'
+      || value.kind === 'file'
+      || value.kind === 'render'
+      || value.kind === 'styling'
+      || value.kind === 'controlled'
+      || value.kind === 'environment'
+      || value.kind === 'excluded'
+      || value.kind === 'unsupported'
+    )
+    && (value.values === undefined || (
+      Array.isArray(value.values)
+      && value.values.every(isSourcePropValue)
+    ));
 }
 
 function isRecipeLifecycle(value: unknown): boolean {

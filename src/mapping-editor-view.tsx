@@ -4,6 +4,7 @@ import { useState } from 'preact/hooks';
 import type { ConnectionHealth, ConnectionHealthStatus } from './connection-health';
 import { isMappingDocument } from './mapping-document';
 import { getPropertyMappingKind } from './mapping-editor';
+import { configureDirectoryInput } from './source-upload';
 import type {
   FigmaPropertyDescriptor,
   MappingDocument,
@@ -205,7 +206,12 @@ export function MappingEditorView(props: MappingEditorViewProps): h.JSX.Element 
           <div class="mapping-workbench-source">
             <span class="source-icon" aria-hidden="true">{'</>'}</span>
             <span>
-              <strong>{document.sourceSnapshot.componentName}</strong>
+              <strong>
+                {document.sourceSnapshot.componentName}
+                {document.sourceSnapshot.propsTypeName
+                  ? ` → ${document.sourceSnapshot.propsTypeName}`
+                  : ''}
+              </strong>
               <small class="source-file">{document.sourceSnapshot.fileName}</small>
             </span>
           </div>
@@ -223,20 +229,41 @@ export function MappingEditorView(props: MappingEditorViewProps): h.JSX.Element 
             </span>
           </div>
         ) : null}
-        <label class={uploadDisabled ? 'file-button file-button-disabled' : 'file-button'}>
-          {props.sourceUploading ? 'Analyzing…' : document ? 'Replace source' : 'Upload source'}
-          <input
-            accept=".ts,.tsx"
-            disabled={uploadDisabled}
-            multiple
-            onInput={(event) => {
-              const files = Array.from(event.currentTarget.files ?? []);
-              submitFiles(files);
-              event.currentTarget.value = '';
-            }}
-            type="file"
-          />
-        </label>
+        <div class="source-upload-actions">
+          <label class={uploadDisabled ? 'file-button file-button-disabled' : 'file-button'}>
+            {props.sourceUploading ? 'Analyzing…' : document ? 'Replace source' : 'Upload source'}
+            <input
+              accept=".ts,.tsx,.d.ts"
+              disabled={uploadDisabled}
+              multiple
+              onInput={(event) => {
+                const files = Array.from(event.currentTarget.files ?? []);
+                submitFiles(files);
+                event.currentTarget.value = '';
+              }}
+              type="file"
+            />
+          </label>
+          <label
+            class={uploadDisabled
+              ? 'file-button file-button-secondary file-button-disabled'
+              : 'file-button file-button-secondary'}
+            title="Upload a source folder with dependency declarations"
+          >
+            Folder
+            <input
+              disabled={uploadDisabled}
+              multiple
+              onInput={(event) => {
+                const files = Array.from(event.currentTarget.files ?? []);
+                submitFiles(files);
+                event.currentTarget.value = '';
+              }}
+              ref={configureDirectoryInput}
+              type="file"
+            />
+          </label>
+        </div>
       </header>
 
       {document?.sourceSnapshot ? (
@@ -516,7 +543,9 @@ export function MappingEditorView(props: MappingEditorViewProps): h.JSX.Element 
       ) : (
         <div class="source-empty">
           <strong>Choose the component source files</strong>
-          <span>Drop .ts/.tsx files here, or select the props/types and implementation files together.</span>
+          <span>
+            Drop .ts/.tsx files here, with any required .d.ts dependency declarations.
+          </span>
           <Button disabled={props.disabled} onClick={props.onScaffold} secondary>
             {props.scaffoldPending ? 'Generating…' : 'Generate from component'}
           </Button>

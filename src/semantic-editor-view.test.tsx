@@ -6,6 +6,8 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { SemanticMappingView } from './semantic-editor-view';
 import {
   createRecipeDraft,
+  nestedOptionId,
+  setRepeatedTargetInstances,
   setTargetOption,
   OPTION_RUNTIME,
   OPTION_STATIC,
@@ -13,6 +15,7 @@ import {
 import { extractFigmaSemanticSnapshot } from './semantic/figma-extractor';
 import { DIALOG_SOURCE_FIXTURE, createDialogNode } from './semantic/fixtures';
 import { extractSourceContract } from './semantic/source-contract';
+import type { SourceContract } from './semantic/source-contract';
 import type { FigmaComponentSnapshot } from './types';
 
 function createDialogFigmaSnapshot(): FigmaComponentSnapshot {
@@ -43,6 +46,47 @@ function createDialogRecipeDraft() {
   return createRecipeDraft(contractResult.contract, createDialogFigmaSnapshot(), semanticSnapshot);
 }
 
+function createRepeatedSlotRecipe() {
+  const semanticSnapshot = extractFigmaSemanticSnapshot({
+    children: [
+      {
+        connectedComponentName: 'Tab',
+        connectedImportPath: '@tashilcar/ui',
+        hasOwnConnection: true,
+        mainComponentKey: 'tab-one',
+        name: 'First tab',
+        type: 'INSTANCE',
+      },
+      {
+        connectedComponentName: 'Tab',
+        connectedImportPath: '@tashilcar/ui',
+        hasOwnConnection: true,
+        mainComponentKey: 'tab-two',
+        name: 'Second tab',
+        type: 'INSTANCE',
+      },
+    ],
+    name: 'Tabs',
+    type: 'COMPONENT',
+  }, 'tabs-id').snapshot;
+  const contract: SourceContract = {
+    componentName: 'Tabs',
+    contentHash: 'hash',
+    fileName: 'tabs.tsx',
+    targets: [{
+      itemSchemas: [{ kind: 'node', role: 'item', typeName: 'ReactElement' }],
+      kind: 'array',
+      ownerProp: 'tabs',
+      path: ['tabs'],
+      required: true,
+      typeName: 'ReactElement[]',
+    }],
+  };
+  const draft = createRecipeDraft(contract, undefined, semanticSnapshot);
+  const firstId = nestedOptionId(semanticSnapshot.nestedSources[0]!);
+  return setRepeatedTargetInstances(draft, ['tabs'], [firstId]);
+}
+
 /** Open a code prop; its decision then appears inline beneath it. */
 function selectTarget(targetPath: string): void {
   const head = screen.getAllByText(targetPath)
@@ -64,6 +108,62 @@ function chooseAnswer(name: string): void {
 afterEach(cleanup);
 
 describe('SemanticMappingView', () => {
+  it('edits and explicitly reorders repeated connected-component slots', () => {
+    const onRepeatedInstancesChange = vi.fn();
+    render(
+      <SemanticMappingView
+        componentName="Tabs"
+        disabled={false}
+        importPath="@tashilcar/ui"
+        onOptionChange={vi.fn()}
+        onRepeatedInstancesChange={onRepeatedInstancesChange}
+        recipe={createRepeatedSlotRecipe()}
+      />,
+    );
+
+    expect(screen.getByText('1 connected')).toBeTruthy();
+    const second = screen.getByRole('checkbox', { name: /Second tab/ });
+    fireEvent.click(second);
+    expect(onRepeatedInstancesChange).toHaveBeenCalledWith(
+      ['tabs'],
+      expect.arrayContaining([
+        expect.stringContaining('First tab'),
+        expect.stringContaining('Second tab'),
+      ]),
+    );
+    expect(
+      (screen.getByRole('button', { name: 'Move First tab up' }) as HTMLButtonElement).disabled,
+    ).toBe(true);
+  });
+
+  it('offers a directory picker that preserves folder upload semantics', () => {
+    const onFilesSelected = vi.fn();
+    render(
+      <SemanticMappingView
+        componentName="ConfirmationDialog"
+        disabled={false}
+        figmaSnapshot={createDialogFigmaSnapshot()}
+        importPath="@tashilcar/ui"
+        onFilesSelected={onFilesSelected}
+        onOptionChange={vi.fn()}
+        recipe={createDialogRecipeDraft()}
+      />,
+    );
+
+    const folderInput = screen.getByLabelText('Folder');
+    expect(folderInput.getAttribute('webkitdirectory')).toBe('');
+    expect(folderInput.getAttribute('directory')).toBe('');
+
+    const source = new File(
+      ['export interface ConfirmationDialogProps {}'],
+      'types.ts',
+      { type: 'text/typescript' },
+    );
+    fireEvent.input(folderInput, { target: { files: [source] } });
+
+    expect(onFilesSelected).toHaveBeenCalledWith([source]);
+  });
+
   it('renders grouped code targets as the primary column with one control each', () => {
     render(
       <SemanticMappingView
@@ -77,6 +177,7 @@ describe('SemanticMappingView', () => {
     );
 
     expect(screen.getByText('Implementation mapping')).toBeTruthy();
+    expect(screen.getByText('ConfirmationDialog → ConfirmationDialogProps')).toBeTruthy();
     expect(screen.getByText('Content')).toBeTruthy();
     expect(screen.getByText('Variants & states')).toBeTruthy();
     expect(screen.getByText('Actions')).toBeTruthy();
@@ -125,7 +226,7 @@ describe('SemanticMappingView', () => {
     const preview = screen.getByLabelText('Generated semantic usage preview');
     expect(preview.textContent).toContain('<ConfirmationDialog');
     expect(preview.textContent).toContain('title={"Delete account?"}');
-    expect(preview.textContent).toContain('onConfirm={undefined /* Set in application. */}');
+    expect(preview.textContent).toContain('onConfirm={onConfirm /* Set in application. */}');
     expect(preview.textContent).not.toContain('Dialog.Header');
     expect(preview.textContent).toMatch(/<ConfirmationDialog\n {2}[A-Za-z_$]/);
     expect(preview.textContent).toMatch(/\n {2}title=/);
@@ -557,5 +658,35 @@ describe('SemanticMappingView', () => {
     );
 
     expect(screen.queryByText('Changes need review')).toBeNull();
+  });
+
+  it('filters the code-prop list by the search query', () => {
+    render(
+      <SemanticMappingView
+        componentName="ConfirmationDialog"
+        disabled={false}
+        figmaSnapshot={createDialogFigmaSnapshot()}
+        importPath="@tashilcar/ui"
+        onOptionChange={vi.fn()}
+        recipe={createDialogRecipeDraft()}
+      />,
+    );
+
+    const search = screen.getByLabelText('Search code props');
+    // Before searching, both action props are present.
+    expect(screen.getByText('confirmAction.label')).toBeTruthy();
+    expect(screen.getByText('cancelAction.label')).toBeTruthy();
+
+    // Typing a query that matches only confirmAction narrows the list.
+    fireEvent.input(search, { target: { value: 'confirmAction' } });
+    expect(screen.getAllByText('confirmAction.label')).toHaveLength(2);
+    expect(screen.queryByText('cancelAction.label')).toBeNull();
+    expect(screen.getByRole('heading', { level: 3 }).textContent)
+      .toBe('confirmAction.label');
+
+    // A query that matches nothing shows the no-match empty state.
+    fireEvent.input(search, { target: { value: 'zzzznotreal' } });
+    expect(screen.getByText(/No code props match/)).toBeTruthy();
+    expect(screen.queryByRole('heading', { level: 3 })).toBeNull();
   });
 });

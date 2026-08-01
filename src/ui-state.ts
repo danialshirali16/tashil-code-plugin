@@ -18,6 +18,7 @@ export type ConnectionFormValues = {
   childrenTextProperty: string;
   componentName: string;
   customPropMappings: string;
+  figmaComponentName: string;
   iconComponentName: string;
   iconImportPath: string;
   importPath: string;
@@ -89,6 +90,7 @@ export const FORM_FIELD_IDS: Record<FormField, string> = {
   childrenTextProperty: 'tashil-children-text-property',
   componentName: 'tashil-component-name',
   customPropMappings: 'tashil-custom-prop-mappings',
+  figmaComponentName: 'tashil-figma-component-name',
   iconComponentName: 'tashil-icon-component-name',
   iconImportPath: 'tashil-icon-import-path',
   importPath: 'tashil-import-path',
@@ -237,6 +239,11 @@ export function createFormValues(
           2,
         )
       : '',
+    figmaComponentName: fallbackComponentName
+      || connection?.figmaComponentName
+      || connection?.mappingDocument?.figmaSnapshot.componentName
+      || connection?.semanticRecipe?.figmaSnapshot.componentName
+      || '',
     iconComponentName: connection?.iconComponentName || '',
     iconImportPath: connection?.iconImportPath || '',
     importPath: connection?.importPath || '',
@@ -325,6 +332,7 @@ export function areFormValuesEqual(
 ): boolean {
   return first.componentName === second.componentName
     && first.customPropMappings === second.customPropMappings
+    && first.figmaComponentName === second.figmaComponentName
     && first.childrenMode === second.childrenMode
     && first.childrenTextProperty === second.childrenTextProperty
     && first.iconComponentName === second.iconComponentName
@@ -344,6 +352,7 @@ export function areFormValuesEqual(
 void ({
   componentName: true,
   customPropMappings: true,
+  figmaComponentName: true,
   childrenMode: true,
   childrenTextProperty: true,
   iconComponentName: true,
@@ -362,6 +371,7 @@ export function validateConnectionForm(
 ): FormValidationResult {
   const errors: FormErrors = {};
   const componentName = values.componentName.trim();
+  const figmaComponentName = values.figmaComponentName.trim();
   const importPath = values.importPath.trim();
   const childrenTextProperty = values.childrenTextProperty.trim();
   const iconComponentName = values.iconComponentName.trim();
@@ -370,7 +380,7 @@ export function validateConnectionForm(
   const sourceUrl = normalizeOptionalHttpUrl(values.sourceUrl);
 
   if (componentName === '') {
-    errors.componentName = 'Enter a component name.';
+    errors.componentName = 'Enter a source component name.';
   } else if (!COMPONENT_IDENTIFIER_PATTERN.test(componentName)) {
     errors.componentName = 'Use a valid exported component name, for example Button.';
   }
@@ -488,6 +498,7 @@ export function validateConnectionForm(
   return {
     metadata: {
       schemaVersion: CURRENT_SCHEMA_VERSION,
+      ...(figmaComponentName ? { figmaComponentName } : {}),
       componentName,
       importPath,
       storybookUrl: storybookUrl ?? undefined,

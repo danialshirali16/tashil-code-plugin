@@ -116,6 +116,7 @@ export function Plugin(): h.JSX.Element {
     semanticProposals,
     applySemanticProposal,
     exportDebugBundle,
+    exportReport,
     isSourceReplacementPending,
     sourceReplacementCancelRef,
     confirmSourceReplacement,
@@ -125,6 +126,7 @@ export function Plugin(): h.JSX.Element {
     setMappedProperty,
     setMappedValue,
     setSemanticOption,
+    setSemanticRepeatedInstances,
     setSemanticValueMapping,
     statusMessage,
     uploadSourceFiles,
@@ -332,6 +334,7 @@ export function Plugin(): h.JSX.Element {
               </div>
               <ConnectComponentView
             componentName={formValues.componentName}
+            figmaComponentName={formValues.figmaComponentName}
             connectionHealth={connectionHealth}
             customPropMappings={formValues.customPropMappings}
             clearCancelButtonRef={(element) => {
@@ -361,6 +364,7 @@ export function Plugin(): h.JSX.Element {
             semanticProposals={semanticProposals}
             applySemanticProposal={applySemanticProposal}
             exportDebugBundle={exportDebugBundle}
+            exportReport={exportReport}
             isSourceReplacementPending={isSourceReplacementPending}
             sourceReplacementCancelRef={(element) => {
               sourceReplacementCancelRef.current = element;
@@ -368,6 +372,7 @@ export function Plugin(): h.JSX.Element {
             confirmSourceReplacement={confirmSourceReplacement}
             cancelSourceReplacement={cancelSourceReplacement}
             setSemanticOption={setSemanticOption}
+            setSemanticRepeatedInstances={setSemanticRepeatedInstances}
             setSemanticValueMapping={setSemanticValueMapping}
             reconcileFigma={reconcileFigma}
             removeStaleMapping={removeStaleMapping}
@@ -696,6 +701,7 @@ function ConnectComponentView(props: {
   customPropMappings: string;
   errorMessage: string;
   fieldErrors: FormErrors;
+  figmaComponentName: string;
   handleCancelClear: () => void;
   handleClear: () => void;
   handleSave: () => void;
@@ -725,6 +731,7 @@ function ConnectComponentView(props: {
     action: ReconciliationAction,
   ) => void;
   exportDebugBundle: () => void;
+  exportReport: (format: 'markdown' | 'json') => void;
   isSourceReplacementPending: boolean;
   sourceReplacementCancelRef: (element: HTMLButtonElement | null) => void;
   confirmSourceReplacement: () => void;
@@ -733,6 +740,10 @@ function ConnectComponentView(props: {
     targetPath: readonly string[],
     optionId: string,
     staticValue?: string | number | boolean,
+  ) => void;
+  setSemanticRepeatedInstances: (
+    targetPath: readonly string[],
+    orderedOptionIds: readonly string[],
   ) => void;
   setSemanticValueMapping: (
     targetPath: readonly string[],
@@ -799,9 +810,23 @@ function ConnectComponentView(props: {
             </div>
           <div class="form-stack">
             <Field
+              id={FORM_FIELD_IDS.figmaComponentName}
+              label="Figma component name"
+            >
+              <Textbox
+                disabled
+                id={FORM_FIELD_IDS.figmaComponentName}
+                value={props.figmaComponentName}
+              />
+            </Field>
+            <small class="field-hint">
+              The selected Figma main component or component set used by this connection.
+            </small>
+
+            <Field
               error={props.fieldErrors.componentName}
               id={FORM_FIELD_IDS.componentName}
-              label="Component name"
+              label="Source component name"
             >
               <Textbox
                 aria-describedby={getFieldErrorId('componentName', props.fieldErrors)}
@@ -815,8 +840,8 @@ function ConnectComponentView(props: {
               />
             </Field>
             <small class="field-hint">
-              Also selects the props interface read from uploaded source
-              (<code>Button</code> → <code>ButtonProps</code>).
+              The exported React component used by generated code. Source upload
+              detects this name independently from the Figma component name.
             </small>
 
             <Field
@@ -942,8 +967,10 @@ function ConnectComponentView(props: {
                 importPath={props.importPath}
                 onApplyProposal={props.applySemanticProposal}
                 onExportDebugBundle={props.exportDebugBundle}
+                onExportReport={props.exportReport}
                 onFilesSelected={(files) => { void props.uploadSourceFiles(files); }}
                 onOptionChange={props.setSemanticOption}
+                onRepeatedInstancesChange={props.setSemanticRepeatedInstances}
                 onValueMappingChange={props.setSemanticValueMapping}
                 sourceUploading={props.isSourceUploading}
                 proposals={props.semanticProposals}
@@ -1019,6 +1046,7 @@ function ConnectComponentView(props: {
                     || connectionIssue !== undefined
                     || props.pendingOperation !== undefined
                   }
+                  loading={props.pendingOperation === 'save'}
                   onClick={props.handleSave}
                 >
                   {props.pendingOperation === 'save' ? 'Saving…' : 'Save'}
@@ -2396,7 +2424,7 @@ function HowItWorksView(): h.JSX.Element {
             <ol class="help-list">
               <li>Select a main component, component set, or component instance in Figma.</li>
               <li>Open Plugins, Tashil Code, Connect component.</li>
-              <li>Fill Component name and Import path.</li>
+              <li>Confirm the Figma name, then enter the Source component name and Import path.</li>
               <li>Add optional Storybook and source references.</li>
               <li>Upload the component's .ts/.tsx source files.</li>
               <li>Connect each code prop and value to its matching Figma property and variant.</li>
@@ -2414,7 +2442,8 @@ function HowItWorksView(): h.JSX.Element {
 
           <HelpSection title="Connection fields">
             <div class="help-table">
-              <HelpRow label="Component name" value="React component export, for example Button." />
+              <HelpRow label="Figma component name" value="Selected design component used as the connection reference." />
+              <HelpRow label="Source component name" value="React component export used in generated code, for example Button." />
               <HelpRow label="Import path" value="Package import path, for example tashil-ui." />
               <HelpRow label="Storybook URL" value="The matching Storybook story or docs page." />
               <HelpRow label="Source path" value="The source file path for developer reference." />

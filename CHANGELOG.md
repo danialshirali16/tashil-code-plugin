@@ -6,6 +6,39 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versions track the marketplace publish; there are no git tags — `package.json`
 is the version of record.
 
+## [Unreleased]
+
+### Added
+
+- Added full-library semantic authoring for complex Swiss Army Knife APIs,
+  including recursive object and collection contracts, controlled values,
+  runtime callbacks, React-node slots, data-driven components, overlays,
+  forms, uploads, and date/range controls. See the
+  [full-library support roadmap](docs/full-library-support-roadmap.md).
+- Added declarative complex-component recipes, ordered nested-instance arrays,
+  structured compatibility reports, and versioned recipe migrations so
+  generated usage remains reviewable as component APIs evolve.
+- Added a post-1.0 proposal roadmap covering connection portability, coverage
+  reporting, Storybook generation, output preferences, accessibility checks,
+  and adoption work.
+
+### Changed
+
+- Source upload and connection authoring now keep the Figma component name and
+  source-code component name separate, preserve partial extraction results,
+  and expose inheritance, runtime-only reasons, nested property structure, and
+  compatibility guidance directly in the editor.
+- Runtime-provided values now generate deterministic named placeholders, while
+  nested connected components preserve their own mappings, imports, instance
+  swaps, and source types across preview, Inspect Code, Dev Mode, and layout
+  output.
+
+### Compatibility
+
+- Existing semantic recipes migrate through the versioned target-kind schema;
+  reconciliation preserves the previous recipe until users explicitly accept
+  source, type, locator, or component-identity changes.
+
 ## [1.0.0] - 2026-07-31
 
 Initial marketplace release. Tashil Code connects a Figma design system to its

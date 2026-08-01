@@ -1,4 +1,9 @@
 import * as ts from 'typescript';
+import {
+  collectSourcePropsMembers,
+  selectSourcePropsDeclaration,
+  type ParsedSourceFile,
+} from './source-props';
 import type {
   SourceComponentSnapshot,
   SourcePropDescriptor,
@@ -31,56 +36,6 @@ type ResolvedType = {
 
 const UNSUPPORTED_STANDARD_PROPS = new Set(['className', 'id', 'key', 'ref', 'style']);
 
-type PropsInterfaceCandidate<TFile> = {
-  declaration: ts.InterfaceDeclaration;
-  file: TFile;
-};
-
-/**
- * Pick the most likely public props interface without requiring the Figma and
- * code component names to be identical. Name affinity wins; otherwise exported
- * and more substantial interfaces are preferred, with source order as the
- * stable tie-breaker.
- */
-export function selectSourcePropsInterface<TFile>(
-  candidates: readonly PropsInterfaceCandidate<TFile>[],
-  requestedComponentName?: string,
-): PropsInterfaceCandidate<TFile> | undefined {
-  const requested = requestedComponentName?.trim().replace(/Props$/i, '').toLowerCase();
-
-  return candidates
-    .map((candidate, index) => {
-      const baseName = candidate.declaration.name.text.replace(/Props$/i, '').toLowerCase();
-      let nameScore = 0;
-
-      if (requested) {
-        if (baseName === requested) {
-          nameScore = 10_000;
-        } else if (baseName.endsWith(requested)) {
-          nameScore = 9_000 - (baseName.length - requested.length);
-        } else if (baseName.startsWith(requested)) {
-          nameScore = 8_000 - (baseName.length - requested.length);
-        } else if (baseName.includes(requested)) {
-          nameScore = 7_000 - (baseName.length - requested.length);
-        } else if (requested.includes(baseName)) {
-          nameScore = 6_000 - (requested.length - baseName.length);
-        }
-      }
-
-      const isExported = candidate.declaration.modifiers?.some(
-        ({ kind }) => kind === ts.SyntaxKind.ExportKeyword,
-      ) ?? false;
-
-      return {
-        candidate,
-        index,
-        score: nameScore + (isExported ? 100 : 0) + candidate.declaration.members.length,
-      };
-    })
-    .sort((left, right) => right.score - left.score || left.index - right.index)[0]
-    ?.candidate;
-}
-
 /** Parse local TS/TSX files without executing or persisting their contents. */
 export function parseSourceComponent(
   files: readonly SourceFileInput[],
@@ -98,7 +53,7 @@ export function parseSourceComponent(
     };
   }
 
-  const parsedFiles = files.map((file) => ({
+  const parsedFiles: ParsedSourceFile[] = files.map((file) => ({
     ...file,
     sourceFile: ts.createSourceFile(
       file.fileName,
@@ -109,61 +64,69 @@ export function parseSourceComponent(
     ),
   }));
 
-  const candidates = parsedFiles.flatMap((file) => {
-    return file.sourceFile.statements
-      .filter(ts.isInterfaceDeclaration)
-      .filter((declaration) => declaration.name.text.endsWith('Props'))
-      .map((declaration) => ({ declaration, file }));
-  });
-  const expectedInterfaceName = requestedComponentName
-    ? `${requestedComponentName}Props`
-    : undefined;
-  const exactMatch = expectedInterfaceName
-    ? candidates.find(({ declaration }) => declaration.name.text === expectedInterfaceName)
-    : undefined;
-  // A Figma component name can legitimately differ from its code component
-  // name, so an exact-name miss must not block source upload.
-  const selected = exactMatch ?? selectSourcePropsInterface(candidates, requestedComponentName);
+  const selected = selectSourcePropsDeclaration(parsedFiles, requestedComponentName);
 
   if (!selected) {
     return {
-      message: 'Could not find an interface whose name ends with Props.',
+      message: 'Could not resolve a props interface or type alias for this component.',
       ok: false,
     };
   }
 
-  const aliases = collectTypeAliases(selected.file.sourceFile);
   const warnings: string[] = [];
-
-  if (expectedInterfaceName && !exactMatch) {
+  const expectedPropsName = requestedComponentName
+    ? `${requestedComponentName}Props`
+    : undefined;
+  if (
+    expectedPropsName
+    && selected.declaration.name.text !== expectedPropsName
+  ) {
     warnings.push(
-      `Used ${selected.declaration.name.text} because no ${expectedInterfaceName} was found.`,
+      `Used ${selected.declaration.name.text} because no ${expectedPropsName} was found.`,
     );
   }
-  const props = selected.declaration.members.flatMap((member): SourcePropDescriptor[] => {
-    if (!ts.isPropertySignature(member)) {
-      return [];
-    }
-
+  const { members } = collectSourcePropsMembers(selected, parsedFiles, warnings);
+  const aliases = collectTypeAliases(parsedFiles.map(({ sourceFile }) => sourceFile));
+  const props = members.flatMap(({
+    member,
+    required,
+    sourceFile,
+    typeName: checkedTypeName,
+    typeNode,
+  }): SourcePropDescriptor[] => {
     const name = getPropertyName(member.name);
     if (!name) {
       warnings.push('Skipped a computed prop name that cannot be mapped safely.');
       return [];
     }
 
-    const typeName = member.type?.getText(selected.file.sourceFile) ?? 'unknown';
-    const resolved = resolveType(member.type, aliases, selected.file.sourceFile, new Set());
+    const resolvedTypeNode = typeNode ?? member.type;
+    const resolvedSourceFile = typeNode?.getSourceFile() ?? sourceFile;
+    const typeName = checkedTypeName ?? member.type?.getText(sourceFile) ?? 'unknown';
+    const resolved = resolveType(
+      resolvedTypeNode,
+      aliases,
+      resolvedSourceFile,
+      new Set(),
+    );
 
     return [{
       name,
-      required: member.questionToken === undefined,
+      required: required ?? member.questionToken === undefined,
       role: classifyPropRole(name, resolved),
       typeName,
       ...(resolved.values ? { values: resolved.values } : {}),
     }];
   });
 
-  const componentName = selected.declaration.name.text.replace(/Props$/, '');
+  const propsComponentName = selected.declaration.name.text
+    .replace(/Props(?:Type)?$/i, '')
+    .replace(/^I(?=[A-Z])/, '');
+  const componentName = selected.componentName
+    ?? ((selected.reason === 'name-affinity' || selected.reason === 'fallback')
+      && propsComponentName
+      ? propsComponentName
+      : requestedComponentName ?? propsComponentName);
   const defaults = collectImplementationDefaults(parsedFiles.map(({ sourceFile }) => sourceFile));
   const propsWithDefaults = props.map((prop) => {
     const defaultValue = defaults.get(prop.name);
@@ -176,6 +139,7 @@ export function parseSourceComponent(
       componentName,
       contentHash: createSourceContentHash(files),
       fileName: selected.file.fileName,
+      propsTypeName: selected.declaration.name.text,
       props: propsWithDefaults,
     },
     warnings,
@@ -197,11 +161,15 @@ export function createSourceContentHash(files: readonly SourceFileInput[]): stri
   return `fnv1a-${(hash >>> 0).toString(16).padStart(8, '0')}`;
 }
 
-function collectTypeAliases(sourceFile: ts.SourceFile): ReadonlyMap<string, ts.TypeNode> {
+function collectTypeAliases(
+  sourceFiles: readonly ts.SourceFile[],
+): ReadonlyMap<string, ts.TypeNode> {
   const aliases = new Map<string, ts.TypeNode>();
-  for (const statement of sourceFile.statements) {
-    if (ts.isTypeAliasDeclaration(statement)) {
-      aliases.set(statement.name.text, statement.type);
+  for (const sourceFile of sourceFiles) {
+    for (const statement of sourceFile.statements) {
+      if (ts.isTypeAliasDeclaration(statement)) {
+        aliases.set(statement.name.text, statement.type);
+      }
     }
   }
   return aliases;
