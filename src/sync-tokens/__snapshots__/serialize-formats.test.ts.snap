@@ -26,6 +26,15 @@ exports[`extended token serializers > generates json-flat output 1`] = `
 "
 `;
 
+exports[`extended token serializers > generates markdown output 1`] = `
+"# Core
+
+\`\`\`text
+--color-primary: #ff0000;
+--space-small: 0.5rem;
+\`\`\`"
+`;
+
 exports[`extended token serializers > generates scss output 1`] = `
 "// Core — exported from Figma variables
 $color-primary: #ff0000;

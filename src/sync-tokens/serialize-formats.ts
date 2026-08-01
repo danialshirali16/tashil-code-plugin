@@ -12,6 +12,7 @@ export function serializeTokenCollection(
     case 'css': return { content: serializeCollection(collection, options), extension: 'css' };
     case 'json-flat': return { content: serializeFlatJson(collection, options), extension: 'json' };
     case 'json-dtcg': return { content: serializeDtcg(collection, options), extension: 'json' };
+    case 'markdown': return { content: serializeMarkdownTokenList(collection, options), extension: 'md' };
     case 'scss': return { content: serializeScss(collection, options), extension: 'scss' };
     case 'tailwind-theme': return { content: serializeTailwindTheme(collection, options), extension: 'ts' };
   }
@@ -46,6 +47,24 @@ export function serializeDtcg(collection: TokenCollection, options: ExportOption
     };
   }
   return `${JSON.stringify(root, null, 2)}\n`;
+}
+
+export function serializeMarkdownTokenList(
+  collection: TokenCollection,
+  options: ExportOptions,
+): string {
+  const entries = collection.tokens.map((token) => {
+    const name = formatTokenName(token.name, options.nameStyle);
+    const value = formatRawTokenValue(token, options);
+    return `--${name}: ${value};`;
+  });
+  return [
+    `# ${collection.name}`,
+    '',
+    '```text',
+    ...entries,
+    '```',
+  ].join('\n');
 }
 
 export function serializeScss(collection: TokenCollection, options: ExportOptions): string {
@@ -97,6 +116,13 @@ function stableTokenValue(token: Token): string {
     hash = Math.imul(hash, 0x01000193);
   }
   return (hash >>> 0).toString(16).padStart(8, '0');
+}
+
+function formatRawTokenValue(token: Token, options: ExportOptions): string {
+  return formatTokenValue(token, options).replace(
+    /var\(--([^)]*)\)/g,
+    (_match, name: string) => `var(--${name.replace(/\\([./])/g, '$1')})`,
+  );
 }
 
 function dtcgType(token: Token): string {

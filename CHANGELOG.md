@@ -19,6 +19,8 @@ is the version of record.
 - Added flat JSON, W3C DTCG JSON, SCSS variables/maps, and Tailwind theme token
   outputs, plus informational added/changed/removed summaries based on the last
   local export.
+- Added a Markdown raw-token-list export for unescaped dotted token paths,
+  including dotted PascalCase names such as `--Color.Text.Default`.
 - Added local accessibility badges in Inspect Code for WCAG contrast, 24×24px
   touch targets, and minimum font-size heuristics. Findings never block copying.
 

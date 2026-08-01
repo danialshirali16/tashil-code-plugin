@@ -3,8 +3,9 @@
 Status: Active
 Last updated: 2026-08-01
 
-The **Sync Tokens** tab exports Figma Variables as CSS, flat JSON, W3C DTCG
-JSON, SCSS variables/maps, or a Tailwind theme-extension snippet.
+The **Sync Tokens** tab exports Figma Variables as CSS, raw Markdown token
+lists, flat JSON, W3C DTCG JSON, SCSS variables/maps, or a Tailwind
+theme-extension snippet.
 
 ## What it does
 
@@ -77,6 +78,8 @@ stylesheet.
 - **CSS variables** preserves the original `:root` output.
 - **JSON — flat** produces one formatted-name/value object.
 - **JSON — W3C DTCG** nests the Figma slash path and emits `$type`/`$value`.
+- **Markdown — raw token list** produces a `.md` file with unescaped token
+  paths for documentation and non-CSS token-reference tooling.
 - **SCSS variables + map** emits individual `$token` variables and a `$tokens` map.
 - **Tailwind theme extension** emits a TypeScript theme snippet under
   `theme.extend.tokens`.
@@ -127,9 +130,12 @@ custom-property names:
 | `slash` | `--color\/text\/primary`   |
 | `dot`   | `--color\.text\.primary`   |
 | `snake` | `--color_text_primary`     |
-| `pascal`| `--ColorTextPrimary`       |
+| `pascal`| `--Color\.Text\.Primary`   |
 
-The default `kebab` produces standard CSS-safe identifiers.
+The default `kebab` produces standard CSS-safe identifiers. CSS escapes dot and
+slash separators because raw periods and slashes are not valid in custom-property
+names. Markdown output keeps those separators unescaped, so `dot` produces
+`--color.text.primary` and `pascal` produces `--Color.Text.Primary`.
 
 ### 4. Export
 
@@ -188,4 +194,4 @@ no unit, so a blanket px→rem would corrupt unitless values.
 | Preview shows a mode fallback warning | A referenced collection does not have a mode with the selected mode's name, so its default mode was used. Use the warning's **Alias mode** dropdown to choose the intended mode. |
 | Preview reports fewer declarations than variables | Open the listed warnings; missing values and unsupported Figma value shapes are skipped instead of fabricating CSS. |
 | Opacity / font-weight came out as `rem` | It shouldn't — only length-scoped variables convert. If it does, the variable's scope in Figma is mislabeled. |
-| Need another file syntax | Choose CSS, JSON, SCSS, or Tailwind under **Output format**. |
+| Need another file syntax | Choose CSS, Markdown, JSON, SCSS, or Tailwind under **Output format**. |

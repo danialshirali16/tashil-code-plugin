@@ -10,9 +10,9 @@ decisions. Read this before changing anything in the export pipeline.
 
 ## At a glance
 
-Sync Tokens exports Figma Variable collections as CSS, JSON, SCSS, or Tailwind
-files. The work splits cleanly into three layers, matching the rest of the
-plugin:
+Sync Tokens exports Figma Variable collections as CSS, Markdown, JSON, SCSS,
+or Tailwind files. The work splits cleanly into three layers, matching the rest
+of the plugin:
 
 ```text
 UI (src/ui.tsx)               user picks collections + options
@@ -107,8 +107,9 @@ This is the part that matters. Four functions, each tiny and tested:
 Splits the Figma name on `/` (Figma groups variables with slashes) and rejoins
 per the chosen style. Each segment is normalized independently — never the raw
 string — so internal camelCase and spaces are handled. Styles: `kebab`, `slash`,
-`dot`, `snake`, `pascal`. `formatCssTokenName` then escapes dot and slash
-separators at the CSS identifier boundary.
+`dot`, `snake`, `pascal`. Pascal preserves path nesting as dotted capitalized
+segments. `formatCssTokenName` escapes dot and slash separators at the CSS
+identifier boundary; raw Markdown token lists use `formatTokenName` directly.
 
 ### `formatColor(value, format, alias?)`
 
@@ -202,7 +203,8 @@ plus the tab-bar and keyboard-nav (`handleTabKeyDown`) arrays — see the
 ### One file per (collection × mode)
 
 When a collection exports multiple modes, each mode becomes its own output file
-(`colors-light.css`, `colors-dark.scss`, or the corresponding JSON/TS name).
+(`colors-light.css`, `colors-dark.md`, `colors-dark.scss`, or the corresponding
+JSON/TS name).
 CSS output remains a flat `:root {}`. The alternative — one file with
 `[data-theme="dark"]` scoped blocks — was rejected in favor of simpler per-file
 output. If you want scoped output, that's a backend change in `exportTokens` +
@@ -216,11 +218,12 @@ demand it — the persistence pattern already exists for connections.
 
 ### Multiple output formats
 
-The pure format dispatcher supports CSS, flat JSON, W3C DTCG JSON, SCSS, and a
-Tailwind theme extension. CSS is the compatibility default; JSON always uses
-hex colors to keep its values stable and tool-friendly. Each generated file
-also carries hashed token snapshots so the backend can compare it with the
-last successful export without storing raw token values.
+The pure format dispatcher supports CSS, raw Markdown token lists, flat JSON,
+W3C DTCG JSON, SCSS, and a Tailwind theme extension. CSS is the compatibility
+default; JSON always uses hex colors to keep its values stable and
+tool-friendly. Each generated file also carries hashed token snapshots so the
+backend can compare it with the last successful export without storing raw
+token values.
 
 ## Gotchas
 

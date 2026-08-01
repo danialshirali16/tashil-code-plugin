@@ -15,7 +15,7 @@
 import { createRecipeDraft } from '../../src/semantic/authoring';
 import { extractFigmaSemanticSnapshot } from '../../src/semantic/figma-extractor';
 import { extractSourceContract } from '../../src/semantic/source-contract';
-import { serializeCollection } from '../../src/sync-tokens/serialize';
+import { serializeTokenCollection } from '../../src/sync-tokens/serialize-formats';
 import type {
   ExportFile,
   ExportOptions,
@@ -368,9 +368,10 @@ function createPreviewFiles(payload: {
       const suffix = collection.modes.length > 1
         ? `-${tokenFileSlug(mode.name)}`
         : '';
+      const serialized = serializeTokenCollection(domain, payload.options);
       files.push({
-        name: `${tokenFileSlug(collection.name)}${suffix}.css`,
-        css: serializeCollection(domain, payload.options),
+        name: `${tokenFileSlug(collection.name)}${suffix}.${serialized.extension}`,
+        css: serialized.content,
         declarationCount: tokens.length,
         sourceVariableCount: collection.tokenCount,
         warnings: collection.id === 'product'

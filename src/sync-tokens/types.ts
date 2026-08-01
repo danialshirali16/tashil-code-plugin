@@ -13,15 +13,25 @@ export type ColorFormat = 'rgb' | 'rgba' | 'hex' | 'variable';
 
 /**
  * How a variable's slash-delimited Figma name (`Color/Text/Primary/Default`)
- * becomes a CSS custom-property name.
+ * becomes an exported token name.
  *
  * - `kebab`  → `--color-text-primary-default` (default; valid bare ident)
- * - `slash`  → `--color/text/primary/default` (scoped via nesting; valid CSS)
+ * - `slash`  → `--color/text/primary/default`
+ * - `dot`    → `--color.text.primary.default`
  * - `snake`  → `--color_text_primary_default`
- * - `pascal` → `--ColorTextPrimaryDefault`
+ * - `pascal` → `--Color.Text.Primary.Default`
+ *
+ * CSS output escapes slash and dot separators. Raw Markdown output preserves
+ * them exactly for token-reference tooling that is not parsed as CSS.
  */
 export type NameStyle = 'kebab' | 'slash' | 'dot' | 'snake' | 'pascal';
-export type OutputFormat = 'css' | 'json-flat' | 'json-dtcg' | 'scss' | 'tailwind-theme';
+export type OutputFormat =
+  | 'css'
+  | 'json-flat'
+  | 'json-dtcg'
+  | 'markdown'
+  | 'scss'
+  | 'tailwind-theme';
 
 /** Figma variable resolved type, mirrored here to stay runtime-free. */
 export type VariableResolvedType = 'BOOLEAN' | 'COLOR' | 'FLOAT' | 'STRING';
@@ -65,7 +75,7 @@ export type ExportOptions = {
   rootFontSize: number;
   /** Output format for color variables. */
   colorFormat: ColorFormat;
-  /** Custom-property naming convention. */
+  /** Exported token naming convention. */
   nameStyle: NameStyle;
 };
 

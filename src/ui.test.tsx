@@ -556,6 +556,27 @@ describe('Plugin rendered interactions', () => {
     await waitFor(() => {
       expect(screen.getByText('Downloaded product-tokens-zhina.css.')).toBeTruthy();
     });
+
+    const outputFormatDropdown = screen.getByLabelText('Output format');
+    fireEvent.keyDown(outputFormatDropdown, { key: 'ArrowDown' });
+    fireEvent.click(screen.getByRole('radio', { name: 'Markdown — raw token list' }));
+    expect(screen.getAllByText('product-tokens-zhina.md').length).toBeGreaterThan(0);
+
+    fireEvent.click(screen.getByRole('radio', { name: 'pascal' }));
+    const markdownRequests = emittedPayloads<{
+      options: ExportOptions;
+    }>('PREVIEW_TOKENS');
+    const markdownRequest = markdownRequests[markdownRequests.length - 1];
+    expect(markdownRequest?.options.outputFormat).toBe('markdown');
+    expect(markdownRequest?.options.nameStyle).toBe('pascal');
+    receiveLatestTokenPreview([
+      previewFile(
+        'product-tokens-zhina.md',
+        '# Product Tokens\n\n```text\n--Color.Text.Default: #101828;\n```\n',
+      ),
+    ]);
+    expect(screen.getByLabelText('Token output preview').textContent)
+      .toContain('--Color.Text.Default: #101828;');
   });
 
   it('shows the correct connection status and action availability as setup changes', () => {

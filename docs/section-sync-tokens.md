@@ -8,14 +8,15 @@ canonical, detailed reference. This guide is the fast onboarding path; read the
 architecture doc when you need the message-protocol byte shapes or the
 extension table.
 
-The working tree exports CSS, flat JSON, W3C DTCG JSON, SCSS variables/maps,
-and Tailwind theme-extension snippets through one format dispatcher.
+The working tree exports CSS, raw Markdown token lists, flat JSON, W3C DTCG
+JSON, SCSS variables/maps, and Tailwind theme-extension snippets through one
+format dispatcher.
 
 ## At a glance
 
-Sync Tokens exports Figma Variable collections in CSS, JSON, SCSS, or Tailwind
-formats (one file per collection × selected mode). The work splits into three
-layers, matching the rest of the plugin:
+Sync Tokens exports Figma Variable collections in CSS, Markdown, JSON, SCSS,
+or Tailwind formats (one file per collection × selected mode). The work splits
+into three layers, matching the rest of the plugin:
 
 ```text
 UI (src/ui.tsx · SyncTokensView)   user picks collections + options
@@ -38,7 +39,7 @@ the `semantic/` and `inspect/` layering.
 | --- | --- |
 | `src/sync-tokens/types.ts` | Pure domain model. Zero `@figma/plugin-typings` imports. Defines `Token`, `TokenCollection`, `ExportOptions`, `LENGTH_SCOPES`, `ExportFile`. |
 | `src/sync-tokens/serialize.ts` | Pure CSS transforms and value formatting. |
-| `src/sync-tokens/serialize-formats.ts` | Format dispatcher plus JSON, SCSS, and Tailwind serializers; also creates per-token content hashes. |
+| `src/sync-tokens/serialize-formats.ts` | Format dispatcher plus Markdown, JSON, SCSS, and Tailwind serializers; also creates per-token content hashes. |
 | `src/sync-tokens/export-diff.ts` | Pure added/changed/removed/unchanged comparison for export snapshots. |
 | `src/sync-tokens/serialize.test.ts` | Unit tests for the serializers. |
 | `src/main.ts` | The **only** place that calls `figma.variables.*`. `generateTokenFiles`, `collectTokens`, `normalizeValue`, `loadTokenCollections`, `previewTokens`, `exportTokens`. |
@@ -54,7 +55,9 @@ This is the part that matters. Four families of functions, each tiny and tested:
 - **`formatTokenName(raw, style)` / `formatCssTokenName(raw, style)`** — split
   the Figma name on `/` and rejoin per `style` (`kebab` | `slash` | `dot` |
   `snake` | `pascal`). Each segment is normalized independently. `formatCssTokenName`
-  then escapes `.` and `/` separators at the CSS-identifier boundary.
+  then escapes `.` and `/` separators at the CSS-identifier boundary. Markdown
+  token lists intentionally use `formatTokenName` directly so dot and slash
+  paths remain raw. Pascal style preserves path nesting (`Color.Text.Primary`).
   **Shared with Layout:** `src/layout/figma-layout-extractor.ts` imports
   `formatTokenName` and calls it with `'kebab'` to build `--<name>` CSS variable
   names. Keep the two in agreement so generated CSS variable names match.

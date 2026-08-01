@@ -49,14 +49,16 @@ describe('formatTokenName', () => {
       .toBe('color\\/text\\/primary');
     expect(formatCssTokenName('Color/Primary/Hover', 'dot'))
       .toBe('color\\.primary\\.hover');
+    expect(formatCssTokenName('Color/Primary/Hover', 'pascal'))
+      .toBe('Color\\.Primary\\.Hover');
   });
 
   it('snake: underscores between segments', () => {
     expect(formatTokenName('Color/Text/Primary', 'snake')).toBe('color_text_primary');
   });
 
-  it('pascal: concatenates capitalized segments', () => {
-    expect(formatTokenName('Color/Text/Primary', 'pascal')).toBe('ColorTextPrimary');
+  it('pascal: preserves dotted nesting with capitalized segments', () => {
+    expect(formatTokenName('Color/Text/Primary', 'pascal')).toBe('Color.Text.Primary');
   });
 
   it('handles camelCase and spaces within a segment', () => {

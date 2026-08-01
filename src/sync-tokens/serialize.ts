@@ -35,7 +35,7 @@ export function formatTokenName(raw: string, style: NameStyle): string {
     case 'snake':
       return segments.map(toSnake).join('_');
     case 'pascal':
-      return segments.map(toPascal).join('');
+      return segments.map(toPascal).join('.');
   }
 }
 

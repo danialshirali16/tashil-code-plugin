@@ -13,6 +13,7 @@ const base: ExportOptions = { colorFormat: 'hex', convertPxToRem: true, modesByC
 
 describe('extended token serializers', () => {
   it.each([
+    ['markdown', 'md', '--color-primary: #ff0000;', '--space-small: 0.5rem;'],
     ['scss', 'scss', '$color-primary: #ff0000;', '$tokens: ('],
     ['tailwind-theme', 'ts', 'export default {', '"space-small": "0.5rem"'],
     ['json-flat', 'json', '"color-primary": "#ff0000"', '"space-small": "0.5rem"'],
@@ -27,5 +28,18 @@ describe('extended token serializers', () => {
 
   it('keeps omitted outputFormat byte-identical to CSS', () => {
     expect(serializeTokenCollection(collection, base).content).toMatchSnapshot();
+  });
+
+  it.each([
+    ['dot', '--color.primary: #ff0000;'],
+    ['pascal', '--Color.Primary: #ff0000;'],
+  ] as const)('preserves raw %s paths in Markdown', (nameStyle, declaration) => {
+    const result = serializeTokenCollection(collection, {
+      ...base,
+      nameStyle,
+      outputFormat: 'markdown',
+    });
+    expect(result.content).toContain(declaration);
+    expect(result.content).not.toContain('\\.');
   });
 });

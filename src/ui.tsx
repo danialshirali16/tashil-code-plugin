@@ -1897,11 +1897,13 @@ function SyncTokensView(props: {
             <div class="sync-tokens-format-settings">
               <Field id="tashil-output-format" label="Output format">
                 <Dropdown
+                  aria-label="Output format"
                   onValueChange={(value) => setOutputFormat(value as OutputFormat)}
                   options={[
                     { value: 'css', text: 'CSS variables' },
                     { value: 'json-flat', text: 'JSON — flat' },
                     { value: 'json-dtcg', text: 'JSON — W3C DTCG' },
+                    { value: 'markdown', text: 'Markdown — raw token list' },
                     { value: 'scss', text: 'SCSS variables + map' },
                     { value: 'tailwind-theme', text: 'Tailwind theme extension' },
                   ]}
@@ -2125,6 +2127,7 @@ function SyncTokensView(props: {
 }
 
 function tokenOutputExtension(format: OutputFormat): string {
+  if (format === 'markdown') return 'md';
   if (format === 'scss') return 'scss';
   if (format === 'tailwind-theme') return 'ts';
   if (format === 'json-flat' || format === 'json-dtcg') return 'json';
