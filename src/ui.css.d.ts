@@ -1,4 +1,9 @@
 declare const styles: {
+  readonly "accessibility-badge": string;
+  readonly "accessibility-badge-pass": string;
+  readonly "accessibility-badge-warning": string;
+  readonly "accessibility-badges": string;
+  readonly "accessibility-checks": string;
   readonly "actions": string;
   readonly "advanced-mappings": string;
   readonly "button-content": string;
@@ -22,6 +27,10 @@ declare const styles: {
   readonly "code-section-heading": string;
   readonly "code-value-choice-list": string;
   readonly "connect-empty": string;
+  readonly "connection-broken-instances": string;
+  readonly "connection-coverage": string;
+  readonly "connection-coverage-bar": string;
+  readonly "connection-coverage-heading": string;
   readonly "connection-health": string;
   readonly "connection-health-actions": string;
   readonly "connection-health-broken": string;
@@ -29,7 +38,14 @@ declare const styles: {
   readonly "connection-health-healthy": string;
   readonly "connection-health-needs-review": string;
   readonly "connection-health-source-refresh-required": string;
+  readonly "connection-import-button": string;
+  readonly "connection-import-list": string;
+  readonly "connection-import-missing": string;
+  readonly "connection-import-preview": string;
+  readonly "connection-import-row": string;
   readonly "connection-issue-message": string;
+  readonly "connection-portability-actions": string;
+  readonly "connection-portability-message": string;
   readonly "connection-status": string;
   readonly "connection-status-connected": string;
   readonly "connection-status-header": string;
@@ -44,6 +60,8 @@ declare const styles: {
   readonly "coverage-list": string;
   readonly "coverage-tag": string;
   readonly "create-figma-plugin": string;
+  readonly "description-panel": string;
+  readonly "description-props": string;
   readonly "detail-back": string;
   readonly "detail-component-name": string;
   readonly "detail-navigation": string;
@@ -90,6 +108,7 @@ declare const styles: {
   readonly "inventory-filters": string;
   readonly "inventory-heading": string;
   readonly "inventory-heading-row": string;
+  readonly "inventory-instance-count": string;
   readonly "inventory-list": string;
   readonly "inventory-no-results": string;
   readonly "inventory-notice": string;
@@ -161,6 +180,8 @@ declare const styles: {
   readonly "mapping-workbench-progress": string;
   readonly "mapping-workbench-source": string;
   readonly "mapping-workbench-title": string;
+  readonly "output-settings-grid": string;
+  readonly "output-settings-view": string;
   readonly "page-heading": string;
   readonly "primary-actions": string;
   readonly "prop-body": string;
@@ -219,10 +240,16 @@ declare const styles: {
   readonly "spacer": string;
   readonly "static-value-label": string;
   readonly "static-value-row": string;
+  readonly "storybook-generator": string;
+  readonly "storybook-message": string;
+  readonly "storybook-result": string;
+  readonly "storybook-variant-list": string;
+  readonly "storybook-variant-picker": string;
   readonly "sync-tokens-collection-list": string;
   readonly "sync-tokens-collection-name": string;
   readonly "sync-tokens-collection-row": string;
   readonly "sync-tokens-count": string;
+  readonly "sync-tokens-diff": string;
   readonly "sync-tokens-empty-result": string;
   readonly "sync-tokens-export-summary": string;
   readonly "sync-tokens-file-name": string;

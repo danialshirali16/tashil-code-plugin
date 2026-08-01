@@ -109,8 +109,10 @@ export function parseSourceComponent(
       resolvedSourceFile,
       new Set(),
     );
+    const description = readJsDoc(member);
 
     return [{
+      ...(description ? { description } : {}),
       name,
       required: required ?? member.questionToken === undefined,
       role: classifyPropRole(name, resolved),
@@ -132,18 +134,27 @@ export function parseSourceComponent(
     const defaultValue = defaults.get(prop.name);
     return defaultValue === undefined ? prop : { ...prop, defaultValue };
   });
+  const description = readJsDoc(selected.declaration);
 
   return {
     ok: true,
     snapshot: {
       componentName,
       contentHash: createSourceContentHash(files),
+      ...(description ? { description } : {}),
       fileName: selected.file.fileName,
       propsTypeName: selected.declaration.name.text,
       props: propsWithDefaults,
     },
     warnings,
   };
+}
+
+function readJsDoc(node: ts.Node): string | undefined {
+  const comments = ts.getJSDocCommentsAndTags(node)
+    .filter(ts.isJSDoc)
+    .flatMap((doc) => typeof doc.comment === 'string' ? [doc.comment.trim()] : []);
+  return comments.filter(Boolean).join('\n') || undefined;
 }
 
 export function createSourceContentHash(files: readonly SourceFileInput[]): string {

@@ -21,6 +21,7 @@ export type ColorFormat = 'rgb' | 'rgba' | 'hex' | 'variable';
  * - `pascal` → `--ColorTextPrimaryDefault`
  */
 export type NameStyle = 'kebab' | 'slash' | 'dot' | 'snake' | 'pascal';
+export type OutputFormat = 'css' | 'json-flat' | 'json-dtcg' | 'scss' | 'tailwind-theme';
 
 /** Figma variable resolved type, mirrored here to stay runtime-free. */
 export type VariableResolvedType = 'BOOLEAN' | 'COLOR' | 'FLOAT' | 'STRING';
@@ -44,6 +45,8 @@ export const LENGTH_SCOPES = new Set<string>([
 
 /** Options applied while serializing a collection to CSS. */
 export type ExportOptions = {
+  /** File syntax. Omitted payloads retain the historical CSS default. */
+  outputFormat?: OutputFormat;
   /** Per-collection chosen mode ids (collections define their own modes). */
   modesByCollection: Readonly<Record<string, readonly string[]>>;
   /**
@@ -139,11 +142,20 @@ export type TokenExportWarning = {
   fallbackModeId?: string;
 };
 
-/** One generated CSS file plus the preflight data used by preview and export. */
+/** One generated token file plus the preflight data used by preview and export. */
 export type ExportFile = {
   name: string;
   css: string;
   declarationCount: number;
   sourceVariableCount: number;
   warnings: readonly TokenExportWarning[];
+  diff?: TokenExportDiff;
+  tokenSnapshot?: Readonly<Record<string, string>>;
+};
+
+export type TokenExportDiff = {
+  added: number;
+  changed: number;
+  removed: number;
+  unchanged: number;
 };

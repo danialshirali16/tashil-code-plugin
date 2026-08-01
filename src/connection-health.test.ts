@@ -92,4 +92,17 @@ describe('connection health', () => {
       severity: 'review',
     }));
   });
+
+  it('suppresses newly added Figma properties covered by an explicit prefix policy', () => {
+    const saved = createDocument();
+    const current = {
+      ...saved.figmaSnapshot,
+      properties: [...saved.figmaSnapshot.properties, {
+        id: 'prototype-note', name: 'prototype/Note', options: [], rawKey: 'prototype/Note#prototype-note', type: 'TEXT' as const,
+      }],
+    };
+    expect(evaluateConnectionHealth(saved, current, saved, true, {
+      intentionalFigmaPropertyPrefixes: ['prototype/'],
+    })).toEqual({ changes: [], status: 'healthy' });
+  });
 });

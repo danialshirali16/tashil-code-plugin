@@ -52,6 +52,7 @@ import type { FigmaComponentSnapshot, SourcePropValue } from './types';
 export type SemanticMappingViewProps = {
   componentName: string;
   importPath: string;
+  previewDirection?: 'ltr' | 'rtl';
   disabled: boolean;
   error?: string;
   figmaSnapshot?: FigmaComponentSnapshot;
@@ -407,7 +408,7 @@ export function SemanticMappingView(props: SemanticMappingViewProps): h.JSX.Elem
           {preview ? (
             <section class="mapping-preview">
               <div class="mapping-inspector-label">Live code preview</div>
-              <pre aria-label="Generated semantic usage preview" class="generated-json-preview">
+              <pre aria-label="Generated semantic usage preview" class="generated-json-preview" dir={props.previewDirection ?? 'ltr'}>
                 {preview}
               </pre>
             </section>

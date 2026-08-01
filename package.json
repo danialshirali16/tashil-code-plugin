@@ -6,8 +6,10 @@
   "scripts": {
     "audit:library": "vite-node scripts/audit-library-compatibility.mjs",
     "build": "npm run typecheck && build-figma-plugin --minify",
+    "harness": "vite --config vite.harness.config.ts",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
+    "review:connections": "vite-node scripts/review-connections.mjs",
     "test": "vitest run",
     "test:watch": "vitest",
     "typecheck": "tsc -p tsconfig.json && tsc -p tsconfig.ui.json && tsc -p tsconfig.tests.json && tsc -p tsconfig.plugin-tests.json",

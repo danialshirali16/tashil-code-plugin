@@ -1,6 +1,6 @@
 import { emit, on, showUI } from '@create-figma-plugin/utilities';
 import {
-  createUsageSnippet,
+  createComponentUsage,
   formatMappingDiagnostics,
   isPropMappings,
   isRecord,
@@ -9,7 +9,11 @@ import {
   validateConnectionMetadata,
   type ResolvedInstanceSwap,
 } from './codegen';
+import { generateStorybookCsf, STORYBOOK_COMBINATION_LIMIT } from './storybook';
+import { DEFAULT_OUTPUT_PREFERENCES, formatGeneratedCode, readOutputPreferences, selectCopyContent, type OutputPreferences } from './output-preferences';
 import { normalizeHttpUrl, normalizeOptionalHttpUrl } from './external-url';
+import { parseConnectionExport, serializeConnectionExport, type ConnectionExportEntry } from './connection-portability';
+import { generateCodeConnectFile } from './code-connect';
 import { renderImportLines } from './layout/imports';
 import { GenerationContext } from './layout/generation-context';
 import type { LayoutSourceNode } from './layout/figma-layout-extractor';
@@ -17,7 +21,7 @@ import {
   generateReactLayout,
   supportsReactLayout,
 } from './layout/react-layout';
-import type { ReactLayoutResult } from './layout/types';
+import type { ComponentUsage, ReactLayoutResult } from './layout/types';
 import {
   generateVariantLogic,
   type VariantLogicResult,
@@ -34,7 +38,7 @@ import { createReactPropIdentifier } from './prop-mappings';
 import { formatCssBlock } from './inspect/css-partition';
 import { formatConnectedComponentsSnippet } from './inspect/usage-snippet';
 import { inspectFrame, type InspectableNode } from './inspect/inspect-frame';
-import type { FrameInspection } from './inspect/types';
+import type { ConnectedComponentEntry, FrameInspection } from './inspect/types';
 import {
   CONNECTION_KEY,
   CONNECTION_NAMESPACE,
@@ -45,6 +49,7 @@ import {
   type CodegenBlock,
   type ComponentConnectionStatus,
   type ComponentInventoryItem,
+  type ConnectionCoverageReport,
   type ComponentInventoryStateHandler,
   type ComponentTargetStateHandler,
   type ConnectionIssue,
@@ -72,8 +77,23 @@ import {
   type LoadTokenCollectionsResultHandler,
   type ExportTokensHandler,
   type ExportTokensResultHandler,
+  type ApplyConnectionImportHandler,
+  type ApplyConnectionImportResultHandler,
+  type ExportConnectionsHandler,
+  type ExportConnectionsResultHandler,
+  type PreviewConnectionImportHandler,
+  type PreviewConnectionImportResultHandler,
+  type GenerateStoriesHandler,
+  type GenerateStoriesResultHandler,
+  type GenerateCodeConnectHandler,
+  type GenerateCodeConnectResultHandler,
+  type LoadOutputPreferencesHandler,
+  type LoadOutputPreferencesResultHandler,
+  type SaveOutputPreferencesHandler,
+  type SaveOutputPreferencesResultHandler,
 } from './types';
-import { serializeCollection } from './sync-tokens/serialize';
+import { diffTokenSnapshots } from './sync-tokens/export-diff';
+import { createTokenSnapshot, serializeTokenCollection } from './sync-tokens/serialize-formats';
 import type {
   AliasValue,
   ColorValue,
@@ -108,6 +128,8 @@ type MutationTargetResult =
 let latestSelectionRefreshRequestId = 0;
 let latestComponentScanId: string | undefined;
 let latestTargetRequestId: string | undefined;
+const OUTPUT_PREFERENCES_KEY = 'tashil-output-preferences-v1';
+const MAX_MULTI_SELECTION = 50;
 
 function createDictionary<T>(): Record<string, T> {
   return Object.create(null) as Record<string, T>;
@@ -119,6 +141,14 @@ export default function (): void {
   }
 
   showUI({ width: 880, height: 680 });
+
+  on<ExportConnectionsHandler>('EXPORT_CONNECTIONS', () => { void exportConnections(); });
+  on<PreviewConnectionImportHandler>('PREVIEW_CONNECTION_IMPORT', ({ raw }) => { void previewConnectionImport(raw); });
+  on<ApplyConnectionImportHandler>('APPLY_CONNECTION_IMPORT', ({ choices }) => { void applyConnectionImport(choices); });
+  on<GenerateStoriesHandler>('GENERATE_STORIES', (payload) => { void generateStories(payload.targetToken, payload.selectedVariantTokens); });
+  on<GenerateCodeConnectHandler>('GENERATE_CODE_CONNECT', ({ targetToken }) => { void generateCodeConnect(targetToken); });
+  on<LoadOutputPreferencesHandler>('LOAD_OUTPUT_PREFERENCES', () => { void emitOutputPreferences(); });
+  on<SaveOutputPreferencesHandler>('SAVE_OUTPUT_PREFERENCES', ({ preferences }) => { void saveOutputPreferences(preferences); });
 
   on<SaveConnectionHandler>('SAVE_CONNECTION', (payload) => {
     void saveConnection(payload.metadata, payload.targetToken, payload.operationId);
@@ -133,7 +163,7 @@ export default function (): void {
   });
 
   on<ScanComponentsHandler>('SCAN_COMPONENTS', (payload) => {
-    void scanComponents(payload.scanId);
+    void scanComponents(payload.scanId, payload.includeCoverage === true);
   });
 
   on<OpenComponentTargetHandler>('OPEN_COMPONENT_TARGET', (payload) => {
@@ -173,7 +203,98 @@ export default function (): void {
   });
 }
 
-figma.codegen.on('generate', async (event) => generateCodegenBlocks(event.node));
+async function loadOutputPreferences(): Promise<OutputPreferences> {
+  try {
+    return readOutputPreferences(await figma.clientStorage?.getAsync(OUTPUT_PREFERENCES_KEY));
+  } catch (_error) {
+    return { ...DEFAULT_OUTPUT_PREFERENCES };
+  }
+}
+
+async function emitOutputPreferences(): Promise<void> {
+  emit<LoadOutputPreferencesResultHandler>('LOAD_OUTPUT_PREFERENCES_RESULT', {
+    preferences: await loadOutputPreferences(),
+  });
+}
+
+async function saveOutputPreferences(preferences: OutputPreferences): Promise<void> {
+  try {
+    const normalized = readOutputPreferences(preferences);
+    await figma.clientStorage?.setAsync(OUTPUT_PREFERENCES_KEY, normalized);
+    emit<SaveOutputPreferencesResultHandler>('SAVE_OUTPUT_PREFERENCES_RESULT', { ok: true });
+  } catch (error) {
+    emit<SaveOutputPreferencesResultHandler>('SAVE_OUTPUT_PREFERENCES_RESULT', {
+      message: errorMessage(error, 'save output preferences'),
+      ok: false,
+    });
+  }
+}
+
+figma.codegen.on('generate', async (event) => {
+  const currentSelection = figma.currentPage.selection;
+  const [blocks, preferences] = await Promise.all([
+    currentSelection.length > 1
+      ? generateMultiSelectionCodegenBlocks(currentSelection)
+      : generateCodegenBlocks(event.node),
+    loadOutputPreferences(),
+  ]);
+  return blocks.map((block) => block.language === 'TYPESCRIPT'
+    ? { ...block, code: selectCopyContent(formatGeneratedCode(block.code, preferences), preferences.copyMode) }
+    : block);
+});
+
+async function generateMultiSelectionCodegenBlocks(
+  nodes: readonly SceneNode[],
+): Promise<CodegenBlock[]> {
+  if (nodes.length > MAX_MULTI_SELECTION) {
+    return [createPlainTextBlock(
+      'Selected components',
+      `Select no more than ${MAX_MULTI_SELECTION} layers for combined output.`,
+    )];
+  }
+
+  const entries: ConnectedComponentEntry[] = [];
+  const notes: string[] = [];
+  for (const node of nodes) {
+    const selection = await resolveSelection(node);
+    if (!selection) {
+      notes.push(`${node.name}: unsupported selection.`);
+      continue;
+    }
+    const connection = readConnectionMetadata(selection.mainComponent);
+    if (!connection.ok) {
+      notes.push(`${node.name}: ${connection.message}`);
+      continue;
+    }
+    const output = await createConnectedOutput(connection.metadata, selection, node);
+    entries.push({
+      componentName: connection.metadata.componentName,
+      layerPath: [node.name],
+      nodeId: node.id,
+      usage: output.usage,
+    });
+    for (const detail of [output.diagnostics, output.runtimeRequirements, output.deprecation]) {
+      if (detail) notes.push(`${node.name}: ${detail}`);
+    }
+  }
+
+  if (entries.length === 0) {
+    return [createPlainTextBlock(
+      'Selected components',
+      notes.join('\n') || 'No connected component instances were selected.',
+    )];
+  }
+
+  const blocks: CodegenBlock[] = [{
+    code: formatConnectedComponentsSnippet(entries, {
+      pathComments: readPathCommentsPreference(),
+    }),
+    language: 'TYPESCRIPT',
+    title: `Selected components (${entries.length})`,
+  }];
+  if (notes.length > 0) blocks.push(createPlainTextBlock('Selection notes', notes.join('\n')));
+  return blocks;
+}
 
 /**
  * Produce Dev Mode codegen blocks for a selected node. A connected component
@@ -321,10 +442,34 @@ async function generateComponentCodegenBlocks(
     blocks.push(createPlainTextBlock('Why this structure?', output.explanation));
   }
 
+  if (output.descriptions) {
+    const text = [
+      output.descriptions.figma ? `Figma: ${output.descriptions.figma}` : '',
+      output.descriptions.source ? `Source: ${output.descriptions.source}` : '',
+    ].filter(Boolean).join('\n\n');
+    blocks.push(createPlainTextBlock('Component descriptions', text));
+  }
+
   const references = createReferenceText(connection.metadata);
 
   if (references) {
     blocks.push(createPlainTextBlock('References', references));
+  }
+
+  const stories = await createStorybookForSelection(
+    connection.metadata,
+    selection,
+    undefined,
+    selectedNode.type !== 'COMPONENT_SET',
+  );
+  if (stories.ok && stories.code) {
+    blocks.push({
+      title: `${connection.metadata.componentName}.stories.tsx`,
+      language: 'TYPESCRIPT',
+      code: stories.code,
+    });
+  } else if (stories.message) {
+    blocks.push(createPlainTextBlock('Storybook stories', stories.message));
   }
 
   return blocks;
@@ -332,10 +477,12 @@ async function generateComponentCodegenBlocks(
 
 type ConnectedOutput = {
   code: string;
+  descriptions?: { figma?: string; source?: string };
   diagnostics?: string;
   explanation?: string;
   runtimeRequirements?: string;
   deprecation?: string;
+  usage: ComponentUsage;
 };
 
 /**
@@ -349,6 +496,7 @@ async function createConnectedOutput(
   selection: ResolvedSelection,
   selectedNode: SceneNode,
 ): Promise<ConnectedOutput> {
+  const descriptions = createConnectionDescriptions(metadata, selection.mainComponent);
   if (metadata.semanticRecipe) {
     const root = await createSemanticNodeTree(selectedNode);
     const result = resolveSemanticUsage(
@@ -364,17 +512,38 @@ async function createConnectedOutput(
 
     return {
       code: [renderImportLines(result.usage.imports), '', result.usage.jsx].join('\n'),
+      ...(descriptions ? { descriptions } : {}),
       diagnostics: result.issues.length > 0 ? result.issues.join('\n') : undefined,
       explanation: formatSemanticExplanations(result.explanations),
       runtimeRequirements: formatRuntimeRequirements(result.runtimeRequirements),
       deprecation: result.deprecation,
+      usage: result.usage,
     };
   }
 
-  const usage = createUsageSnippet(metadata, selection);
+  const usage = createComponentUsage(metadata, selection);
   return {
-    code: usage.code,
+    code: [renderImportLines(usage.imports), '', usage.jsx].join('\n'),
+    ...(descriptions ? { descriptions } : {}),
     diagnostics: formatMappingDiagnostics(usage.diagnostics) || undefined,
+    usage,
+  };
+}
+
+function createConnectionDescriptions(
+  metadata: ConnectionMetadata,
+  component: ConnectableComponentNode,
+): { figma?: string; source?: string } | undefined {
+  const figmaDescription = typeof component.description === 'string'
+    ? component.description.trim()
+    : '';
+  const sourceDescription = metadata.mappingDocument?.sourceSnapshot?.description?.trim() ?? '';
+  if (figmaDescription === '' && sourceDescription === '') {
+    return undefined;
+  }
+  return {
+    ...(figmaDescription ? { figma: figmaDescription } : {}),
+    ...(sourceDescription ? { source: sourceDescription } : {}),
   };
 }
 
@@ -442,6 +611,13 @@ function readPathCommentsPreference(): boolean {
  */
 function generateInspectionBlocks(inspection: FrameInspection): CodegenBlock[] {
   const blocks: CodegenBlock[] = [];
+
+  if ((inspection.accessibility?.length ?? 0) > 0) {
+    blocks.push(createPlainTextBlock(
+      'Accessibility',
+      inspection.accessibility!.map((finding) => `${finding.status === 'pass' ? '✓' : '⚠'} ${finding.message}`).join('\n'),
+    ));
+  }
 
   const layoutCss = formatCssBlock(inspection.css.layout);
   if (layoutCss) {
@@ -828,6 +1004,7 @@ async function loadTokenCollections(): Promise<void> {
 // resolve is ignored — mirrors the scanComponents stale-guard.
 let latestTokensExportId = '';
 let latestTokensPreviewId = '';
+const TOKEN_EXPORT_HISTORY_KEY = 'tashil-token-export-history-v1';
 
 async function exportTokens(
   operationId: string,
@@ -844,6 +1021,7 @@ async function exportTokens(
     if (files === null) {
       return;
     }
+    await saveTokenExportHistory(files);
     emit<ExportTokensResultHandler>('EXPORT_TOKENS_RESULT', {
       ok: true,
       operationId,
@@ -908,6 +1086,7 @@ async function generateTokenFiles(
     variables.map((variable) => [variable.id, variable]),
   );
   const files: ExportFile[] = [];
+  const previousHistory = await loadTokenExportHistory();
 
   for (const collection of collections) {
     if (!isCurrent()) {
@@ -956,17 +1135,44 @@ async function generateTokenFiles(
         tokens,
       };
       const suffix = collection.modes.length > 1 && mode ? `-${slug(mode.name)}` : '';
+      const serialized = serializeTokenCollection(domain, options);
+      const name = `${collectionSlug}${suffix}.${serialized.extension}`;
+      const tokenSnapshot = createTokenSnapshot(tokens);
       files.push({
-        name: `${collectionSlug}${suffix}.css`,
-        css: serializeCollection(domain, options),
+        name,
+        css: serialized.content,
         declarationCount: tokens.length,
         sourceVariableCount: collection.variableIds.length,
         warnings,
+        diff: diffTokenSnapshots(previousHistory[name], tokenSnapshot),
+        tokenSnapshot,
       });
     }
   }
 
   return files;
+}
+
+type TokenExportHistory = Record<string, Record<string, string>>;
+
+async function loadTokenExportHistory(): Promise<TokenExportHistory> {
+  try {
+    const value = await figma.clientStorage?.getAsync(TOKEN_EXPORT_HISTORY_KEY) as unknown;
+    return isRecord(value) ? value as TokenExportHistory : {};
+  } catch (_error) {
+    return {};
+  }
+}
+
+async function saveTokenExportHistory(files: readonly ExportFile[]): Promise<void> {
+  try {
+    const previous = await loadTokenExportHistory();
+    const next: TokenExportHistory = { ...previous };
+    for (const file of files) next[file.name] = { ...(file.tokenSnapshot ?? {}) };
+    await figma.clientStorage?.setAsync(TOKEN_EXPORT_HISTORY_KEY, next);
+  } catch (_error) {
+    // Export history is informational and must never block a download.
+  }
 }
 
 type TokenResolutionContext = {
@@ -1416,7 +1622,222 @@ async function sendComponentTargetState(
   }
 }
 
-async function scanComponents(scanId: string): Promise<void> {
+async function collectLocalConnectionTargets(): Promise<ConnectableComponentNode[]> {
+  const targets: ConnectableComponentNode[] = [];
+  const seen = new Set<string>();
+  for (const page of figma.root.children) {
+    await page.loadAsync();
+    for (const node of page.findAllWithCriteria({ types: ['COMPONENT', 'COMPONENT_SET'] })) {
+      if (node.remote || (node.type === 'COMPONENT' && node.parent?.type === 'COMPONENT_SET')) continue;
+      if (!seen.has(node.id)) { seen.add(node.id); targets.push(node); }
+    }
+  }
+  return targets;
+}
+
+async function exportConnections(): Promise<void> {
+  try {
+    const entries: ConnectionExportEntry[] = [];
+    for (const target of await collectLocalConnectionTargets()) {
+      const connection = readConnectionMetadata(target);
+      if (!connection.ok) continue;
+      entries.push({
+        connection: connection.metadata,
+        locator: {
+          componentKey: target.key,
+          figmaComponentName: target.name,
+          nodeType: target.type,
+          pageName: getTargetPageName(target),
+        },
+      });
+    }
+    emit<ExportConnectionsResultHandler>('EXPORT_CONNECTIONS_RESULT', {
+      json: serializeConnectionExport(entries, '1.0.0', new Date().toISOString()),
+      ok: true,
+    });
+  } catch (error) {
+    emit<ExportConnectionsResultHandler>('EXPORT_CONNECTIONS_RESULT', { ok: false, message: errorMessage(error, 'export connections') });
+  }
+}
+
+async function previewConnectionImport(raw: string): Promise<void> {
+  const parsed = parseConnectionExport(raw);
+  if (!parsed.ok) {
+    emit<PreviewConnectionImportResultHandler>('PREVIEW_CONNECTION_IMPORT_RESULT', parsed);
+    return;
+  }
+  try {
+    const targets = await collectLocalConnectionTargets();
+    const byKey = new Map(targets.map((target) => [target.key, target]));
+    const byIdentity = new Map<string, ConnectableComponentNode[]>();
+    for (const target of targets) {
+      const key = connectionTargetIdentity(target.type, target.name, getTargetPageName(target));
+      byIdentity.set(key, [...(byIdentity.get(key) ?? []), target]);
+    }
+    const entries = parsed.document.connections.map(({ connection, locator }) => {
+      const identityMatches = byIdentity.get(connectionTargetIdentity(
+        locator.nodeType,
+        locator.figmaComponentName,
+        locator.pageName,
+      ));
+      // Component keys are the strongest locator. The unique name/type/page
+      // fallback keeps exports useful after a file duplication changes keys.
+      const target = byKey.get(locator.componentKey)
+        ?? (identityMatches?.length === 1 ? identityMatches[0] : undefined);
+      if (!target) return { componentName: locator.figmaComponentName, imported: connection, status: 'missing' as const };
+      const current = readConnectionMetadata(target);
+      return {
+        componentName: target.name,
+        imported: connection,
+        status: current.ok ? 'conflict' as const : 'matched' as const,
+        targetToken: target.id,
+      };
+    });
+    emit<PreviewConnectionImportResultHandler>('PREVIEW_CONNECTION_IMPORT_RESULT', { entries, ok: true });
+  } catch (error) {
+    emit<PreviewConnectionImportResultHandler>('PREVIEW_CONNECTION_IMPORT_RESULT', { ok: false, message: errorMessage(error, 'preview connection import') });
+  }
+}
+
+function getTargetPageName(target: ConnectableComponentNode): string {
+  let parent = target.parent;
+  while (parent && parent.type !== 'PAGE' && parent.type !== 'DOCUMENT') parent = parent.parent;
+  return parent?.type === 'PAGE' ? parent.name : '';
+}
+
+function connectionTargetIdentity(nodeType: string, componentName: string, pageName: string): string {
+  return `${nodeType}\u0000${pageName}\u0000${componentName}`;
+}
+
+async function applyConnectionImport(choices: Array<{ action: 'overwrite' | 'skip'; imported: ConnectionMetadata; targetToken: string }>): Promise<void> {
+  let applied = 0;
+  try {
+    for (const choice of choices) {
+      if (choice.action === 'skip') continue;
+      const validation = validateConnectionMetadata(choice.imported);
+      if (!validation.ok) throw new Error(validation.message);
+      const resolved = await resolveTargetById(choice.targetToken);
+      if (!resolved.ok) throw new Error(resolved.message);
+      resolved.selection.mainComponent.setSharedPluginData(CONNECTION_NAMESPACE, CONNECTION_KEY, JSON.stringify(choice.imported));
+      applied += 1;
+    }
+    emit<ApplyConnectionImportResultHandler>('APPLY_CONNECTION_IMPORT_RESULT', { applied, ok: true });
+  } catch (error) {
+    emit<ApplyConnectionImportResultHandler>('APPLY_CONNECTION_IMPORT_RESULT', { applied, ok: false, message: errorMessage(error, 'apply connection import') });
+  }
+}
+
+async function generateStories(targetToken: string, selectedVariantTokens?: string[]): Promise<void> {
+  try {
+    const resolved = await resolveTargetById(targetToken);
+    if (!resolved.ok) throw new Error(resolved.message);
+    const connection = readConnectionMetadata(resolved.selection.mainComponent);
+    if (!connection.ok) throw new Error(connection.message);
+    const result = await createStorybookForSelection(
+      connection.metadata,
+      resolved.selection,
+      selectedVariantTokens,
+      false,
+    );
+    const preferences = await loadOutputPreferences();
+    emit<GenerateStoriesResultHandler>('GENERATE_STORIES_RESULT', result.code
+      ? { ...result, code: formatGeneratedCode(result.code, preferences) }
+      : result);
+  } catch (error) {
+    emit<GenerateStoriesResultHandler>('GENERATE_STORIES_RESULT', {
+      message: errorMessage(error, 'generate stories'),
+      ok: false,
+    });
+  }
+}
+
+async function generateCodeConnect(targetToken: string): Promise<void> {
+  try {
+    const resolved = await resolveTargetById(targetToken);
+    if (!resolved.ok) throw new Error(resolved.message);
+    const connection = readConnectionMetadata(resolved.selection.mainComponent);
+    if (!connection.ok) throw new Error(connection.message);
+    if (!figma.fileKey) throw new Error('Save this Figma file before generating Code Connect output.');
+    const output = await createConnectedOutput(
+      connection.metadata,
+      resolved.selection,
+      resolved.selection.mainComponent,
+    );
+    const nodeId = resolved.selection.mainComponent.id.replace(/:/g, '-');
+    const componentUrl = `https://www.figma.com/design/${figma.fileKey}?node-id=${encodeURIComponent(nodeId)}`;
+    emit<GenerateCodeConnectResultHandler>('GENERATE_CODE_CONNECT_RESULT', {
+      ...generateCodeConnectFile(connection.metadata.componentName, componentUrl, output.usage),
+      ok: true,
+    });
+  } catch (error) {
+    emit<GenerateCodeConnectResultHandler>('GENERATE_CODE_CONNECT_RESULT', {
+      message: errorMessage(error, 'generate Code Connect output'),
+      ok: false,
+    });
+  }
+}
+
+async function createStorybookForSelection(
+  metadata: ConnectionMetadata,
+  selection: ResolvedSelection,
+  selectedVariantTokens?: readonly string[],
+  allowCurrentSelectionFallback = true,
+): Promise<Parameters<GenerateStoriesResultHandler['handler']>[0]> {
+  const target = selection.mainComponent;
+  if (target.type !== 'COMPONENT_SET') {
+    return {
+      code: generateStorybookCsf(metadata.componentName, [{
+        name: 'Default',
+        usage: createComponentUsage(metadata, selection),
+      }]),
+      fileName: `${metadata.componentName}.stories.tsx`,
+      ok: true,
+    };
+  }
+
+  const variants = target.children.filter((child): child is ComponentNode => child.type === 'COMPONENT');
+  if (selectedVariantTokens === undefined && variants.length > STORYBOOK_COMBINATION_LIMIT) {
+    if (allowCurrentSelectionFallback) {
+      return {
+        code: generateStorybookCsf(metadata.componentName, [{
+          name: createVariantStoryName(selection.componentProperties),
+          usage: createComponentUsage(metadata, selection),
+        }]),
+        fileName: `${metadata.componentName}.stories.tsx`,
+        ok: true,
+      };
+    }
+    return {
+      message: `This component set has ${variants.length} combinations. Select up to ${STORYBOOK_COMBINATION_LIMIT} to generate.`,
+      ok: false,
+      variants: variants.map((variant) => ({ label: variant.name, targetToken: variant.id })),
+    };
+  }
+
+  const selected = selectedVariantTokens === undefined
+    ? variants
+    : variants.filter((variant) => selectedVariantTokens.includes(variant.id));
+  if (selected.length === 0) return { message: 'Select at least one variant.', ok: false };
+  if (selected.length > STORYBOOK_COMBINATION_LIMIT) return { message: `Select no more than ${STORYBOOK_COMBINATION_LIMIT} variants.`, ok: false };
+  const stories = [];
+  for (const variant of selected) {
+    const variantSelection = await resolveSelection(variant);
+    if (!variantSelection) continue;
+    stories.push({ name: variant.name, usage: createComponentUsage(metadata, variantSelection) });
+  }
+  return {
+    code: generateStorybookCsf(metadata.componentName, stories),
+    fileName: `${metadata.componentName}.stories.tsx`,
+    ok: true,
+  };
+}
+
+function createVariantStoryName(properties: Readonly<Record<string, string | boolean>>): string {
+  const values = Object.values(properties).filter((value): value is string => typeof value === 'string');
+  return values.length > 0 ? values.join(' ') : 'Selected variant';
+}
+
+async function scanComponents(scanId: string, includeCoverage = false): Promise<void> {
   latestComponentScanId = scanId;
 
   try {
@@ -1425,6 +1846,13 @@ async function scanComponents(scanId: string): Promise<void> {
     const items: ComponentInventoryItem[] = [];
     const skippedPageNames: string[] = [];
     const seenTargetTokens = new Set<string>();
+    const instanceCounts = new Map<string, number>();
+    const coverage: ConnectionCoverageReport | undefined = includeCoverage ? {
+      brokenInstanceCount: 0,
+      brokenInstances: [],
+      connectedInstanceCount: 0,
+      totalInstanceCount: 0,
+    } : undefined;
 
     emitInventoryState(scanId, {
       scannedPages: 0,
@@ -1462,6 +1890,36 @@ async function scanComponents(scanId: string): Promise<void> {
             targetToken: node.id,
           });
         }
+
+        // Keep the runtime guard even though Figma types this query precisely;
+        // it also makes the scan resilient to incomplete test/plugin-host shims.
+        const instances = includeCoverage
+          ? page.findAllWithCriteria({ types: ['INSTANCE'] })
+            .filter((node): node is InstanceNode => node.type === 'INSTANCE')
+          : [];
+        for (let offset = 0; coverage && offset < instances.length; offset += 40) {
+          if (latestComponentScanId !== scanId) return;
+          const chunk = instances.slice(offset, offset + 40);
+          await Promise.all(chunk.map(async (instance) => {
+            coverage.totalInstanceCount += 1;
+            const mainComponent = await instance.getMainComponentAsync();
+            if (!mainComponent) {
+              coverage.brokenInstanceCount += 1;
+              if (coverage.brokenInstances.length < 100) {
+                coverage.brokenInstances.push({
+                  layerPath: getNodeLayerPath(instance),
+                  pageName: page.name,
+                });
+              }
+              return;
+            }
+            const target = getConnectionTarget(mainComponent);
+            instanceCounts.set(target.id, (instanceCounts.get(target.id) ?? 0) + 1);
+            if (readConnectionMetadata(target).ok) coverage.connectedInstanceCount += 1;
+          }));
+          // Yield between bounded chunks so large files do not monopolize Figma's thread.
+          await new Promise<void>((resolve) => setTimeout(resolve, 0));
+        }
       } catch (_error) {
         skippedPageNames.push(page.name);
       }
@@ -1477,8 +1935,12 @@ async function scanComponents(scanId: string): Promise<void> {
       return;
     }
 
+    if (coverage) {
+      for (const item of items) item.instanceCount = instanceCounts.get(item.targetToken) ?? 0;
+    }
     items.sort((first, second) => (
-      first.componentName.localeCompare(second.componentName, undefined, {
+      (coverage ? (second.instanceCount ?? 0) - (first.instanceCount ?? 0) : 0)
+      || first.componentName.localeCompare(second.componentName, undefined, {
         sensitivity: 'base',
       })
       || first.pageName.localeCompare(second.pageName, undefined, {
@@ -1488,6 +1950,7 @@ async function scanComponents(scanId: string): Promise<void> {
 
     if (skippedPageNames.length > 0) {
       emitInventoryState(scanId, {
+        ...(coverage ? { coverage } : {}),
         items,
         message: [
           `${skippedPageNames.length} page${skippedPageNames.length === 1 ? '' : 's'} could not be scanned.`,
@@ -1502,6 +1965,7 @@ async function scanComponents(scanId: string): Promise<void> {
     }
 
     emitInventoryState(scanId, {
+      ...(coverage ? { coverage } : {}),
       items,
       scannedPages: totalPages,
       status: 'ready',
@@ -1520,6 +1984,16 @@ async function scanComponents(scanId: string): Promise<void> {
       status: 'error',
     });
   }
+}
+
+function getNodeLayerPath(node: SceneNode): string {
+  const names: string[] = [node.name];
+  let parent = node.parent;
+  while (parent && parent.type !== 'PAGE' && parent.type !== 'DOCUMENT') {
+    if ('name' in parent) names.unshift(parent.name);
+    parent = parent.parent;
+  }
+  return names.join(' / ');
 }
 
 function emitInventoryState(
@@ -1567,12 +2041,12 @@ async function sendSelectionState(
       ? readConnectionMetadata(selection.mainComponent)
       : null;
     const state = await createCanvasTargetState(selectedNodes, selection, connection);
-    const inspectState = await createInspectCodeState(
+    const inspectState = formatInspectCodeState(await createInspectCodeState(
       selectedNodes,
       selectedNode,
       selection,
       connection,
-    );
+    ), await loadOutputPreferences());
 
     // Re-check after the async inspection (getCSSAsync + instance resolution):
     // a newer selection may have started meanwhile. Discard stale Inspect Code
@@ -1598,6 +2072,20 @@ async function sendSelectionState(
       message,
     });
   }
+}
+
+function formatInspectCodeState(state: InspectCodeState, preferences: OutputPreferences): InspectCodeState {
+  if (state.status === 'connected') {
+    return { ...state, output: { ...state.output, code: formatGeneratedCode(state.output.code, preferences) } };
+  }
+  if (state.status === 'layout') {
+    return {
+      ...state,
+      layout: { ...state.layout, tsx: formatGeneratedCode(state.layout.tsx, preferences) },
+      ...(state.variantLogic ? { variantLogic: { ...state.variantLogic, code: formatGeneratedCode(state.variantLogic.code, preferences) } } : {}),
+    };
+  }
+  return state;
 }
 
 function emitCanvasTargetState(
@@ -1705,6 +2193,7 @@ async function createInspectCodeState(
       status: 'connected',
       output: {
         code: output.code,
+        descriptions: output.descriptions,
         deprecation: output.deprecation,
         diagnostics: output.diagnostics,
         explanation: output.explanation,
@@ -1872,6 +2361,9 @@ function createFigmaComponentSnapshot(
   component: ConnectableComponentNode,
 ): FigmaComponentSnapshot {
   const properties: FigmaPropertyDescriptor[] = [];
+  const description = typeof component.description === 'string'
+    ? component.description.trim()
+    : '';
 
   for (const [rawKey, definition] of Object.entries(
     component.componentPropertyDefinitions,
@@ -1903,6 +2395,7 @@ function createFigmaComponentSnapshot(
   return {
     componentId: component.id,
     componentName: component.name,
+    ...(description ? { description } : {}),
     properties,
   };
 }

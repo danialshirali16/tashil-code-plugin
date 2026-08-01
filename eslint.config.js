@@ -56,6 +56,7 @@ module.exports = tseslint.config(
       'code.js',
       'dist',
       'eslint.config.js',
+      'examples',
       'prototypes',
     ],
   },

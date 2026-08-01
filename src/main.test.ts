@@ -84,6 +84,7 @@ function createComponent(
     componentPropertyDefinitions: options.propertyDefinitions ?? {},
     getSharedPluginData: vi.fn(() => options.sharedPluginData ?? ''),
     id,
+    key: `${id}-key`,
     name,
     parent: { type: 'PAGE' },
     setSharedPluginData: vi.fn(),
@@ -156,11 +157,13 @@ function createFrame(
 function createPage(
   id: string,
   name: string,
-  nodes: ReadonlyArray<ComponentNode | ComponentSetNode>,
+  nodes: ReadonlyArray<SceneNode>,
   loadAsync: () => Promise<void> = () => Promise.resolve(),
 ): PageDouble {
   return {
-    findAllWithCriteria: vi.fn(() => [...nodes]),
+    findAllWithCriteria: vi.fn((criteria: { types: string[] }) => (
+      nodes.filter((node) => criteria.types.includes(node.type))
+    )),
     id,
     loadAsync: vi.fn(loadAsync),
     name,
@@ -209,6 +212,7 @@ type StartPluginOptions = {
 };
 
 async function startPlugin(options: StartPluginOptions = {}): Promise<{
+  clientStorage: Map<string, unknown>;
   codegenCustomSettings: Record<string, string>;
   codegenEvents: Map<string, CodegenGenerateHandler>;
   figmaEvents: Map<string, () => void>;
@@ -219,6 +223,7 @@ async function startPlugin(options: StartPluginOptions = {}): Promise<{
   selection: SceneNode[];
 }> {
   const codegenEvents = new Map<string, CodegenGenerateHandler>();
+  const clientStorage = new Map<string, unknown>();
   const codegenCustomSettings: Record<string, string> = {};
   const figmaEvents = new Map<string, () => void>();
   const notify = vi.fn();
@@ -254,6 +259,10 @@ async function startPlugin(options: StartPluginOptions = {}): Promise<{
   };
 
   vi.stubGlobal('figma', {
+    clientStorage: {
+      getAsync: vi.fn((key: string) => Promise.resolve(clientStorage.get(key))),
+      setAsync: vi.fn((key: string, value: unknown) => { clientStorage.set(key, value); return Promise.resolve(); }),
+    },
     closePlugin: vi.fn(),
     codegen: {
       on: vi.fn((name: string, handler: CodegenGenerateHandler) => {
@@ -262,6 +271,7 @@ async function startPlugin(options: StartPluginOptions = {}): Promise<{
       preferences: { customSettings: codegenCustomSettings, unit: 'PIXEL' },
     },
     currentPage: { selection },
+    fileKey: 'file-key',
     getNodeByIdAsync: vi.fn((id: string) => Promise.resolve(nodesById.get(id) ?? null)),
     mode: 'default',
     notify,
@@ -285,6 +295,7 @@ async function startPlugin(options: StartPluginOptions = {}): Promise<{
   plugin.default();
 
   return {
+    clientStorage,
     codegenCustomSettings,
     codegenEvents,
     figmaEvents,
@@ -302,6 +313,26 @@ beforeEach(() => {
   utilityMocks.handlers.clear();
   utilityMocks.on.mockClear();
   utilityMocks.showUI.mockClear();
+});
+
+describe('output preference persistence', () => {
+  it('round-trips user settings through clientStorage', async () => {
+    const { clientStorage } = await startPlugin();
+    const preferences = {
+      copyMode: 'imports-only' as const,
+      indentation: '4' as const,
+      previewDirection: 'rtl' as const,
+      quoteStyle: 'single' as const,
+      semicolons: false,
+      styledComponentPattern: '{Name}Container',
+      trailingComma: false,
+    };
+    utilityMocks.handlers.get('SAVE_OUTPUT_PREFERENCES')?.({ preferences });
+    await vi.waitFor(() => expect(clientStorage.size).toBe(1));
+    utilityMocks.handlers.get('LOAD_OUTPUT_PREFERENCES')?.(undefined);
+    await vi.waitFor(() => expect(emittedPayloads('LOAD_OUTPUT_PREFERENCES_RESULT')).toHaveLength(1));
+    expect(emittedPayloads('LOAD_OUTPUT_PREFERENCES_RESULT')[0]).toEqual({ preferences });
+  });
 });
 
 afterEach(() => {
@@ -885,6 +916,43 @@ describe('file-wide component inventory', () => {
     });
   });
 
+  it('counts connected usage, prioritizes high-impact components, and reports broken paths', async () => {
+    const { pages } = await startPlugin();
+    const connected = createComponent('connected-coverage', 'Connected', {
+      sharedPluginData: JSON.stringify({ componentName: 'Connected', importPath: '@acme/ui', schemaVersion: CURRENT_SCHEMA_VERSION }),
+    });
+    const unconnected = createComponent('unconnected-coverage', 'Unconnected');
+    const connectedInstance = createInstance('connected-instance', Promise.resolve(connected));
+    const unconnectedInstances = [
+      createInstance('unconnected-1', Promise.resolve(unconnected)),
+      createInstance('unconnected-2', Promise.resolve(unconnected)),
+    ];
+    const broken = createInstance('broken-instance', Promise.resolve(null));
+    Object.assign(broken, { name: 'Detached button', parent: { name: 'Checkout', parent: { type: 'PAGE' }, type: 'FRAME' } });
+    pages.push(createPage('coverage-page', 'Screens', [connected, unconnected, connectedInstance, ...unconnectedInstances, broken]));
+
+    utilityMocks.handlers.get('SCAN_COMPONENTS')?.({ includeCoverage: true, scanId: 'coverage' });
+    await vi.waitFor(() => {
+      const states = emittedPayloads<{ scanId: string; state: ComponentInventoryState }>('COMPONENT_INVENTORY_STATE');
+      expect(states[states.length - 1]).toEqual({
+        scanId: 'coverage',
+        state: expect.objectContaining({
+          coverage: {
+            brokenInstanceCount: 1,
+            brokenInstances: [{ layerPath: 'Checkout / Detached button', pageName: 'Screens' }],
+            connectedInstanceCount: 1,
+            totalInstanceCount: 4,
+          },
+          items: [
+            expect.objectContaining({ instanceCount: 2, targetToken: 'unconnected-coverage' }),
+            expect.objectContaining({ instanceCount: 1, targetToken: 'connected-coverage' }),
+          ],
+          status: 'ready',
+        }),
+      });
+    });
+  });
+
   it('continues after a page failure and reports a partial result', async () => {
     const { pages } = await startPlugin();
     const component = createComponent('button', 'Button');
@@ -997,6 +1065,116 @@ describe('file-wide component inventory', () => {
     expect(selected.setSharedPluginData).not.toHaveBeenCalled();
     expect(selection).toHaveLength(1);
     expect(selection[0]).toBe(selected);
+  });
+});
+
+describe('connection portability orchestration', () => {
+  it('exports, previews conflicts without writing, and applies only confirmed overwrites', async () => {
+    const { nodesById, pages } = await startPlugin();
+    const metadata: ConnectionMetadata = {
+      componentName: 'Button',
+      importPath: '@acme/ui',
+      schemaVersion: CURRENT_SCHEMA_VERSION,
+    };
+    const component = createComponent('portable-button', 'Button', {
+      sharedPluginData: JSON.stringify(metadata),
+    });
+    const page = createPage('components-page', 'Components', [component]);
+    Object.assign(component, { parent: page });
+    pages.push(page);
+    nodesById.set(component.id, component);
+
+    utilityMocks.handlers.get('EXPORT_CONNECTIONS')?.(undefined);
+    await vi.waitFor(() => expect(emittedPayloads('EXPORT_CONNECTIONS_RESULT')).toHaveLength(1));
+    const exported = emittedPayloads<{ json: string; ok: boolean }>('EXPORT_CONNECTIONS_RESULT')[0];
+    expect(JSON.parse(exported.json)).toEqual(expect.objectContaining({ schemaVersion: 1 }));
+
+    utilityMocks.handlers.get('PREVIEW_CONNECTION_IMPORT')?.({ raw: exported.json });
+    await vi.waitFor(() => expect(emittedPayloads('PREVIEW_CONNECTION_IMPORT_RESULT')).toHaveLength(1));
+    const preview = emittedPayloads<{ entries: Array<{ imported: ConnectionMetadata; status: string; targetToken: string }>; ok: boolean }>('PREVIEW_CONNECTION_IMPORT_RESULT')[0];
+    expect(preview.entries).toEqual([expect.objectContaining({ status: 'conflict', targetToken: component.id })]);
+    expect(component.setSharedPluginData).not.toHaveBeenCalled();
+
+    utilityMocks.handlers.get('APPLY_CONNECTION_IMPORT')?.({
+      choices: [{ action: 'skip', imported: preview.entries[0].imported, targetToken: component.id }],
+    });
+    await vi.waitFor(() => expect(emittedPayloads('APPLY_CONNECTION_IMPORT_RESULT')).toHaveLength(1));
+    expect(component.setSharedPluginData).not.toHaveBeenCalled();
+
+    utilityMocks.handlers.get('APPLY_CONNECTION_IMPORT')?.({
+      choices: [{ action: 'overwrite', imported: preview.entries[0].imported, targetToken: component.id }],
+    });
+    await vi.waitFor(() => expect(emittedPayloads('APPLY_CONNECTION_IMPORT_RESULT')).toHaveLength(2));
+    expect(component.setSharedPluginData).toHaveBeenCalledOnce();
+  });
+});
+
+describe('Storybook generation orchestration', () => {
+  it('requires an explicit subset for component sets above 32 variants', async () => {
+    const { nodesById } = await startPlugin();
+    const metadata: ConnectionMetadata = {
+      childrenMode: 'none',
+      componentName: 'Button',
+      importPath: '@acme/ui',
+      schemaVersion: CURRENT_SCHEMA_VERSION,
+    };
+    const set = {
+      children: [] as ComponentNode[],
+      componentProperties: {},
+      componentPropertyDefinitions: {},
+      getSharedPluginData: vi.fn(() => JSON.stringify(metadata)),
+      id: 'large-set',
+      key: 'large-set-key',
+      name: 'Button',
+      parent: { type: 'PAGE' },
+      remote: false,
+      setSharedPluginData: vi.fn(),
+      type: 'COMPONENT_SET',
+    } as unknown as ComponentSetNode;
+    const variants = Array.from({ length: 33 }, (_, index) => {
+      const variant = createComponent(`variant-${index}`, `Size=${index + 1}`);
+      Object.assign(variant, { parent: set, variantProperties: { Size: String(index + 1) } });
+      nodesById.set(variant.id, variant);
+      return variant;
+    });
+    Object.assign(set, { children: variants });
+    nodesById.set(set.id, set);
+
+    utilityMocks.handlers.get('GENERATE_STORIES')?.({ targetToken: set.id });
+    await vi.waitFor(() => expect(emittedPayloads('GENERATE_STORIES_RESULT')).toHaveLength(1));
+    expect(emittedPayloads<{ ok: boolean; variants: unknown[] }>('GENERATE_STORIES_RESULT')[0])
+      .toEqual(expect.objectContaining({ ok: false, variants: expect.any(Array) }));
+    expect(emittedPayloads<{ variants: unknown[] }>('GENERATE_STORIES_RESULT')[0].variants).toHaveLength(33);
+
+    utilityMocks.handlers.get('GENERATE_STORIES')?.({
+      selectedVariantTokens: [variants[0].id],
+      targetToken: set.id,
+    });
+    await vi.waitFor(() => expect(emittedPayloads('GENERATE_STORIES_RESULT')).toHaveLength(2));
+    expect(emittedPayloads<{ code: string; ok: boolean }>('GENERATE_STORIES_RESULT')[1])
+      .toEqual(expect.objectContaining({ code: expect.stringContaining('export const Size1'), ok: true }));
+  });
+});
+
+describe('Code Connect generation orchestration', () => {
+  it('returns a downloadable file built from the saved production usage', async () => {
+    const { nodesById } = await startPlugin();
+    const component = createComponent('code-connect-button', 'Button', {
+      sharedPluginData: JSON.stringify({
+        childrenMode: 'none',
+        componentName: 'Button',
+        importPath: '@acme/ui',
+        schemaVersion: CURRENT_SCHEMA_VERSION,
+      } satisfies ConnectionMetadata),
+    });
+    nodesById.set(component.id, component);
+    utilityMocks.handlers.get('GENERATE_CODE_CONNECT')?.({ targetToken: component.id });
+    await vi.waitFor(() => expect(emittedPayloads('GENERATE_CODE_CONNECT_RESULT')).toHaveLength(1));
+    expect(emittedPayloads('GENERATE_CODE_CONNECT_RESULT')[0]).toEqual(expect.objectContaining({
+      code: expect.stringContaining('figma.connect(Button'),
+      fileName: 'Button.figma.tsx',
+      ok: true,
+    }));
   });
 });
 
@@ -1581,7 +1759,7 @@ describe('persisted metadata reads', () => {
     );
     const blocks = await codegenEvents.get('generate')?.({ node: instance });
 
-    expect(blocks).toEqual([
+    expect(blocks).toEqual(expect.arrayContaining([
       expect.objectContaining({
         code: [
           'import { Button, Icon } from "tashil-ui";',
@@ -1590,7 +1768,7 @@ describe('persisted metadata reads', () => {
         ].join('\n'),
         language: 'TYPESCRIPT',
       }),
-    ]);
+    ]));
   });
 
   it('preserves magic component-property names when generating mapped props', async () => {
@@ -1622,12 +1800,12 @@ describe('persisted metadata reads', () => {
 
     const blocks = await codegenEvents.get('generate')?.({ node: component });
 
-    expect(blocks).toEqual([
+    expect(blocks).toEqual(expect.arrayContaining([
       expect.objectContaining({
         code: expect.stringContaining('<Button tone={"safe"} />'),
         language: 'TYPESCRIPT',
       }),
-    ]);
+    ]));
   });
 
   it('emits structured inspect references and keeps native codegen references plaintext', async () => {
@@ -2191,6 +2369,24 @@ describe('Dev Mode inspection codegen', () => {
     ].join('\n'));
   });
 
+  it('includes non-blocking accessibility findings for a known contrast failure', async () => {
+    const { codegenEvents } = await startPlugin();
+    const frame = createFrame('a11y-frame', 'Low contrast action', [], {
+      css: {
+        'background-color': '#888888',
+        color: '#777777',
+        height: '18px',
+        width: '20px',
+      },
+    });
+    const blocks = await codegenEvents.get('generate')?.({ node: frame });
+    expect(blocks?.find((block) => block.title === 'Accessibility')).toEqual(expect.objectContaining({
+      code: expect.stringContaining('below WCAG AA'),
+      language: 'PLAINTEXT',
+    }));
+    expect(blocks?.some((block) => block.language === 'TYPESCRIPT')).toBe(true);
+  });
+
   it('hides source comments when the Dev Mode preference is set to hide', async () => {
     const metadata: ConnectionMetadata = {
       schemaVersion: CURRENT_SCHEMA_VERSION,
@@ -2247,6 +2443,41 @@ describe('Dev Mode inspection codegen', () => {
     expect(button.setSharedPluginData).not.toHaveBeenCalled();
   });
 
+  it('combines selected connected instances in order and reports unsupported selections', async () => {
+    const metadata: ConnectionMetadata = {
+      schemaVersion: CURRENT_SCHEMA_VERSION,
+      childrenMode: 'none',
+      componentName: 'Button',
+      importPath: '@tashilcar/ui',
+    };
+    const { codegenEvents, selection } = await startPlugin();
+    const button = createComponent('multi-button', 'Button', { sharedPluginData: JSON.stringify(metadata) });
+    const first = createInstance('first-button', Promise.resolve(button));
+    const unsupported = createFrame('unsupported-frame', 'Loose frame', []);
+    const second = createInstance('second-button', Promise.resolve(button));
+    selection.push(first, unsupported, second);
+
+    const blocks = await codegenEvents.get('generate')?.({ node: first });
+    expect(blocks?.[0].title).toBe('Selected components (2)');
+    expect(blocks?.[0].code.match(/import \{ Button \}/g)).toHaveLength(1);
+    expect(blocks?.[0].code.indexOf('//./ first-button')).toBeLessThan(
+      blocks?.[0].code.indexOf('//./ second-button') ?? 0,
+    );
+    expect(blocks?.find(({ title }) => title === 'Selection notes')?.code)
+      .toContain('Loose frame: unsupported selection.');
+  });
+
+  it('bounds combined Dev Mode output at 50 selected layers', async () => {
+    const { codegenEvents, selection } = await startPlugin();
+    const layers = Array.from({ length: 51 }, (_, index) => createFrame(`frame-${index}`, `Frame ${index}`, []));
+    selection.push(...layers);
+    const blocks = await codegenEvents.get('generate')?.({ node: layers[0] });
+    expect(blocks).toEqual([expect.objectContaining({
+      code: 'Select no more than 50 layers for combined output.',
+      language: 'PLAINTEXT',
+    })]);
+  });
+
   it('omits the Style block when the node has no style declarations', async () => {
     const { codegenEvents } = await startPlugin();
     const frame = createFrame('f-plain', 'Plain', [], {
@@ -2275,14 +2506,14 @@ describe('Dev Mode inspection codegen', () => {
 
     const blocks = await codegenEvents.get('generate')?.({ node: component });
 
-    // A connected component still returns a single TYPESCRIPT block — no CSS,
-    // no layout branch.
-    expect(blocks).toEqual([
+    // A connected component returns usage plus its Storybook starter, without
+    // entering the CSS/layout branch.
+    expect(blocks).toEqual(expect.arrayContaining([
       expect.objectContaining({
         code: expect.stringContaining('<Button'),
         language: 'TYPESCRIPT',
       }),
-    ]);
+    ]));
     expect(blocks?.some((b) => b.language === 'CSS')).toBe(false);
   });
 

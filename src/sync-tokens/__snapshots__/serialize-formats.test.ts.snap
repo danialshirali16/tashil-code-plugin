@@ -1,0 +1,60 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`extended token serializers > generates json-dtcg output 1`] = `
+"{
+  "Color": {
+    "Primary": {
+      "$type": "color",
+      "$value": "#ff0000"
+    }
+  },
+  "Space": {
+    "Small": {
+      "$type": "number",
+      "$value": "0.5rem"
+    }
+  }
+}
+"
+`;
+
+exports[`extended token serializers > generates json-flat output 1`] = `
+"{
+  "color-primary": "#ff0000",
+  "space-small": "0.5rem"
+}
+"
+`;
+
+exports[`extended token serializers > generates scss output 1`] = `
+"// Core — exported from Figma variables
+$color-primary: #ff0000;
+$space-small: 0.5rem;
+
+$tokens: (
+  "color-primary": $color-primary,
+  "space-small": $space-small,
+);"
+`;
+
+exports[`extended token serializers > generates tailwind-theme output 1`] = `
+"// Core — exported from Figma variables
+export default {
+  theme: {
+    extend: {
+      tokens: {
+        "color-primary": "#ff0000",
+        "space-small": "0.5rem",
+      },
+    },
+  },
+};"
+`;
+
+exports[`extended token serializers > keeps omitted outputFormat byte-identical to CSS 1`] = `
+"/* Core — exported from Figma variables */
+:root {
+  --color-primary: #ff0000;
+  --space-small: 0.5rem;
+}"
+`;

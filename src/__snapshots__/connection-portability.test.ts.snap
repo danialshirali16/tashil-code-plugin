@@ -1,0 +1,24 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`connection portability > serializes a deterministic versioned export and round-trips it 1`] = `
+"{
+  "connections": [
+    {
+      "connection": {
+        "componentName": "Button",
+        "importPath": "@acme/ui",
+        "schemaVersion": 5
+      },
+      "locator": {
+        "componentKey": "button-key",
+        "figmaComponentName": "Button",
+        "nodeType": "COMPONENT",
+        "pageName": "Components"
+      }
+    }
+  ],
+  "schemaVersion": 1,
+  "exportedAt": "2026-08-01T00:00:00.000Z",
+  "pluginVersion": "1.0.0"
+}"
+`;

@@ -1,7 +1,7 @@
 # Inspect — How It Works (Developer Guide)
 
 Status: Active
-Last updated: 2026-07-31
+Last updated: 2026-08-01
 Companion: [user guide](inspect-frame.md) · [Section guide index](sections-index.md)
 
 Inspect Code is the Dev-Mode-parity selected-layer CSS inspection. It takes the
@@ -31,6 +31,12 @@ connected instance → its usage snippet; select a frame → the inspection), an
 the in-plugin **Inspect Code** screen (same data for teammates without a Dev
 Mode seat).
 
+For connected components, Inspect Code also surfaces plain-text Figma/source
+descriptions. The user-local LTR/RTL preference changes only preview direction;
+the code string and copied bytes are unchanged. Dev Mode multi-selection emits
+one combined usage block in selection order, deduplicates compatible imports,
+and stops at the 50-selection safety limit.
+
 ## Module map
 
 | File | Role |
@@ -40,6 +46,7 @@ Mode seat).
 | `src/inspect/css-partition.ts` | `partitionCss`, `isLayoutProperty`, `formatCssBlock`. One explicit `LAYOUT_PROPERTIES` set + `LAYOUT_PREFIXES` (`padding-`, `overflow-`, `grid-`). Unknown properties default to **Style**. Order within each bucket is preserved. |
 | `src/inspect/usage-snippet.ts` | `formatUsageSnippet(usage)` (byte-identical to `createUsageSnippet`'s single-component output) and `formatConnectedComponentsSnippet`. Falls back to per-entry snippets if cross-entry aliasing would be required. |
 | `src/inspect/types.ts` | Pure, Figma-free domain model: `FrameInspection`, `NodeCss` (`{ layout, style }`), `ConnectedComponentEntry`, `InspectionDiagnostic` / `InspectionDiagnosticReason`. |
+| `src/inspect/accessibility.ts` | Pure WCAG contrast math, CSS color parsing, 24×24px touch-target checks, and 12px font-size heuristics. |
 
 ## Rules an editor must keep
 
@@ -63,6 +70,11 @@ Mode seat).
    single-component output (it's `renderImportLines(imports)` + blank line +
    `jsx`). The cross-entry path falls back to per-entry snippets rather than
    aliasing JSX.
+6. **Accessibility findings never block output.** They are local advisory
+   badges/plaintext blocks derived from already-inspected CSS. Unsupported or
+   variable-based colors simply produce no contrast finding.
+7. **RTL is presentation only.** Apply `dir` to preview containers, never to
+   `ComponentUsage`, formatters, or copied text.
 
 ## Gotchas
 

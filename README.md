@@ -8,11 +8,34 @@
 
 Tashil Code connects your Figma design system to your production React library.
 Map real component props, generate accurate TSX, convert layouts into
-styled-components, and export Figma Variables as CSS tokens.
+styled-components, and export Figma Variables in CSS, JSON, SCSS, or Tailwind
+formats.
 
 Design-system owners author the connections once; developers get copyable,
 source-accurate code in Dev Mode. The plugin runs in both the Figma Design
 editor and Dev Mode (`editorType: ["figma", "dev"]`).
+
+![Connect a component, inspect its generated TSX, and copy it](assets/demo.gif)
+
+The demo uses the real browser harness and the same typed UI/controller path as
+the Figma plugin. Inspect Code and Dev Mode share the production generation
+pipeline.
+
+## Five-minute quick start
+
+1. [Install Tashil Code from Figma Community](https://www.figma.com/community/plugin/1654920127584180700/tashil-code).
+2. Open a Figma file with a main component, select it, and run **Tashil Code →
+   Connect component**.
+3. Enter the exported React component name and import path. Upload its local
+   `.ts` or `.tsx` props source if you want guided mappings, then save.
+4. Select an instance or frame. Use **Inspect Code** in Design mode, or choose
+   **Tashil UI** in Dev Mode, and copy the generated TSX.
+
+Want a runnable code target first? The
+[standalone React companion](examples/quickstart/README.md) builds independently
+and contains an upload-ready Button plus representative generated output. The
+[Community demo publication guide](docs/community-demo.md) defines the matching
+Figma starter file and cold-run checklist.
 
 ## What it does
 
@@ -22,11 +45,12 @@ editor and Dev Mode (`editorType: ["figma", "dev"]`).
 - Generate React/TSX for the Figma instance currently selected in Dev Mode.
 - Generate a complete styled-components React module for a selected frame,
   group, section, or text layer, including its nested connected components.
-- Export Figma Variable collections as CSS token files.
+- Export Figma Variable collections as CSS, flat JSON, DTCG JSON, SCSS, or
+  Tailwind token files, with a local diff against the previous export.
 - Store optional Storybook and source references alongside the connection.
 - Detect source and Figma drift so mappings can be reviewed before they break.
 
-The plugin has three workflows, surfaced as tabs in the plugin window
+The plugin has four workflows, surfaced as tabs in the plugin window
 (Design mode) and as the **Tashil UI** codegen language (Dev Mode):
 
 - **Connect component** — design-system owners select a main component or
@@ -35,8 +59,10 @@ The plugin has three workflows, surfaced as tabs in the plugin window
 - **Inspect Code** — preview the generated output for a selected frame, group,
   section, or text layer (Layout/Style CSS + connected components) without a
   Dev Mode seat.
-- **Sync Tokens** — export Figma Variable collections as CSS files (one per
-  collection × mode).
+- **Sync Tokens** — export Figma Variable collections in five output formats
+  (one file per collection × mode).
+- **Settings** — configure user-local formatting and copy preferences without
+  changing the Figma document.
 
 In **Dev Mode**, selecting a connected instance yields its usage snippet and
 selecting a frame yields a complete styled-components React module.
@@ -113,6 +139,8 @@ See [Generate and inspect a frame](docs/inspect-frame.md) for the full guide.
 | [Maintain a connection](docs/maintain-connections.md) | Source and Figma drift, health states, and reconciliation. |
 | [Development guide](docs/development.md) | Local setup, project structure, testing, and loading the plugin in Figma. |
 | [Changelog](CHANGELOG.md) | Notable changes by release. |
+| [Privacy policy](PRIVACY.md) | Exactly what stays in shared plugin data, user-local storage, memory, downloads, and the clipboard. |
+| [Community demo guide](docs/community-demo.md) | Publication and cold-run checklist for the five-minute Figma starter file. |
 
 ## Setup
 
@@ -176,7 +204,7 @@ See [Figma Editor Modes](docs/section-editor-modes.md) for the boundary.
    - Save. Only **Component name** and **Import path** are required.
 4. Use the **Inspect Code** tab to preview the generated output without a Dev
    Mode seat, and the **Sync Tokens** tab to export Figma Variable collections
-   as CSS files.
+   in CSS, JSON, SCSS, or Tailwind formats.
 
 Source parsing is local: the plugin stores the extracted prop schema and a
 content hash, never the uploaded source text. See

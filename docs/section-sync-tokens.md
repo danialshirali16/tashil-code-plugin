@@ -1,38 +1,34 @@
 # Sync Tokens — How It Works (Developer Guide)
 
 Status: Active
-Last updated: 2026-07-31
+Last updated: 2026-08-01
 Companion user guide: [`sync-tokens.md`](sync-tokens.md)
 Depth doc: [`sync-tokens-architecture.md`](sync-tokens-architecture.md) — the
 canonical, detailed reference. This guide is the fast onboarding path; read the
 architecture doc when you need the message-protocol byte shapes or the
 extension table.
 
-> **On-disk state note.** The working tree currently exports **CSS only**.
-> JSON output (`serialize-json.ts`, the `outputFormat` dispatch in
-> `generateTokenFiles`, W3C DTCG and flat-JSON serializers, duplicate-name
-> warnings, and a unit test) exists on the `GLM/Token-syncs` branch and is
-> documented in the **In progress** section below. Do not write code that
-> assumes JSON output is on `main`.
+The working tree exports CSS, flat JSON, W3C DTCG JSON, SCSS variables/maps,
+and Tailwind theme-extension snippets through one format dispatcher.
 
 ## At a glance
 
-Sync Tokens exports Figma Variable collections as CSS files (one file per
-collection × selected mode). The work splits into three layers, matching the
-rest of the plugin:
+Sync Tokens exports Figma Variable collections in CSS, JSON, SCSS, or Tailwind
+formats (one file per collection × selected mode). The work splits into three
+layers, matching the rest of the plugin:
 
 ```text
 UI (src/ui.tsx · SyncTokensView)   user picks collections + options
    │  emit PREVIEW_TOKENS / EXPORT_TOKENS
    ▼
 Backend (src/main.ts)               reads Figma Variables API → pure model
-   │  emit *_TOKENS_RESULT (CSS + preflight per file)
+   │  emit *_TOKENS_RESULT (content + preflight per file)
    ▼
 UI (src/ui-controller.ts)           zips files, triggers download
 ```
 
 **The key rule: the Figma API is only touched in `src/main.ts`.** Everything
-that transforms variable data into CSS lives in a pure, Figma-runtime-free
+that transforms variable data into output files lives in a pure, Figma-runtime-free
 module (`src/sync-tokens/`) that the unit tests exercise directly. This mirrors
 the `semantic/` and `inspect/` layering.
 
@@ -41,7 +37,9 @@ the `semantic/` and `inspect/` layering.
 | File | Role |
 | --- | --- |
 | `src/sync-tokens/types.ts` | Pure domain model. Zero `@figma/plugin-typings` imports. Defines `Token`, `TokenCollection`, `ExportOptions`, `LENGTH_SCOPES`, `ExportFile`. |
-| `src/sync-tokens/serialize.ts` | Pure transforms: `formatTokenName` / `formatCssTokenName` (name → CSS ident), `formatColor`, `formatNumber`, `serializeCollection` (`:root {}` block). |
+| `src/sync-tokens/serialize.ts` | Pure CSS transforms and value formatting. |
+| `src/sync-tokens/serialize-formats.ts` | Format dispatcher plus JSON, SCSS, and Tailwind serializers; also creates per-token content hashes. |
+| `src/sync-tokens/export-diff.ts` | Pure added/changed/removed/unchanged comparison for export snapshots. |
 | `src/sync-tokens/serialize.test.ts` | Unit tests for the serializers. |
 | `src/main.ts` | The **only** place that calls `figma.variables.*`. `generateTokenFiles`, `collectTokens`, `normalizeValue`, `loadTokenCollections`, `previewTokens`, `exportTokens`. |
 | `src/ui-controller.ts` | Holds tab state, owns the message round-trips, packages/downloads results via `deliverTokenFiles`. |
@@ -84,7 +82,8 @@ and export orchestrator. Per selected collection, per selected mode:
 2. `normalizeValue(raw, resolvedType, modeId)` turns the `VariableValue` union
    into the pure `TokenValue` (handles `VariableAlias`, `RGB`, `RGBA`; alias
    resolution is recursive across color/number/string/boolean).
-3. Builds a `TokenCollection` and calls `serializeCollection`.
+3. Builds a `TokenCollection` and calls the format dispatcher,
+   `serializeTokenCollectionByFormat`.
 4. Pushes an `ExportFile` with `css`, `declarationCount`,
    `sourceVariableCount`, and non-fatal `warnings`.
 
@@ -102,6 +101,8 @@ and export orchestrator. Per selected collection, per selected mode:
    from variable values. Don't conflate them.
 5. **Cycles and missing alias targets preserve a `var()` reference and add a
    warning** — never fabricate a fallback value.
+6. **Export history is informational and user-local.** Store token hashes in
+   `clientStorage`; failure to read or write history must never block export.
 
 ## Gotchas
 
@@ -113,33 +114,15 @@ and export orchestrator. Per selected collection, per selected mode:
   when the plugin reopens. Add a `setSharedPluginData` round-trip if
   repeat-export workflows demand it.
 - **One file per (collection × mode).** A multi-mode collection produces
-  `colors-light.css`, `colors-dark.css`, each a flat `:root {}`. Scoped
-  `[data-theme]` blocks would be a backend change in `exportTokens` +
-  `serializeCollection`, not a UI change.
-
-## In progress (`GLM/Token-syncs` branch — not on `main`)
-
-The following exists **only on the `GLM/Token-syncs` branch** and is not in the
-working tree on `main`. If you are working on that branch, these are real; if
-you are on `main`, they are upcoming:
-
-- **`src/sync-tokens/serialize-json.ts`** — `serializeCollectionFlat` (mirrors
-  the CSS keys/values, always hex colors) and `serializeCollectionDtcg` (W3C
-  DTCG `$value`/`$type`, nested by `/` path). JSON output intentionally ignores
-  `colorFormat` (always hex) to avoid an 8-way behavior matrix.
-- **`outputFormat` dispatch** in `generateTokenFiles` — `css | json-flat |
-  json-dtcg`, picking the file extension accordingly.
-- **Duplicate-name warnings** — `duplicateNameWarning` in `serialize.ts`; the
-  duplicate-name count is subtracted from `declarationCount`.
-
-When this work merges to `main`, move these bullets into the main body above
-and delete this section.
+  one file per mode using the selected format's extension. CSS files use a flat
+  `:root {}`. Scoped `[data-theme]` blocks would be a backend change in
+  `exportTokens` plus the format dispatcher, not a UI change.
 
 ## Where to make common changes
 
 | Want | Change |
 | --- | --- |
-| `.scss` / `.json` output | Add an output-format option; new serializer alongside `serializeCollection`. (JSON is in progress on `GLM/Token-syncs`.) |
+| Another output format | Extend `OutputFormat`, the dispatcher, extension mapping, and serializer snapshot tests. |
 | Scoped `[data-theme]` blocks instead of per-mode files | `exportTokens` (one file) + `serializeCollection` (scoped blocks). |
 | Persist export settings | `setSharedPluginData` on save; load on tab mount. |
 | Type badges in the UI list | Add `types: VariableResolvedType[]` to `TokenCollectionSummary`. |

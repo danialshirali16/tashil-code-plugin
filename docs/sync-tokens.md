@@ -1,17 +1,15 @@
 # Sync Tokens — User Guide
 
 Status: Active
-Last updated: 2026-07-28
+Last updated: 2026-08-01
 
-The **Sync Tokens** tab exports your Figma Variables as CSS custom properties
-(`--my-token`) so you can hand design tokens to engineering in a format they
-can drop straight into a stylesheet.
+The **Sync Tokens** tab exports Figma Variables as CSS, flat JSON, W3C DTCG
+JSON, SCSS variables/maps, or a Tailwind theme-extension snippet.
 
 ## What it does
 
-You pick which Variable collections to export, choose a few options (color
-format, naming, units), and the plugin generates **one CSS file per
-collection** and downloads it. Each file looks like this:
+You pick collections, modes, format, naming, and units. The plugin generates
+one file per collection and selected mode, then downloads it.
 
 ```css
 /* Colors / Primitive — exported from Figma variables */
@@ -50,7 +48,7 @@ If a collection has more than one mode (e.g. **Light** and **Dark**), mode
 checkboxes appear in its output-file section. Select one or more modes to
 export.
 
-- Selecting both **Light** and **Dark** produces **two CSS files**
+- Selecting both **Light** and **Dark** produces **two output files**
   (`colors-light.css` and `colors-dark.css`).
 - Selecting one mode produces a single, mode-stable file (`colors-light.css`).
 - The collection's **default mode** is selected when you first choose it.
@@ -69,9 +67,22 @@ Each preview file reports:
 - unresolved aliases, unsupported values, and missing mode values
 - referenced collections that fell back to a default mode
 - numeric values left unitless because their Figma scope did not identify a length
+- tokens added, changed, removed, and unchanged since the last local export
 
 Long files are bounded in the UI, but the download always contains the complete
 stylesheet.
+
+#### Output format
+
+- **CSS variables** preserves the original `:root` output.
+- **JSON — flat** produces one formatted-name/value object.
+- **JSON — W3C DTCG** nests the Figma slash path and emits `$type`/`$value`.
+- **SCSS variables + map** emits individual `$token` variables and a `$tokens` map.
+- **Tailwind theme extension** emits a TypeScript theme snippet under
+  `theme.extend.tokens`.
+
+The last-export comparison is informational. It never changes or blocks the
+download, and its per-token hashes stay in Figma `clientStorage` for your user.
 
 If a referenced collection has no mode matching the output mode's name, its
 warning includes an **Alias mode** dropdown. Choose the intended mode there;
@@ -177,4 +188,4 @@ no unit, so a blanket px→rem would corrupt unitless values.
 | Preview shows a mode fallback warning | A referenced collection does not have a mode with the selected mode's name, so its default mode was used. Use the warning's **Alias mode** dropdown to choose the intended mode. |
 | Preview reports fewer declarations than variables | Open the listed warnings; missing values and unsupported Figma value shapes are skipped instead of fabricating CSS. |
 | Opacity / font-weight came out as `rem` | It shouldn't — only length-scoped variables convert. If it does, the variable's scope in Figma is mislabeled. |
-| Want `.scss` / `.json` instead | Not supported yet. CSS only for now. |
+| Need another file syntax | Choose CSS, JSON, SCSS, or Tailwind under **Output format**. |

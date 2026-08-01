@@ -1,6 +1,8 @@
 # Feature Roadmap — Post-1.0 Proposals
 
-> **Status:** Draft proposal — not yet committed
+> **Status:** Phases 1–6 and 8–10 implemented; Phase 7 repository deliverables
+> prepared, with Figma Community publication and the cold run still pending.
+> Phase 0 remains a proposal.
 > **Date:** 2026-07-31
 > **Related docs:** `semantic-connect-roadmap.md`, `layout-composer-roadmap.md`, `visual-prop-mapping-todo.md`, `docs/sync-tokens.md`, `CHANGELOG.md`
 
@@ -42,13 +44,16 @@ These apply to **every** phase below:
 | Phase | Item | Value | Effort | Area |
 |-------|------|-------|--------|------|
 | 0 | Quick wins (docs sync, UI error boundary, README badges) | Medium | Very low | Maintenance |
-| 1 | Connection export / import (portability) | High | Medium | Data durability |
-| 2 | Connection coverage report | High | Medium | DS-owner workflow |
-| 3 | Storybook CSF generation | High | Medium | Codegen |
-| 4 | Output style preferences | Medium | Low–medium | Codegen UX |
-| 5 | Sync Tokens: SCSS / Tailwind formats + export diff | Medium | Low | Sync Tokens |
-| 6 | A11y checks in Inspect Code | Medium | Low–medium | Differentiation |
-| 7 | Adoption & community (demo file, GIF, topics, `PRIVACY.md`) | High (adoption) | Low | Community |
+| 1 | Connection export / import (portability) — **Implemented** | High | Medium | Data durability |
+| 2 | Connection coverage report — **Implemented** | High | Medium | DS-owner workflow |
+| 3 | Storybook CSF generation — **Implemented** | High | Medium | Codegen |
+| 4 | Output style preferences — **Implemented** | Medium | Low–medium | Codegen UX |
+| 5 | Sync Tokens: SCSS / Tailwind formats + export diff — **Implemented** | Medium | Low | Sync Tokens |
+| 6 | A11y checks in Inspect Code — **Implemented** | Medium | Low–medium | Differentiation |
+| 7 | Adoption & community (demo file, GIF, topics, `PRIVACY.md`) — **Repository work implemented; publication pending** | High (adoption) | Low | Community |
+| 8 | Multi-select Dev Mode output | High | Medium | Codegen |
+| 9 | Descriptions, health policy, and RTL preview | Medium | Medium | Authoring UX |
+| 10 | CI manifest review and downloadable Code Connect | High | Medium | Integration |
 
 ---
 
@@ -110,10 +115,17 @@ Export/import makes connection data durable and portable.
   "pluginVersion": "1.0.0",
   "connections": [
     {
-      "componentKey": "<figma-component-key>",
-      "sourcePath": "src/components/Button.tsx",
-      "mappings": [],
-      "health": {}
+      "locator": {
+        "componentKey": "<figma-component-key>",
+        "figmaComponentName": "Button",
+        "nodeType": "COMPONENT",
+        "pageName": "Components"
+      },
+      "connection": {
+        "schemaVersion": 5,
+        "componentName": "Button",
+        "importPath": "@acme/ui"
+      }
     }
   ]
 }
@@ -298,35 +310,109 @@ external traction).
   document exactly what data lives where (shared plugin data vs `clientStorage`
   vs nothing-at-all).
 
+**Implementation status (2026-08-01):** `PRIVACY.md`, structured issue forms,
+the five GitHub topics, the real-harness README GIF, the standalone React
+companion, and the Community-file publication guide are complete. Publishing
+the external Figma Community file and recording the cold run require a Figma
+account action and remain pending.
+
 **Exit criteria:** a new user can go from the Community file to copied TSX in
 under 5 minutes following the README alone (verified by a cold run-through).
 
 ---
 
-## 12. Backlog (not scheduled)
+## 12. Phase 8 — Multi-select Dev Mode output
 
-<details>
-<summary>Medium/long-term candidates — revisit after Phases 1–7</summary>
+**Status: Implemented.**
 
-- **Multi-select in Dev Mode:** combined output for several instances with
-  deduped imports.
-- **JSDoc / Figma description display** in the Connect editor and Inspect panel.
-- **Custom health thresholds:** team-defined rules, e.g. Figma-only properties
-  prefixed `prototype/` count as intentional-unmapped.
-- **RTL preview toggle** (`dir`) in the inline preview — consistent with
-  existing `dir: rtl|ltr` support and leading/trailing icon handling.
-- **CI manifest review:** a small CLI running `extractSourceContract` against a
-  repo and comparing to exported connection snapshots (from Phase 1) — brings
-  drift detection to CI without plugin network access. Currently declared out of
-  scope ("repository-owned manifest"); revisit once adoption justifies it.
-- **Code Connect output as a downloadable file** (not auto-publish): a bridge
-  for native-ecosystem users, respecting the current non-goal.
+### Scope
 
-</details>
+- When two or more supported connected instances are selected, emit one React
+  block containing every usage in selection order.
+- Deduplicate compatible imports through the existing import renderer.
+- Preserve per-instance diagnostics and fall back to separated snippets when
+  imported names conflict across modules.
+- Cap combined output at 50 selections; return an explanatory block above the
+  cap instead of doing unbounded work.
+
+### Invariants
+
+- Single-selection output remains byte-identical.
+- Dev Mode stays read-only and uses only async Figma lookups.
+- Unsupported selections are reported, never silently dropped.
+
+### Exit criteria
+
+- Golden tests cover deduped imports, import conflicts, unsupported selections,
+  the selection cap, and unchanged single-selection output.
 
 ---
 
-## 13. Sequencing rationale
+## 13. Phase 9 — Descriptions, health policy, and RTL preview
+
+**Status: Implemented.**
+
+### Scope
+
+- Extract component/property JSDoc from uploaded source and show it alongside
+  Figma descriptions in Connect and Inspect Code.
+- Add an explicitly saved connection health policy whose intentional Figma
+  property prefixes (for example `prototype/`) suppress only newly-added
+  property findings for matching properties.
+- Add a per-user LTR/RTL preview direction setting in `clientStorage`; it changes
+  preview presentation only, never generated bytes.
+
+### Invariants
+
+- The connection schema migrates forward and older connections keep loading.
+- Health policy is written only through the existing confirmed Save action.
+- Descriptions are plain text and never interpreted as markup.
+- RTL is presentation-only and user-local.
+
+### Exit criteria
+
+- Parser, migration, health-policy, UI, persistence, and RTL tests pass.
+- Inspect output displays source/Figma descriptions without affecting copy.
+
+---
+
+## 14. Phase 10 — CI manifest review and downloadable Code Connect
+
+**Status: Implemented.**
+
+### Scope
+
+- Add a local CLI that reads a Phase 1 connection export, resolves referenced
+  source files under an explicit repository root, reruns source extraction, and
+  exits non-zero when the saved source contract differs.
+- Emit both human-readable and JSON results suitable for CI logs/artifacts.
+- Add an explicit Connect-editor action that generates and downloads one React
+  Code Connect `.figma.tsx` file for the open connection. It never publishes.
+
+### Invariants
+
+- The CLI rejects paths escaping the supplied repository root and performs no
+  network access or writes.
+- Code Connect generation reuses the saved connection and production usage
+  pipeline; it does not introduce a second prop mapper.
+- Download is user-triggered in Design mode; Dev Mode remains read-only.
+
+### Exit criteria
+
+- Fixture tests cover clean, drifted, missing, and path-escape CI results.
+- Golden Code Connect output and typed UI/main download tests pass.
+- `networkAccess: none` remains unchanged.
+
+---
+
+## 15. Backlog (not scheduled)
+
+No remaining items. Add future proposals here only after defining their user
+value, invariants, and exit criteria.
+
+---
+
+## 16. Sequencing rationale
 
 1. **Phase 0 first** — zero risk, immediate docs correctness.
 2. **Phase 1 before anything that increases connection investment** (Phases 2–3
@@ -338,10 +424,13 @@ under 5 minutes following the README alone (verified by a cold run-through).
    feedback.
 5. **Phase 7** runs in parallel from day one — it requires no code changes and
    compounds over time.
+6. **Phase 8** precedes integration work because it strengthens the shared
+   generation path; **Phase 9** improves authoring confidence; **Phase 10** then
+   carries those durable connections into CI and Code Connect workflows.
 
 ---
 
-## 14. Definition of done (per phase)
+## 17. Definition of done (per phase)
 
 - [ ] Golden tests + unit tests green (`vitest`), parity tests where codegen
       output is involved

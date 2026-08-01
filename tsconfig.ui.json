@@ -8,6 +8,8 @@
   },
   "include": [
     "src/ui.tsx",
+    "src/ui-assets.tsx",
+    "src/output-preferences.ts",
     "src/ui-controller.ts",
     "src/ui.css.d.ts",
     "src/connection-health.ts",

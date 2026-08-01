@@ -26,6 +26,17 @@ For iterative work, run:
 npm run watch
 ```
 
+For browser-based visual QA of the real plugin UI and its local Figma-message
+fixtures, run:
+
+```sh
+npm run harness
+```
+
+Then open `http://127.0.0.1:5178/dev/harness/index.html`. The harness includes a
+connected Button, generated Inspect Code output, token collections, and output
+settings. It is the source used for the README demo capture.
+
 ## Load the plugin in Figma
 
 1. Build the project at least once.
@@ -65,6 +76,8 @@ jsdom; plugin-side tests cover Figma API behavior with local test doubles.
 | `src/mapping-editor.ts` | Compatible-property suggestions and visual mapping mutations. |
 | `src/mapping-document.ts` | Compilation of editor state into runtime `propMappings` JSON. |
 | `src/connection-health.ts` | Source and Figma drift analysis. |
+| `src/ci-manifest.ts` / `scripts/review-connections.mjs` | Pure manifest drift review and its read-only Node CLI. |
+| `src/code-connect.ts` | Downloadable Code Connect formatter. |
 | `src/codegen.ts` | TSX generation, legacy metadata migration, and diagnostics. |
 | `src/inspect/` | Dev-Mode-parity selected-layer CSS partitioning and connected-component enumeration. |
 | `src/layout/` | Full selected-tree styled-components React generation, token-aware Figma CSS extraction, atomic component resolution, naming, per-request caches, and bounded traversal/concurrency. |
@@ -96,11 +109,23 @@ document order.
 
 Connections are stored as shared plugin data on the selected Figma component
 using the `tashil_storybook` namespace and `connection` key. The current schema
-version is 4. Older supported connection shapes are read and migrated in memory;
+version is 5. Older supported connection shapes are read and migrated in memory;
 the Figma document is updated only after the owner explicitly saves.
 
 Do not manually edit shared plugin data while testing unless the change is part
 of a migration test. Use the plugin UI to create or clear connections.
+
+Review an exported connection manifest against repository source with:
+
+```sh
+npm run review:connections -- \
+  --connections tashil-connections.json \
+  --source-root /absolute/path/to/repository \
+  --json
+```
+
+The command is read-only, rejects paths outside `--source-root`, and exits
+non-zero for drift, missing source/snapshots, invalid paths, or invalid exports.
 
 ## Manifest changes
 
@@ -125,4 +150,16 @@ guide in the same change:
 - [Visual prop mappings](prop-mapping.md) for mapping semantics and examples.
 - [Maintain a connection](maintain-connections.md) for drift/reconciliation.
 - `README.md` for repository-level onboarding and links.
+- `PRIVACY.md` when stored, transient, downloaded, clipboard, or network data
+  handling changes.
+- [Community demo guide](community-demo.md) when onboarding or the companion
+  quick-start flow changes.
 - `CHANGELOG.md` for notable user-facing changes.
+
+### Manual Storybook verification
+
+After changing `src/storybook.ts` or mapped Storybook args, generate a story for
+a connected single component and a component set, copy the resulting
+`*.stories.tsx` files into the consuming library's Storybook project, and run
+that project's normal static Storybook build. Large-set verification must also
+confirm that generation stops for subset selection above 32 variants.

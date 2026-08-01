@@ -25,6 +25,13 @@ export type NodeCss = {
   style: CssDeclaration[];
 };
 
+export type AccessibilityFinding = {
+  check: 'contrast' | 'touch-target' | 'font-size';
+  message: string;
+  status: 'pass' | 'warning';
+  value: number;
+};
+
 export type InspectionDiagnosticReason =
   | 'unconnected-instance'
   | 'invalid-connection'
@@ -50,6 +57,7 @@ export type ConnectedComponentEntry = {
 
 /** The complete inspection result for one selected node. */
 export type FrameInspection = {
+  accessibility?: AccessibilityFinding[];
   nodeName: string;
   nodeType: string;
   css: NodeCss;

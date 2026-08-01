@@ -1,0 +1,31 @@
+name: Privacy or security report
+description: Report a privacy concern or non-sensitive security issue.
+title: "[Privacy]: "
+labels:
+  - privacy
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Do not post secrets, exploit details, private source, or confidential Figma content in a public issue. For sensitive reports, contact the repository owner privately through their GitHub profile.
+  - type: textarea
+    id: concern
+    attributes:
+      label: Concern
+      description: Describe the affected data and workflow without including the data itself.
+    validations:
+      required: true
+  - type: textarea
+    id: expectation
+    attributes:
+      label: Expected handling
+    validations:
+      required: true
+  - type: checkboxes
+    id: sanitized
+    attributes:
+      label: Safety check
+      options:
+        - label: This report contains no secrets, exploit payloads, private source, or confidential Figma content.
+          required: true
+
