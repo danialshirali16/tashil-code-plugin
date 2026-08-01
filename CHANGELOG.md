@@ -64,6 +64,12 @@ is the version of record.
   swaps, and source types across preview, Inspect Code, Dev Mode, and layout
   output.
 
+### Fixed
+
+- Fixed the Sync Tokens name-style selector so all five naming options remain
+  visible and usable after the plugin window is narrowed. See the
+  [Sync Tokens guide](docs/section-sync-tokens.md).
+
 ### Compatibility
 
 - Existing semantic recipes migrate through the versioned target-kind schema;

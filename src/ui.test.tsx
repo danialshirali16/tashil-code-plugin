@@ -505,14 +505,22 @@ describe('Plugin rendered interactions', () => {
     expect(screen.getByLabelText('Token output preview').textContent)
       .toContain('--color\\.text\\.primary: #0d99ff;');
 
+    fireEvent.click(screen.getByRole('radio', { name: 'snake' }));
+    receiveLatestTokenPreview([
+      previewFile('product-tokens-zhina.css', ':root {\n  --color_text_primary: #0d99ff;\n  --spacing_4: 1rem;\n}'),
+      previewFile('product-tokens-tashilpay.css', ':root {\n  --color_text_primary: #033366;\n}'),
+    ]);
+    expect(screen.getByLabelText('Token output preview').textContent)
+      .toContain('--color_text_primary: #0d99ff;');
+
     fireEvent.click(screen.getByRole('checkbox', { name: 'Convert px to rem' }));
     expect(screen.queryByLabelText('Root font size in pixels')).toBeNull();
     receiveLatestTokenPreview([
-      previewFile('product-tokens-zhina.css', ':root {\n  --color\\.text\\.primary: #0d99ff;\n  --spacing\\.4: 16;\n}'),
-      previewFile('product-tokens-tashilpay.css', ':root {\n  --color\\.text\\.primary: #033366;\n}'),
+      previewFile('product-tokens-zhina.css', ':root {\n  --color_text_primary: #0d99ff;\n  --spacing_4: 16;\n}'),
+      previewFile('product-tokens-tashilpay.css', ':root {\n  --color_text_primary: #033366;\n}'),
     ]);
     expect(screen.getByLabelText('Token output preview').textContent)
-      .toContain('--spacing\\.4: 16;');
+      .toContain('--spacing_4: 16;');
 
     fireEvent.click(screen.getByRole('button', { name: 'Export 2 files' }));
     const request = emittedPayloads<{
@@ -531,7 +539,7 @@ describe('Plugin rendered interactions', () => {
     expect(request.collectionIds).toEqual(['product']);
     expect(request.options.modesByCollection.product).toEqual(['zhina', 'tashilpay']);
     expect(request.options.convertPxToRem).toBe(false);
-    expect(request.options.nameStyle).toBe('dot');
+    expect(request.options.nameStyle).toBe('snake');
     expect(request.options.outputFormat).toBe('css');
     expect(
       request.options.aliasModeOverridesByCollectionMode

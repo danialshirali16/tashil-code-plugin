@@ -1922,17 +1922,19 @@ function SyncTokensView(props: {
               </Field>
 
               <Field id="tashil-name-style" label="Token name">
-                <SegmentedControl
-                  onValueChange={(value) => setNameStyle(value as NameStyle)}
-                  options={[
-                    { value: 'kebab', children: 'kebab' },
-                    { value: 'slash', children: 'slash' },
-                    { value: 'dot', children: 'dot' },
-                    { value: 'snake', children: 'snake' },
-                    { value: 'pascal', children: 'pascal' },
-                  ]}
-                  value={nameStyle}
-                />
+                <div class="sync-tokens-name-style">
+                  <SegmentedControl
+                    onValueChange={(value) => setNameStyle(value as NameStyle)}
+                    options={[
+                      { value: 'kebab', children: 'kebab' },
+                      { value: 'slash', children: 'slash' },
+                      { value: 'dot', children: 'dot' },
+                      { value: 'snake', children: 'snake' },
+                      { value: 'pascal', children: 'pascal' },
+                    ]}
+                    value={nameStyle}
+                  />
+                </div>
               </Field>
             </div>
 

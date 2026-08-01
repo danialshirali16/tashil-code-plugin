@@ -261,6 +261,7 @@ declare const styles: {
   readonly "sync-tokens-mode-override": string;
   readonly "sync-tokens-mode-overrides": string;
   readonly "sync-tokens-mode-row": string;
+  readonly "sync-tokens-name-style": string;
   readonly "sync-tokens-number-input": string;
   readonly "sync-tokens-output-empty": string;
   readonly "sync-tokens-output-group": string;

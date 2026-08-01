@@ -1836,6 +1836,30 @@ body {
   gap: 12px;
 }
 
+.sync-tokens-name-style {
+  min-width: 0;
+}
+
+.sync-tokens-name-style > div {
+  width: 100%;
+}
+
+.sync-tokens-name-style > div > label {
+  flex: 1 1 0;
+  min-width: 0;
+}
+
+.sync-tokens-name-style > div > label > div {
+  min-width: 0;
+}
+
+.sync-tokens-name-style > div > label > div > div {
+  overflow: hidden;
+  padding-left: 4px;
+  padding-right: 4px;
+  text-overflow: ellipsis;
+}
+
 .sync-tokens-number-input {
   align-items: center;
   border: 1px solid var(--figma-color-border);
@@ -2035,7 +2059,7 @@ body {
   line-height: 14px;
 }
 
-@media (max-width: 400px) {
+@media (max-width: 440px) {
   .sync-tokens-settings-panel {
     grid-template-columns: 1fr;
   }

@@ -117,6 +117,10 @@ and export orchestrator. Per selected collection, per selected mode:
   one file per mode using the selected format's extension. CSS files use a flat
   `:root {}`. Scoped `[data-theme]` blocks would be a backend change in
   `exportTokens` plus the format dispatcher, not a UI change.
+- **Naming controls must fit resized plugin windows.** The five token-name
+  choices share the available row width down to the supported 360 px minimum;
+  keep the `sync-tokens-name-style` wrapper and its flex-shrink rules when
+  changing the control.
 
 ## Where to make common changes
 
