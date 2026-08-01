@@ -18,7 +18,7 @@ const baseOptions: ExportOptions = {
   convertPxToRem: false,
   rootFontSize: 16,
   colorFormat: 'hex',
-  nameStyle: 'kebab',
+  nameStyle: 'lower-hyphen',
 };
 
 function token(partial: Partial<Token> & Pick<Token, 'name' | 'value'>): Token {
@@ -32,41 +32,59 @@ function token(partial: Partial<Token> & Pick<Token, 'name' | 'value'>): Token {
 }
 
 describe('formatTokenName', () => {
-  it('kebab: collapses slash groups to hyphens and lowercases', () => {
-    expect(formatTokenName('Color/Text/Primary/Default', 'kebab')).toBe('color-text-primary-default');
+  it('default: returns the raw Figma name verbatim', () => {
+    expect(formatTokenName('Color/Text/Primary', 'default')).toBe('Color/Text/Primary');
+    expect(formatTokenName('Brand Primary', 'default')).toBe('Brand Primary');
   });
 
-  it('slash: preserves slash nesting as scoped CSS', () => {
-    expect(formatTokenName('Color/Text/Primary', 'slash')).toBe('color/text/primary');
+  it('lower-hyphen: collapses slash groups to hyphens and lowercases', () => {
+    expect(formatTokenName('Color/Text/Primary/Default', 'lower-hyphen')).toBe('color-text-primary-default');
   });
 
-  it('dot: separates normalized groups with periods', () => {
-    expect(formatTokenName('Color/Primary/Hover', 'dot')).toBe('color.primary.hover');
+  it('lower-slash: preserves slash nesting lowercased', () => {
+    expect(formatTokenName('Color/Text/Primary', 'lower-slash')).toBe('color/text/primary');
+  });
+
+  it('lower-dot: separates normalized groups with periods', () => {
+    expect(formatTokenName('Color/Primary/Hover', 'lower-dot')).toBe('color.primary.hover');
+  });
+
+  it('lower-underscore: underscores between segments', () => {
+    expect(formatTokenName('Color/Text/Primary', 'lower-underscore')).toBe('color_text_primary');
+  });
+
+  it('title-hyphen: capitalized segments joined by hyphens', () => {
+    expect(formatTokenName('Color/Text/Primary', 'title-hyphen')).toBe('Color-Text-Primary');
+  });
+
+  it('title-slash: capitalized segments joined by slashes', () => {
+    expect(formatTokenName('Color/Text/Primary', 'title-slash')).toBe('Color/Text/Primary');
+  });
+
+  it('title-dot: preserves dotted nesting with capitalized segments', () => {
+    expect(formatTokenName('Color/Text/Primary', 'title-dot')).toBe('Color.Text.Primary');
+  });
+
+  it('title-underscore: capitalized segments joined by underscores', () => {
+    expect(formatTokenName('Color/Text/Primary', 'title-underscore')).toBe('Color_Text_Primary');
   });
 
   it('escapes slash and dot separators at the CSS identifier boundary', () => {
-    expect(formatCssTokenName('Color/Text/Primary', 'slash'))
+    expect(formatCssTokenName('Color/Text/Primary', 'lower-slash'))
       .toBe('color\\/text\\/primary');
-    expect(formatCssTokenName('Color/Primary/Hover', 'dot'))
+    expect(formatCssTokenName('Color/Primary/Hover', 'lower-dot'))
       .toBe('color\\.primary\\.hover');
-    expect(formatCssTokenName('Color/Primary/Hover', 'pascal'))
+    expect(formatCssTokenName('Color/Primary/Hover', 'title-dot'))
       .toBe('Color\\.Primary\\.Hover');
   });
 
-  it('snake: underscores between segments', () => {
-    expect(formatTokenName('Color/Text/Primary', 'snake')).toBe('color_text_primary');
-  });
-
-  it('pascal: preserves dotted nesting with capitalized segments', () => {
-    expect(formatTokenName('Color/Text/Primary', 'pascal')).toBe('Color.Text.Primary');
-  });
-
   it('handles camelCase and spaces within a segment', () => {
-    expect(formatTokenName('spacing/ sm_md ', 'kebab')).toBe('spacing-sm-md');
+    expect(formatTokenName('spacing/ sm_md ', 'lower-hyphen')).toBe('spacing-sm-md');
   });
 
   it('falls back to a placeholder for an empty name', () => {
-    expect(formatTokenName('   ', 'kebab')).toBe('unnamed');
+    expect(formatTokenName('   ', 'lower-hyphen')).toBe('unnamed');
+    expect(formatTokenName('   ', 'default')).toBe('unnamed');
   });
 });
 
@@ -171,7 +189,7 @@ describe('formatTokenValue', () => {
     expect(formatTokenValue(t, {
       ...baseOptions,
       colorFormat: 'variable',
-      nameStyle: 'dot',
+      nameStyle: 'lower-dot',
     })).toBe('var(--reference\\.blue\\.500)');
   });
 
@@ -248,7 +266,7 @@ describe('serializeCollection', () => {
     expect(serializeCollection(collection, {
       ...baseOptions,
       colorFormat: 'variable',
-      nameStyle: 'dot',
+      nameStyle: 'lower-dot',
     })).toContain(
       '--color\\.primary\\.hover: var(--reference\\.blue\\.500);',
     );

@@ -489,7 +489,7 @@ describe('Plugin rendered interactions', () => {
     ]);
     expect(screen.getByText('2 files · 294 variables → 588 declarations')).toBeTruthy();
 
-    fireEvent.click(screen.getByRole('radio', { name: 'slash' }));
+    fireEvent.click(screen.getByRole('radio', { name: 'a/a' }));
     receiveLatestTokenPreview([
       previewFile('product-tokens-zhina.css', ':root {\n  --color\\/text\\/primary: #0d99ff;\n}'),
       previewFile('product-tokens-tashilpay.css', ':root {\n  --color\\/text\\/primary: #033366;\n}'),
@@ -497,7 +497,7 @@ describe('Plugin rendered interactions', () => {
     expect(screen.getByLabelText('Token output preview').textContent)
       .toContain('--color\\/text\\/primary: #0d99ff;');
 
-    fireEvent.click(screen.getByRole('radio', { name: 'dot' }));
+    fireEvent.click(screen.getByRole('radio', { name: 'a.a' }));
     receiveLatestTokenPreview([
       previewFile('product-tokens-zhina.css', ':root {\n  --color\\.text\\.primary: #0d99ff;\n  --spacing\\.4: 1rem;\n}'),
       previewFile('product-tokens-tashilpay.css', ':root {\n  --color\\.text\\.primary: #033366;\n}'),
@@ -505,7 +505,7 @@ describe('Plugin rendered interactions', () => {
     expect(screen.getByLabelText('Token output preview').textContent)
       .toContain('--color\\.text\\.primary: #0d99ff;');
 
-    fireEvent.click(screen.getByRole('radio', { name: 'snake' }));
+    fireEvent.click(screen.getByRole('radio', { name: 'a_a' }));
     receiveLatestTokenPreview([
       previewFile('product-tokens-zhina.css', ':root {\n  --color_text_primary: #0d99ff;\n  --spacing_4: 1rem;\n}'),
       previewFile('product-tokens-tashilpay.css', ':root {\n  --color_text_primary: #033366;\n}'),
@@ -539,7 +539,7 @@ describe('Plugin rendered interactions', () => {
     expect(request.collectionIds).toEqual(['product']);
     expect(request.options.modesByCollection.product).toEqual(['zhina', 'tashilpay']);
     expect(request.options.convertPxToRem).toBe(false);
-    expect(request.options.nameStyle).toBe('snake');
+    expect(request.options.nameStyle).toBe('lower-underscore');
     expect(request.options.outputFormat).toBe('css');
     expect(
       request.options.aliasModeOverridesByCollectionMode
@@ -562,13 +562,13 @@ describe('Plugin rendered interactions', () => {
     fireEvent.click(screen.getByRole('radio', { name: 'Markdown — raw token list' }));
     expect(screen.getAllByText('product-tokens-zhina.md').length).toBeGreaterThan(0);
 
-    fireEvent.click(screen.getByRole('radio', { name: 'pascal' }));
+    fireEvent.click(screen.getByRole('radio', { name: 'A.A' }));
     const markdownRequests = emittedPayloads<{
       options: ExportOptions;
     }>('PREVIEW_TOKENS');
     const markdownRequest = markdownRequests[markdownRequests.length - 1];
     expect(markdownRequest?.options.outputFormat).toBe('markdown');
-    expect(markdownRequest?.options.nameStyle).toBe('pascal');
+    expect(markdownRequest?.options.nameStyle).toBe('title-dot');
     receiveLatestTokenPreview([
       previewFile(
         'product-tokens-zhina.md',

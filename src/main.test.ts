@@ -416,7 +416,7 @@ describe('Sync Tokens export', () => {
       colorFormat: 'hex',
       convertPxToRem: true,
       modesByCollection: { product: ['product-zhina', 'product-dark'] },
-      nameStyle: 'dot',
+      nameStyle: 'lower-dot',
       rootFontSize: 16,
     };
     utilityMocks.handlers.get('EXPORT_TOKENS')?.({
@@ -584,7 +584,7 @@ describe('Sync Tokens export', () => {
         colorFormat: 'variable',
         convertPxToRem: true,
         modesByCollection: { [collection.id]: ['default'] },
-        nameStyle: 'kebab',
+        nameStyle: 'lower-hyphen',
         rootFontSize: 16,
       } satisfies ExportOptions,
     });

@@ -54,6 +54,12 @@ is the version of record.
 
 ### Changed
 
+- Replaced the Sync Tokens "Token name" style list (kebab / slash / dot / snake
+  / pascal) with a `Default` option that keeps the raw Figma name plus eight
+  case × separator presets (`A/A`, `a/a`, `A.A`, `a.a`, `A-A`, `a-a`, `A_A`,
+  `a_a`). The default selection (`a-a`) reproduces the previous kebab-case
+  output, so existing exports are unchanged. See
+  [Sync Tokens](docs/section-sync-tokens.md).
 - Moved custom SVG assets out of the main Preact UI module so interface code
   and visual assets can be maintained independently.
 

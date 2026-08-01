@@ -24,7 +24,21 @@ export type ColorFormat = 'rgb' | 'rgba' | 'hex' | 'variable';
  * CSS output escapes slash and dot separators. Raw Markdown output preserves
  * them exactly for token-reference tooling that is not parsed as CSS.
  */
-export type NameStyle = 'kebab' | 'slash' | 'dot' | 'snake' | 'pascal';
+/**
+ * Token name style. `default` passes the raw Figma name through verbatim; the
+ * other eight are a {case} × {separator} matrix:
+ *   `lower-`/`title-` × `hyphen`/`underscore`/`slash`/`dot`.
+ */
+export type NameStyle =
+  | 'default'
+  | 'lower-hyphen'
+  | 'lower-underscore'
+  | 'lower-slash'
+  | 'lower-dot'
+  | 'title-hyphen'
+  | 'title-underscore'
+  | 'title-slash'
+  | 'title-dot';
 export type OutputFormat =
   | 'css'
   | 'json-flat'

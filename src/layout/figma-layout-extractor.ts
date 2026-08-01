@@ -76,7 +76,7 @@ class StructuralTokenResolver {
     return this.context.getVariable(alias.id, () => this.load(alias.id))
       .then((variable) => variable
         ? {
-            cssName: `--${formatTokenName(variable.name, 'kebab')}`,
+            cssName: `--${formatTokenName(variable.name, 'lower-hyphen')}`,
             variableId: variable.id,
           }
         : undefined)

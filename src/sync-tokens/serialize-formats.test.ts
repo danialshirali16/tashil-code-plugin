@@ -9,7 +9,7 @@ const collection: TokenCollection = {
     { id: 'space', name: 'Space/Small', resolvedType: 'FLOAT', scopes: ['GAP'], value: { kind: 'number', value: 8 } },
   ],
 };
-const base: ExportOptions = { colorFormat: 'hex', convertPxToRem: true, modesByCollection: {}, nameStyle: 'kebab', rootFontSize: 16 };
+const base: ExportOptions = { colorFormat: 'hex', convertPxToRem: true, modesByCollection: {}, nameStyle: 'lower-hyphen', rootFontSize: 16 };
 
 describe('extended token serializers', () => {
   it.each([
@@ -31,8 +31,8 @@ describe('extended token serializers', () => {
   });
 
   it.each([
-    ['dot', '--color.primary: #ff0000;'],
-    ['pascal', '--Color.Primary: #ff0000;'],
+    ['lower-dot', '--color.primary: #ff0000;'],
+    ['title-dot', '--Color.Primary: #ff0000;'],
   ] as const)('preserves raw %s paths in Markdown', (nameStyle, declaration) => {
     const result = serializeTokenCollection(collection, {
       ...base,

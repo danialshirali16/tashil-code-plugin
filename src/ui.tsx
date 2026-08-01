@@ -1546,7 +1546,7 @@ function SyncTokensView(props: {
   const [convertPxToRem, setConvertPxToRem] = useState(true);
   const [rootFontSize, setRootFontSize] = useState<number>(16);
   const [colorFormat, setColorFormat] = useState<ColorFormat>('hex');
-  const [nameStyle, setNameStyle] = useState<NameStyle>('kebab');
+  const [nameStyle, setNameStyle] = useState<NameStyle>('lower-hyphen');
   const [outputFormat, setOutputFormat] = useState<OutputFormat>('css');
   const [aliasModeOverrides, setAliasModeOverrides] = useState<
     Record<string, Record<string, Record<string, string>>>
@@ -1928,11 +1928,15 @@ function SyncTokensView(props: {
                   <SegmentedControl
                     onValueChange={(value) => setNameStyle(value as NameStyle)}
                     options={[
-                      { value: 'kebab', children: 'kebab' },
-                      { value: 'slash', children: 'slash' },
-                      { value: 'dot', children: 'dot' },
-                      { value: 'snake', children: 'snake' },
-                      { value: 'pascal', children: 'pascal' },
+                      { value: 'default', children: 'Default' },
+                      { value: 'title-slash', children: 'A/A' },
+                      { value: 'lower-slash', children: 'a/a' },
+                      { value: 'title-dot', children: 'A.A' },
+                      { value: 'lower-dot', children: 'a.a' },
+                      { value: 'title-hyphen', children: 'A-A' },
+                      { value: 'lower-hyphen', children: 'a-a' },
+                      { value: 'title-underscore', children: 'A_A' },
+                      { value: 'lower-underscore', children: 'a_a' },
                     ]}
                     value={nameStyle}
                   />

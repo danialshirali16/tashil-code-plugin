@@ -19,25 +19,38 @@ import {
 
 /** Split a Figma name on `/` and rejoin per the chosen style. */
 export function formatTokenName(raw: string, style: NameStyle): string {
+  // ponytail: `default` returns the raw name verbatim — only the blank-name
+  // fallback is applied. Spaces/slashes in raw names survive unescaped here;
+  // formatCssTokenName escapes `/` and `.` at the CSS boundary. Upgrade path
+  // for fully-safe raw identifiers: widen the escape class there.
+  if (style === 'default') {
+    return raw.trim().length === 0 ? 'unnamed' : raw;
+  }
   // ponytail: Figma groups via `/`; segments may already contain spaces or
   // mixed case. We normalize each segment, never the raw string wholesale.
   const segments = raw.split('/').map((segment) => segment.trim()).filter((segment) => segment.length > 0);
   if (segments.length === 0) {
     return 'unnamed';
   }
-  switch (style) {
-    case 'kebab':
-      return segments.map(toKebab).join('-');
-    case 'slash':
-      return segments.map(toKebab).join('/');
-    case 'dot':
-      return segments.map(toKebab).join('.');
-    case 'snake':
-      return segments.map(toSnake).join('_');
-    case 'pascal':
-      return segments.map(toPascal).join('.');
-  }
+  const [casing, separator] = STYLE_TABLE[style];
+  const normalize = casing === 'title' ? toPascal : casing === 'underscore' ? toSnake : toKebab;
+  return segments.map(normalize).join(separator);
 }
+
+/**
+ * {case} × {separator} lookup. `underscore` casing reuses `toSnake` (it lowercases
+ * and uses `_` between words within a segment); hyphen/slash/dot reuse `toKebab`.
+ */
+const STYLE_TABLE: Record<Exclude<NameStyle, 'default'>, readonly ['lower' | 'title' | 'underscore', string]> = {
+  'lower-hyphen': ['lower', '-'],
+  'lower-underscore': ['underscore', '_'],
+  'lower-slash': ['lower', '/'],
+  'lower-dot': ['lower', '.'],
+  'title-hyphen': ['title', '-'],
+  'title-underscore': ['title', '_'],
+  'title-slash': ['title', '/'],
+  'title-dot': ['title', '.'],
+};
 
 /**
  * Format a token name for use as a CSS custom-property identifier.
@@ -84,7 +97,7 @@ function toHexChannel(value: number): string {
 /** Format a color value per the requested output format. */
 export function formatColor(value: ColorValue, format: ColorFormat, alias?: AliasValue): string {
   if (format === 'variable' && alias !== undefined) {
-    return `var(--${formatTokenName(alias.targetName, 'kebab')})`;
+    return `var(--${formatTokenName(alias.targetName, 'lower-hyphen')})`;
   }
   const { r, g, b } = value;
   switch (format) {

@@ -71,7 +71,7 @@ only place that touches Figma types.
    `missing-main-component`, `unconnected-instance`, `invalid-connection`,
    `node-limit`, `depth-limit`, `css-unavailable`, `root-fixed-size-omitted`.
    The emitter renders it as a sanitized JSX comment.
-5. **`formatTokenName('kebab')` is the shared CSS-variable naming contract.**
+5. **`formatTokenName('lower-hyphen')` is the shared CSS-variable naming contract.**
    `figma-layout-extractor.ts` imports it from `../sync-tokens/serialize` to
    build `--<name>`. Keep this in sync with Sync Tokens so generated variable
    names match across the two features.

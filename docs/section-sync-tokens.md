@@ -53,14 +53,17 @@ the `semantic/` and `inspect/` layering.
 This is the part that matters. Four families of functions, each tiny and tested:
 
 - **`formatTokenName(raw, style)` / `formatCssTokenName(raw, style)`** — split
-  the Figma name on `/` and rejoin per `style` (`kebab` | `slash` | `dot` |
-  `snake` | `pascal`). Each segment is normalized independently. `formatCssTokenName`
-  then escapes `.` and `/` separators at the CSS-identifier boundary. Markdown
-  token lists intentionally use `formatTokenName` directly so dot and slash
-  paths remain raw. Pascal style preserves path nesting (`Color.Text.Primary`).
+  the Figma name on `/` and rejoin per `style`. `style` is one of:
+  - `default` — raw Figma name passed through verbatim.
+  - a `{case}` × `{separator}` preset — `lower-`/`title-` × `hyphen`/`underscore`/`slash`/`dot`
+    (e.g. `lower-hyphen` = `color-text-primary`, `title-dot` = `Color.Text.Primary`).
+    The case names how each segment is normalized; the separator joins them.
+  Each segment is normalized independently. `formatCssTokenName` then escapes `.`
+  and `/` separators at the CSS-identifier boundary. Markdown token lists
+  intentionally use `formatTokenName` directly so dot and slash paths remain raw.
   **Shared with Layout:** `src/layout/figma-layout-extractor.ts` imports
-  `formatTokenName` and calls it with `'kebab'` to build `--<name>` CSS variable
-  names. Keep the two in agreement so generated CSS variable names match.
+  `formatTokenName` and calls it with `'lower-hyphen'` to build `--<name>` CSS
+  variable names. Keep the two in agreement so generated CSS variable names match.
 - **`formatColor(value, format, alias?)`** — Figma `RGB`/`RGBA` are 0–1 floats;
   converts to `hex`/`rgb`/`rgba`. The `variable` format emits
   `var(--target-name)` using the alias's resolved name; falls back to `rgb()`
