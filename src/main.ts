@@ -91,7 +91,34 @@ import {
   type LoadOutputPreferencesResultHandler,
   type SaveOutputPreferencesHandler,
   type SaveOutputPreferencesResultHandler,
+  type DocFrameSelectedHandler,
+  type GenerateTokenDocsHandler,
+  type GenerateTokenDocsResultHandler,
+  type UpdateDocsInPlaceHandler,
+  type UpdateDocsInPlaceResultHandler,
+  type GenerateComponentDocsHandler,
+  type GenerateComponentDocsResultHandler,
+  type DocGenerationProgressHandler,
 } from './types';
+import {
+  buildTokenDocDocument,
+  type RawCollectionData,
+  type RawVariableValue,
+} from './documentation/token-doc-model';
+import { diffTokenDocument } from './documentation/doc-diff';
+import { buildComponentDocDocument } from './documentation/component-doc-model';
+import {
+  emitComponentDocMarkdown,
+  emitTokenDocMarkdown,
+} from './documentation/markdown-emitter';
+import {
+  createComponentDocFrame,
+  createTokenDocFrame,
+} from './documentation/figma-canvas-writer';
+import {
+  readDocFrameMetadata,
+  updateTokenDocFrameInPlace,
+} from './documentation/figma-canvas-updater';
 import { diffTokenSnapshots } from './sync-tokens/export-diff';
 import { createTokenSnapshot, serializeTokenCollection } from './sync-tokens/serialize-formats';
 import type {
@@ -184,6 +211,18 @@ export default function (): void {
 
   on<PreviewTokensHandler>('PREVIEW_TOKENS', (payload) => {
     void previewTokens(payload.operationId, payload.collectionIds, payload.options);
+  });
+
+  on<GenerateTokenDocsHandler>('GENERATE_TOKEN_DOCS', (payload) => {
+    void generateTokenDocs(payload.collectionId, payload.targetFormat);
+  });
+
+  on<UpdateDocsInPlaceHandler>('UPDATE_DOCS_IN_PLACE', (payload) => {
+    void updateDocsInPlace(payload.frameNodeId);
+  });
+
+  on<GenerateComponentDocsHandler>('GENERATE_COMPONENT_DOCS', (payload) => {
+    void generateComponentDocs(payload.targetToken, payload.targetFormat);
   });
 
   on<OpenExternalHandler>('OPEN_EXTERNAL', (payload) => {
@@ -558,7 +597,15 @@ async function inspectSceneNode(
   node: SceneNode,
   context?: GenerationContext,
 ): Promise<FrameInspection> {
-  return inspectFrame(node as unknown as InspectableNode, { context });
+  return inspectFrame(node as unknown as InspectableNode, {
+    context,
+    loadTextStyle: loadFigmaTextStyle,
+  });
+}
+
+async function loadFigmaTextStyle(id: string): Promise<{ name: string } | null> {
+  const style = await figma.getStyleByIdAsync(id);
+  return style ? { name: style.name } : null;
 }
 
 /**
@@ -595,8 +642,25 @@ function generateInspectionBlocks(inspection: FrameInspection): CodegenBlock[] {
     blocks.push({ title: 'Layout', language: 'CSS', code: layoutCss });
   }
 
-  const styleCss = formatCssBlock(inspection.css.style);
-  if (styleCss) {
+  const styleCssRaw = formatCssBlock(inspection.css.style);
+  if (styleCssRaw) {
+    let styleCss = styleCssRaw;
+    if (inspection.textStyleName) {
+      const comment = `/* Text style: "${inspection.textStyleName}" */`;
+      const lines = styleCssRaw.split('\n');
+      let lastColorIndex = -1;
+      for (let i = 0; i < lines.length; i++) {
+        if (lines[i].trimStart().startsWith('color:')) {
+          lastColorIndex = i;
+        }
+      }
+      if (lastColorIndex === -1) {
+        styleCss = `${comment}\n${styleCssRaw}`;
+      } else {
+        lines.splice(lastColorIndex + 1, 0, comment);
+        styleCss = lines.join('\n');
+      }
+    }
     blocks.push({ title: 'Style', language: 'CSS', code: styleCss });
   }
 
@@ -2028,6 +2092,29 @@ async function sendSelectionState(
 
     emitCanvasTargetState(source, state);
     emit<InspectCodeStateHandler>('INSPECT_CODE_STATE', inspectState);
+
+    if (selectedNodes.length === 1) {
+      const docMetadata = readDocFrameMetadata(selectedNodes[0]);
+      if (docMetadata) {
+        let drift;
+        if (docMetadata.docType === 'tokens') {
+          const rawCol = await loadRawCollectionData(docMetadata.targetId);
+          if (rawCol) {
+            const currentDoc = buildTokenDocDocument(rawCol);
+            drift = diffTokenDocument(docMetadata, currentDoc);
+          }
+        }
+        emit<DocFrameSelectedHandler>('DOC_FRAME_SELECTED', {
+          frameNodeId: selectedNodes[0].id,
+          metadata: docMetadata,
+          drift,
+        });
+      } else {
+        emit<DocFrameSelectedHandler>('DOC_FRAME_SELECTED', {});
+      }
+    } else {
+      emit<DocFrameSelectedHandler>('DOC_FRAME_SELECTED', {});
+    }
   } catch (error) {
     if (!isCurrentSelectionRefresh(requestId, selectedNodes)) {
       return;
@@ -2042,6 +2129,7 @@ async function sendSelectionState(
       status: 'invalid-selection',
       message,
     });
+    emit<DocFrameSelectedHandler>('DOC_FRAME_SELECTED', {});
   }
 }
 
@@ -2625,3 +2713,229 @@ function formatDiagnostics(
     })
     .join('\n');
 }
+
+// --- Automated Documentation Generator ---
+
+async function loadRawCollectionData(collectionId: string): Promise<RawCollectionData | null> {
+  try {
+    const collections = await figma.variables.getLocalVariableCollectionsAsync();
+    const collection = collections.find((c) => c.id === collectionId);
+    if (!collection) return null;
+
+    const variables = await figma.variables.getLocalVariablesAsync();
+    const variablesById = new Map(variables.map((v) => [v.id, v]));
+
+    const tokens: RawCollectionData['tokens'] = [];
+    for (const varId of collection.variableIds) {
+      const variable = variablesById.get(varId);
+      if (!variable) continue;
+
+      const valuesByMode: Record<string, RawVariableValue> = {};
+      for (const mode of collection.modes) {
+        const val = variable.valuesByMode[mode.modeId];
+        let aliasTargetName: string | undefined;
+        let resolvedValue: unknown = val;
+
+        if (typeof val === 'object' && val !== null && 'type' in val && val.type === 'VARIABLE_ALIAS') {
+          const targetVar = variablesById.get((val as { id: string }).id);
+          if (targetVar) {
+            aliasTargetName = targetVar.name;
+            const targetVal = targetVar.valuesByMode[mode.modeId] ?? Object.values(targetVar.valuesByMode)[0];
+            resolvedValue = targetVal;
+          }
+        }
+
+        valuesByMode[mode.modeId] = {
+          aliasTargetName,
+          isColor: variable.resolvedType === 'COLOR',
+          isFloat: variable.resolvedType === 'FLOAT',
+          value: (resolvedValue as ColorValue | number | string | boolean) ?? '',
+        };
+      }
+
+      tokens.push({
+        id: variable.id,
+        name: variable.name,
+        description: variable.description,
+        scopes: variable.scopes,
+        valuesByMode,
+      });
+    }
+
+    return {
+      collectionId: collection.id,
+      collectionName: collection.name,
+      defaultModeId: collection.defaultModeId,
+      modes: collection.modes.map((m) => ({ modeId: m.modeId, name: m.name })),
+      tokens,
+    };
+  } catch (_e) {
+    return null;
+  }
+}
+
+async function generateTokenDocs(
+  collectionId: string,
+  targetFormat: 'canvas' | 'markdown' = 'canvas',
+): Promise<void> {
+  const reportProgress = (message: string, percent: number) => {
+    emit<DocGenerationProgressHandler>('DOC_GENERATION_PROGRESS', { message, percent });
+  };
+
+  try {
+    reportProgress('Reading token collection…', 5);
+    const rawCollection = await loadRawCollectionData(collectionId);
+    if (!rawCollection) {
+      emit<GenerateTokenDocsResultHandler>('GENERATE_TOKEN_DOCS_RESULT', {
+        ok: false,
+        message: 'Could not load token collection data.',
+      });
+      return;
+    }
+
+    reportProgress('Building token models…', 10);
+    const doc = buildTokenDocDocument(rawCollection);
+    if (targetFormat === 'markdown') {
+      reportProgress('Formatting Markdown documentation…', 70);
+      const markdown = emitTokenDocMarkdown(doc);
+      reportProgress('Done!', 100);
+      emit<GenerateTokenDocsResultHandler>('GENERATE_TOKEN_DOCS_RESULT', {
+        ok: true,
+        message: 'Markdown documentation generated.',
+        markdown,
+      });
+    } else {
+      const frame = await createTokenDocFrame(doc, undefined, reportProgress);
+      emit<GenerateTokenDocsResultHandler>('GENERATE_TOKEN_DOCS_RESULT', {
+        ok: true,
+        message: `Created documentation frame for "${doc.title}".`,
+        frameNodeId: frame.id,
+      });
+    }
+  } catch (error) {
+    console.error('[Tashil Doc Generation Error]', error);
+    emit<GenerateTokenDocsResultHandler>('GENERATE_TOKEN_DOCS_RESULT', {
+      ok: false,
+      message: errorMessage(error, 'generate token documentation'),
+    });
+  }
+}
+
+async function updateDocsInPlace(frameNodeId: string): Promise<void> {
+  const reportProgress = (message: string, percent: number) => {
+    emit<DocGenerationProgressHandler>('DOC_GENERATION_PROGRESS', { message, percent });
+  };
+
+  try {
+    reportProgress('Locating selected documentation frame…', 5);
+    const node = await figma.getNodeByIdAsync(frameNodeId);
+    if (!node || node.type !== 'FRAME') {
+      emit<UpdateDocsInPlaceResultHandler>('UPDATE_DOCS_IN_PLACE_RESULT', {
+        ok: false,
+        message: 'Selected documentation frame could not be found.',
+      });
+      return;
+    }
+
+    reportProgress('Validating documentation frame metadata…', 10);
+    const metadata = readDocFrameMetadata(node);
+    if (!metadata) {
+      emit<UpdateDocsInPlaceResultHandler>('UPDATE_DOCS_IN_PLACE_RESULT', {
+        ok: false,
+        message: 'This frame is not recognized as a Tashil documentation frame.',
+      });
+      return;
+    }
+
+    if (metadata.docType === 'tokens') {
+      reportProgress('Loading updated variable collection…', 15);
+      const rawCollection = await loadRawCollectionData(metadata.targetId);
+      if (!rawCollection) {
+        emit<UpdateDocsInPlaceResultHandler>('UPDATE_DOCS_IN_PLACE_RESULT', {
+          ok: false,
+          message: `Variable collection "${metadata.targetName}" could not be found.`,
+        });
+        return;
+      }
+
+      const doc = buildTokenDocDocument(rawCollection);
+      const result = await updateTokenDocFrameInPlace(node, doc, reportProgress);
+      emit<UpdateDocsInPlaceResultHandler>('UPDATE_DOCS_IN_PLACE_RESULT', {
+        ok: result.ok,
+        message: result.message,
+        updatedTokensCount: result.updatedTokensCount,
+      });
+    } else {
+      emit<UpdateDocsInPlaceResultHandler>('UPDATE_DOCS_IN_PLACE_RESULT', {
+        ok: false,
+        message: `In-place update for ${metadata.docType} is not supported.`,
+      });
+    }
+  } catch (error) {
+    console.error('[Tashil Doc Update Error]', error);
+    emit<UpdateDocsInPlaceResultHandler>('UPDATE_DOCS_IN_PLACE_RESULT', {
+      ok: false,
+      message: errorMessage(error, 'update documentation frame'),
+    });
+  }
+}
+
+async function generateComponentDocs(
+  targetToken: string,
+  targetFormat: 'canvas' | 'markdown' = 'canvas',
+): Promise<void> {
+  const reportProgress = (message: string, percent: number) => {
+    emit<DocGenerationProgressHandler>('DOC_GENERATION_PROGRESS', { message, percent });
+  };
+
+  try {
+    reportProgress('Resolving target component…', 5);
+    const targetResult = await resolveTargetById(targetToken);
+    if (!targetResult.ok) {
+      emit<GenerateComponentDocsResultHandler>('GENERATE_COMPONENT_DOCS_RESULT', {
+        ok: false,
+        message: targetResult.message,
+      });
+      return;
+    }
+
+    reportProgress('Reading connection metadata…', 10);
+    const connection = readConnectionMetadata(targetResult.selection.mainComponent);
+    if (!connection.ok) {
+      emit<GenerateComponentDocsResultHandler>('GENERATE_COMPONENT_DOCS_RESULT', {
+        ok: false,
+        message: 'Component is not connected.',
+      });
+      return;
+    }
+
+    reportProgress('Extracting props & schema…', 15);
+    const figmaSnapshot = createFigmaComponentSnapshot(targetResult.selection.mainComponent);
+    const sourceSnapshot = connection.metadata.mappingDocument?.sourceSnapshot;
+    const doc = buildComponentDocDocument(connection.metadata, sourceSnapshot, figmaSnapshot);
+
+    if (targetFormat === 'markdown') {
+      reportProgress('Formatting Markdown specification…', 70);
+      const markdown = emitComponentDocMarkdown(doc);
+      reportProgress('Done!', 100);
+      emit<GenerateComponentDocsResultHandler>('GENERATE_COMPONENT_DOCS_RESULT', {
+        ok: true,
+        message: 'Component markdown documentation generated.',
+        markdown,
+      });
+    } else {
+      const frame = await createComponentDocFrame(doc, undefined, reportProgress);
+      emit<GenerateComponentDocsResultHandler>('GENERATE_COMPONENT_DOCS_RESULT', {
+        ok: true,
+        message: `Created specification frame for <${doc.componentName} />.`,
+        frameNodeId: frame.id,
+      });
+    }
+  } catch (error) {
+    emit<GenerateComponentDocsResultHandler>('GENERATE_COMPONENT_DOCS_RESULT', {
+      ok: false,
+      message: errorMessage(error, 'generate component documentation'),
+    });
+  }
+}
+

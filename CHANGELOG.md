@@ -10,6 +10,10 @@ is the version of record.
 
 ### Added
 
+- Added an Automated Documentation Generator and In-Place Reconciler (`src/documentation/`)
+  to automatically create pixel-accurate design token and component specification frames
+  directly on the Figma canvas, export structured Markdown, and update existing documentation
+  frames in place when variables or component APIs change. See [docs/section-documentation.md](docs/section-documentation.md).
 - Added a local-first privacy policy, structured GitHub issue forms, a runnable
   React quick-start companion, a Community demo-file publication checklist, and
   a real-plugin UI demo to make first-use onboarding easier.
@@ -43,8 +47,12 @@ is the version of record.
 - Added full-library semantic authoring for complex Swiss Army Knife APIs,
   including recursive object and collection contracts, controlled values,
   runtime callbacks, React-node slots, data-driven components, overlays,
-  forms, uploads, and date/range controls. See the
-  [full-library support roadmap](docs/archive/full-library-support-roadmap.md).
+- Added automated Token Documentation generation and in-place reconciliation
+  directly on the Figma canvas using the Swiss Army Knife design system, with
+  native variable bindings on color swatches, explicit column appearance modes,
+  dynamic headlines, and context-aware section descriptions. See the
+  [Token Documentation Architecture guide](docs/token-documentation-architecture.md)
+  and [Token Documentation User guide](docs/token-documentation.md).
 - Added declarative complex-component recipes, ordered nested-instance arrays,
   structured compatibility reports, and versioned recipe migrations so
   generated usage remains reviewable as component APIs evolve.
@@ -54,6 +62,14 @@ is the version of record.
 
 ### Changed
 
+- Layout Composer now references a text layer's Figma Text Style by name (as an
+  inline `/* Text style: "…" */` comment, snake_case) instead of emitting its
+  `font-family`/`font-size`/`font-weight`/`line-height`/`letter-spacing`
+  variables. Mixed-style runs are comma-joined. Layers with no text style are
+  unchanged. See [Layout Composer](docs/section-layout.md).
+- Inspect Code now shows the Figma Text Style name as a comment at the top of
+  the Style CSS block when a TEXT layer uses a text style. The CSS declarations
+  themselves are unchanged. See [Inspect](docs/section-inspect.md).
 - Replaced the Sync Tokens "Token name" style list (kebab / slash / dot / snake
   / pascal) with a `Default` option that keeps the raw Figma name plus eight
   case × separator presets (`A/A`, `a/a`, `A.A`, `a.a`, `A-A`, `a-a`, `A_A`,
@@ -74,9 +90,16 @@ is the version of record.
 
 ### Fixed
 
+- Dynamic section headlines and descriptions in token documentation, automatically derived from folder paths, token scopes, and data types.
+- Native Figma variable binding on `Color Icon` swatch fills in `.[Table] Value Item` components.
+- Automatic column appearance and variable mode assignment (`applyColumnMode`) on generated documentation tables.
+- Fixed documentation in-place updating so section frames, token rows, and mode columns reconcile 1-to-1 against existing canvas components without breaking auto layout or duplicating rows.
 - Fixed the Sync Tokens name-style selector so all five naming options remain
   visible and usable after the plugin window is narrowed. See the
   [Sync Tokens guide](docs/section-sync-tokens.md).
+- Fixed the Dev Mode and Inspect Code Style CSS blocks so they now show the
+  `/* Text style: "…" */` comment after the `color` declaration for TEXT layers.
+  See [Inspect](docs/section-inspect.md).
 
 ### Compatibility
 

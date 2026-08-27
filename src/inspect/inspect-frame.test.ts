@@ -8,6 +8,7 @@ import {
   frame,
   instance,
   nestedAutoLayout,
+  text,
   unconnectedInstance,
   verticalForm,
   wrappingActionRow,
@@ -65,6 +66,36 @@ describe('inspectFrame — CSS sections', () => {
     expect(inspection.css).toEqual({ layout: [], style: [] });
     expect(inspection.diagnostics.some((d) => d.reason === 'css-unavailable')).toBe(true);
     expect(inspection.connectedComponents).toHaveLength(2);
+  });
+});
+
+describe('inspectFrame — text style', () => {
+  it('resolves the Figma text-style name for a TEXT node', async () => {
+    const label = text('t:label', 'Label', 'Hello', {
+      textStyleId: 'S:body-md',
+      css: {
+        color: 'var(--color-text-default, #111)',
+        'font-family': 'var(--font-family)',
+        'font-size': 'var(--font-size-body)',
+        'font-weight': 'var(--font-weight-400)',
+      },
+    }) as unknown as InspectableNode;
+    const inspection = await inspectFrame(label, {
+      loadTextStyle: async (id) =>
+        id === 'S:body-md' ? { name: 'Body/MD Normal' } : null,
+    });
+
+    expect(inspection.textStyleName).toBe('body_md_normal');
+    expect(inspection.css.style).toHaveLength(4);
+  });
+
+  it('leaves textStyleName unset when the node has no text style', async () => {
+    const label = text('t:plain', 'Label', 'Hello', {
+      css: { color: '#111' },
+    }) as unknown as InspectableNode;
+    const inspection = await inspectFrame(label);
+
+    expect(inspection.textStyleName).toBeUndefined();
   });
 });
 

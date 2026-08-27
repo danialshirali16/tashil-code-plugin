@@ -32,11 +32,11 @@ only place that touches Figma types.
 | File | Role |
 | --- | --- |
 | `src/layout/react-layout.ts` | Thin public entry: `generateReactLayout(node)` = `extractLayout` then `generateLayout`. `supportsReactLayout(node)` gates root types. |
-| `src/layout/figma-layout-extractor.ts` | **Phase 2.** `extractLayout` walks the Figma tree → `LayoutDocument` IR. Hidden layers skipped; `SECTION` → `<section>`; `GRID` → warning + document order; structural tokens via `formatTokenName` (kebab). |
+| `src/layout/figma-layout-extractor.ts` | **Phase 2.** `extractLayout` walks the Figma tree → `LayoutDocument` IR. Hidden layers skipped; `SECTION` → `<section>`; `GRID` → warning + document order; structural tokens via `formatTokenName` (kebab). Resolves Figma Text Styles via `getStyleByIdAsync` and records `textStyleName` on text nodes (snake_case via `formatTokenName(name, 'lower-underscore')`; comma-joined for mixed runs). |
 | `src/layout/figma-component-resolver.ts` | The only bridge between a connected INSTANCE and its production `ComponentUsage`. `resolveInstance` never throws, never visits internals. Routes to `createConnectedUsage` (semantic) or `createComponentUsage` (legacy). |
 | `src/layout/generate-layout.ts` | **Phase 1 orchestrator.** `generateLayout` → `GeneratedLayout`; counts nodes, collects runtime requirements, summarizes fidelity. |
 | `src/layout/tsx-emitter.ts` | `renderTsx(document)` — emits the full module: imports header, styled block, `export function componentName()`. Import-alias collision rules. |
-| `src/layout/styled-components-emitter.ts` | `createStyledRegistry`, `renderStyledDefinitions`. Detects color tokens and rewrites `var(--…)` on color properties to `colors.namespace.name`. |
+| `src/layout/styled-components-emitter.ts` | `createStyledRegistry`, `renderStyledDefinitions`. Detects color tokens and rewrites `var(--…)` on color properties to `colors.namespace.name`. When a text node carries `textStyleName`, drops the five font-* declarations and emits an inline `/* Text style: "…" */` comment in their place. |
 | `src/layout/variant-logic.ts` | `generateVariantLogic` for a `COMPONENT_SET`: emits `VariantProps` type, `VariantDefaults`, `VariantMatrix`, and a `resolve…Variant(input)` resolver. |
 | `src/layout/generation-context.ts` | `GenerationContext` (per-request caches) + `GenerationTraversal` (node budget) + `mapWithConcurrency` (worker-pool limiter). |
 | `src/layout/naming.ts` | `toComponentName` (PascalCase), `toClassName` (kebab), `resolveClassNames` (collision-free). Pure and total. |
@@ -82,6 +82,14 @@ only place that touches Figma types.
    in `tsx-emitter.ts`.
 7. **`COMPONENT_LIBRARY_PATH = '@tashilcar/swiss-army-knife'`** is the single
    normalized import specifier for connected components.
+8. **Text styles replace font declarations.** When a `TextCompositionNode`
+   carries `textStyleName`, the five font declarations (`font-family`,
+   `font-size`, `font-weight`, `line-height`, `letter-spacing`) are dropped
+   from the styled block and replaced by an inline `/* Text style: "…" */`
+   comment. The name is snake_cased via `formatTokenName(name,
+   'lower-underscore')`; mixed runs are comma-joined (e.g.
+   `title_xl, body_small`). `font-style` is intentionally retained. Layers
+   with no text style are byte-identical to before.
 
 ## Gotchas
 
@@ -103,6 +111,10 @@ only place that touches Figma types.
 - **`createConnectedUsage` returns `result.usage` only** — Layout Composer
   never sees the semantic resolver's explanations/runtimeRequirements for a
   nested connected component. Those surface only at the top level.
+- **`font-style` is intentionally retained** when a text style replaces the
+  font declarations; it is not part of the replaced set. Mixed runs can't
+  scope classes to character ranges, so their style names are comma-joined as
+  an approximation in one comment.
 
 ## Where to make common changes
 

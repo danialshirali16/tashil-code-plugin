@@ -23,6 +23,7 @@ import {
   type GenerationTraversal,
 } from '../layout/generation-context';
 import { resolveInstance, type InstanceLike } from '../layout/figma-component-resolver';
+import { formatTokenName } from '../sync-tokens/serialize';
 import { getNodeCss, type CssSourceNode } from './node-css';
 import { analyzeAccessibility } from './accessibility';
 import type {
@@ -32,15 +33,25 @@ import type {
   InspectionDiagnosticReason,
 } from './types';
 
+type TextStyleLike = { name: string };
+type TextStyleLoader = (id: string) => Promise<TextStyleLike | null>;
+
 /** Minimal structural view of a node the inspection traversal reads. */
 export type InspectableNode = CssSourceNode & {
   type: string;
   visible?: boolean | null;
   children?: readonly InspectableNode[];
+  /** string = single text style; the `figma.mixed` symbol = multiple runs. */
+  textStyleId?: unknown;
+  /** Resolves mixed-style runs to their per-segment `textStyleId`s. */
+  getStyledTextSegmentsAsync?: (fields: readonly string[]) =>
+    Promise<readonly { textStyleId?: unknown }[]>;
 };
 
 export type InspectFrameOptions = GenerationLimits & {
   context?: GenerationContext;
+  /** Resolves a Figma text-style id to its name; falls back to `getStyleByIdAsync`. */
+  loadTextStyle?: TextStyleLoader;
 };
 
 /**
@@ -84,6 +95,10 @@ export async function inspectFrame(
     });
   }
 
+  const textStyleName = root.type === 'TEXT'
+    ? await resolveTextStyleName(root, options.loadTextStyle ?? loadFigmaTextStyle)
+    : undefined;
+
   return {
     accessibility: analyzeAccessibility(cssResult.css, root.type),
     nodeName: root.name,
@@ -91,6 +106,7 @@ export async function inspectFrame(
     css: cssResult.css,
     connectedComponents,
     diagnostics,
+    ...(textStyleName ? { textStyleName } : {}),
   };
 }
 
@@ -198,4 +214,56 @@ async function collectInstance(
 function componentNameFromJsx(jsx: string): string {
   const match = /^<([A-Za-z][A-Za-z0-9_.]*)/.exec(jsx.trimStart());
   return match ? match[1] : 'Component';
+}
+
+async function resolveTextStyleName(
+  node: InspectableNode,
+  loadTextStyle: TextStyleLoader | null,
+): Promise<string | undefined> {
+  if (!loadTextStyle) {
+    return undefined;
+  }
+  const ids = await collectTextStyleIds(node);
+  if (ids.length === 0) {
+    return undefined;
+  }
+  const names: string[] = [];
+  for (const id of ids) {
+    const style = await loadTextStyle(id).catch(() => null);
+    if (style) {
+      names.push(formatTokenName(style.name, 'lower-underscore'));
+    }
+  }
+  return names.length > 0 ? names.join(', ') : undefined;
+}
+
+async function collectTextStyleIds(node: InspectableNode): Promise<string[]> {
+  const id = node.textStyleId;
+  if (typeof id === 'string') {
+    return [id];
+  }
+  if (typeof node.getStyledTextSegmentsAsync !== 'function') {
+    return [];
+  }
+  try {
+    const segments = await node.getStyledTextSegmentsAsync(['textStyleId']);
+    const ids = new Set<string>();
+    for (const segment of segments) {
+      if (typeof segment.textStyleId === 'string') {
+        ids.add(segment.textStyleId);
+      }
+    }
+    return [...ids];
+  } catch {
+    return [];
+  }
+}
+
+async function loadFigmaTextStyle(id: string): Promise<TextStyleLike | null> {
+  if (typeof figma === 'undefined'
+    || typeof figma.getStyleByIdAsync !== 'function') {
+    return null;
+  }
+  const style = await figma.getStyleByIdAsync(id);
+  return style ? { name: style.name } : null;
 }

@@ -112,7 +112,16 @@ import {
   type CanvasTargetStateHandler,
   type SourcePropValue,
   type UiTargetState,
+  type DocFrameSelectedHandler,
+  type GenerateTokenDocsHandler,
+  type GenerateTokenDocsResultHandler,
+  type UpdateDocsInPlaceHandler,
+  type UpdateDocsInPlaceResultHandler,
+  type GenerateComponentDocsHandler,
+  type GenerateComponentDocsResultHandler,
+  type DocGenerationProgressHandler,
 } from './types';
+import type { DocDriftReport, DocFrameMetadata } from './documentation/types';
 import type {
   ExportFile,
   ExportOptions,
@@ -213,6 +222,17 @@ export type ConnectionController = {
   outputPreferences: OutputPreferences;
   outputPreferencesMessage: string;
   setOutputPreferences: (preferences: OutputPreferences) => void;
+  selectedDocFrame: {
+    frameNodeId?: string;
+    metadata?: DocFrameMetadata;
+    drift?: DocDriftReport;
+  } | null;
+  docGenerationStatus: 'error' | 'idle' | 'running' | 'success';
+  docGenerationMessage: string;
+  docProgress: { message: string; percent: number } | null;
+  generateTokenDocs: (collectionId: string, targetFormat?: 'canvas' | 'markdown') => void;
+  updateDocsInPlace: (frameNodeId: string) => void;
+  generateComponentDocs: (targetToken: string, targetFormat?: 'canvas' | 'markdown') => void;
 };
 
 export function useConnectionController(): ConnectionController {
@@ -280,6 +300,15 @@ export function useConnectionController(): ConnectionController {
   const sourceUploadIdRef = useRef(0);
   const sourceVerifiedSelectionsRef = useRef<Set<string>>(new Set());
   const savedMappingDocumentsRef = useRef<Map<string, MappingDocument>>(new Map());
+
+  const [selectedDocFrame, setSelectedDocFrame] = useState<{
+    frameNodeId?: string;
+    metadata?: DocFrameMetadata;
+    drift?: DocDriftReport;
+  } | null>(null);
+  const [docGenerationStatus, setDocGenerationStatus] = useState<'error' | 'idle' | 'running' | 'success'>('idle');
+  const [docGenerationMessage, setDocGenerationMessage] = useState<string>('');
+  const [docProgress, setDocProgress] = useState<{ message: string; percent: number } | null>(null);
 
   const isReady = targetState.status === 'ready';
   const targetStatusAnnouncement = getTargetStatusAnnouncement(targetState);
@@ -443,6 +472,33 @@ export function useConnectionController(): ConnectionController {
       setTokensPreviewStatus('idle');
     });
 
+    const offDocFrameSelected = on<DocFrameSelectedHandler>('DOC_FRAME_SELECTED', (payload) => {
+      setSelectedDocFrame(payload.metadata ? payload : null);
+    });
+
+    const offDocProgress = on<DocGenerationProgressHandler>('DOC_GENERATION_PROGRESS', (payload) => {
+      setDocProgress(payload);
+      setDocGenerationMessage(payload.message);
+    });
+
+    const offTokenDocsResult = on<GenerateTokenDocsResultHandler>('GENERATE_TOKEN_DOCS_RESULT', (result) => {
+      setDocGenerationStatus(result.ok ? 'success' : 'error');
+      setDocGenerationMessage(result.message);
+      setDocProgress(null);
+    });
+
+    const offUpdateDocsResult = on<UpdateDocsInPlaceResultHandler>('UPDATE_DOCS_IN_PLACE_RESULT', (result) => {
+      setDocGenerationStatus(result.ok ? 'success' : 'error');
+      setDocGenerationMessage(result.message);
+      setDocProgress(null);
+    });
+
+    const offComponentDocsResult = on<GenerateComponentDocsResultHandler>('GENERATE_COMPONENT_DOCS_RESULT', (result) => {
+      setDocGenerationStatus(result.ok ? 'success' : 'error');
+      setDocGenerationMessage(result.message);
+      setDocProgress(null);
+    });
+
     rescanComponents(false);
     emit<RefreshSelectionHandler>('REFRESH_SELECTION');
     emit<LoadOutputPreferencesHandler>('LOAD_OUTPUT_PREFERENCES');
@@ -464,6 +520,11 @@ export function useConnectionController(): ConnectionController {
       offTokenCollections();
       offTokensExport();
       offTokensPreview();
+      offDocFrameSelected();
+      offDocProgress();
+      offTokenDocsResult();
+      offUpdateDocsResult();
+      offComponentDocsResult();
     };
   }, []);
 
@@ -1514,6 +1575,33 @@ export function useConnectionController(): ConnectionController {
     }
   }
 
+  const generateTokenDocs = (
+    collectionId: string,
+    targetFormat: 'canvas' | 'markdown' = 'canvas',
+  ): void => {
+    setDocGenerationStatus('running');
+    setDocProgress({ message: 'Generating token documentation…', percent: 0 });
+    setDocGenerationMessage('Generating token documentation...');
+    emit<GenerateTokenDocsHandler>('GENERATE_TOKEN_DOCS', { collectionId, targetFormat });
+  };
+
+  const updateDocsInPlace = (frameNodeId: string): void => {
+    setDocGenerationStatus('running');
+    setDocProgress({ message: 'Updating documentation in place…', percent: 0 });
+    setDocGenerationMessage('Updating documentation in place...');
+    emit<UpdateDocsInPlaceHandler>('UPDATE_DOCS_IN_PLACE', { frameNodeId });
+  };
+
+  const generateComponentDocs = (
+    targetToken: string,
+    targetFormat: 'canvas' | 'markdown' = 'canvas',
+  ): void => {
+    setDocGenerationStatus('running');
+    setDocProgress({ message: 'Generating component specification…', percent: 0 });
+    setDocGenerationMessage('Generating component specification...');
+    emit<GenerateComponentDocsHandler>('GENERATE_COMPONENT_DOCS', { targetToken, targetFormat });
+  };
+
   return {
     activePendingOperation: activePendingMutation?.operation,
     cancelClear,
@@ -1581,5 +1669,13 @@ export function useConnectionController(): ConnectionController {
     outputPreferences,
     outputPreferencesMessage,
     setOutputPreferences,
+    selectedDocFrame,
+    docGenerationStatus,
+    docGenerationMessage,
+    docProgress,
+    generateTokenDocs,
+    updateDocsInPlace,
+    generateComponentDocs,
   };
 }
+

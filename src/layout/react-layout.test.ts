@@ -48,6 +48,7 @@ function expectValidTsx(source: string): void {
     module: ts.ModuleKind.ESNext,
     moduleResolution: ts.ModuleResolutionKind.Bundler,
     noEmit: true,
+    skipLibCheck: true,
     strict: true,
     target: ts.ScriptTarget.ES2020,
   };
@@ -889,6 +890,75 @@ describe('full React layout generation', () => {
     expect(generated.tsx).toContain(
       'filter: blur(var(--blur-soft, 4px));',
     );
+  });
+
+  it('replaces font declarations with a text-style comment when a text layer uses a Figma Text Style', async () => {
+    const label = text('t:label', 'Label', 'متن دکمه', {
+      width: 63,
+      height: 28,
+      textStyleId: 'S:body-md-normal',
+      css: {
+        color: 'var(--color-text-secondary-default, rgb(1 2 3 / 90%))',
+        'font-family': 'var(--font-family)',
+        'font-size': 'var(--font-size-title-xl)',
+        'font-style': 'normal',
+        'font-weight': 'var(--font-weight-900)',
+        'line-height': 'var(--line-height-title-xl) /* 155.556% */',
+        'letter-spacing': 'var(--letter-spacing-title-xl)',
+        width: '63px',
+        height: '28px',
+      },
+    });
+    const generated = await generate(frame('f:text-style', 'Text style card', [label]), {
+      loadTextStyle: async (id) =>
+        id === 'S:body-md-normal' ? { name: 'Body/MD Normal' } : null,
+    });
+
+    expectValidTsx(generated.tsx);
+    expect(generated.tsx).toContain('/* Text style: "body_md_normal" */');
+    expect(generated.tsx).toContain('<Label>متن دکمه</Label>');
+    expect(generated.tsx).toContain('font-style: normal;');
+    expect(generated.tsx).toContain('width: 63px;');
+    expect(generated.tsx).toContain('height: 28px;');
+    expect(generated.tsx).not.toContain('font-family');
+    expect(generated.tsx).not.toContain('font-size');
+    expect(generated.tsx).not.toContain('font-weight');
+    expect(generated.tsx).not.toContain('line-height');
+    expect(generated.tsx).not.toContain('letter-spacing');
+  });
+
+  it('joins multiple text-style names for mixed-style text runs', async () => {
+    const mixed = Symbol('mixed');
+    const label = text('t:mixed', 'Label', 'mixed text', {
+      textStyleId: mixed,
+      getStyledTextSegmentsAsync: async () => [
+        { textStyleId: 'S:title-xl' },
+        { textStyleId: 'S:body-small' },
+      ],
+      css: {
+        color: 'var(--color-text-default, #111)',
+        'font-family': 'var(--font-family)',
+        'font-size': 'var(--font-size-title-xl)',
+        'font-weight': 'var(--font-weight-900)',
+        'line-height': 'var(--line-height-title-xl)',
+        'letter-spacing': 'var(--letter-spacing-title-xl)',
+      },
+    });
+    const generated = await generate(frame('f:mixed-style', 'Mixed style', [label]), {
+      loadTextStyle: async (id) => {
+        if (id === 'S:title-xl') return { name: 'Title XL' };
+        if (id === 'S:body-small') return { name: 'Body Small' };
+        return null;
+      },
+    });
+
+    expectValidTsx(generated.tsx);
+    expect(generated.tsx).toContain('/* Text style: "title_xl, body_small" */');
+    expect(generated.tsx).not.toContain('font-family');
+    expect(generated.tsx).not.toContain('font-size');
+    expect(generated.tsx).not.toContain('font-weight');
+    expect(generated.tsx).not.toContain('line-height');
+    expect(generated.tsx).not.toContain('letter-spacing');
   });
 
   it('preserves the Figma node receiver when loading layout CSS through the cache', async () => {

@@ -31,6 +31,8 @@ import { normalizeCssValue } from '../css-values';
 type VariableAliasLike = { id: string };
 type VariableLike = { id: string; name: string };
 type VariableLoader = (id: string) => Promise<VariableLike | null>;
+type TextStyleLike = { name: string };
+type TextStyleLoader = (id: string) => Promise<TextStyleLike | null>;
 
 export type LayoutSourceNode = {
   id: string;
@@ -59,6 +61,11 @@ export type LayoutSourceNode = {
   x?: number | null;
   y?: number | null;
   boundVariables?: object;
+  /** string = single text style; the `figma.mixed` symbol = multiple runs. */
+  textStyleId?: unknown;
+  /** Resolves mixed-style runs to their per-segment `textStyleId`s. */
+  getStyledTextSegmentsAsync?: (fields: readonly string[]) =>
+    Promise<readonly { textStyleId?: unknown }[]>;
   getCSSAsync?: () => Promise<Record<string, string>>;
   exportAsync?: (settings: { format: 'SVG_STRING' }) => Promise<string | Uint8Array>;
 };
@@ -66,6 +73,7 @@ export type LayoutSourceNode = {
 class StructuralTokenResolver {
   constructor(
     private readonly load: VariableLoader,
+    private readonly loadTextStyle: TextStyleLoader | null,
     private readonly context: GenerationContext,
   ) {}
 
@@ -88,6 +96,29 @@ class StructuralTokenResolver {
     load: () => Promise<Record<string, string>>,
   ): Promise<Record<string, string>> {
     return this.context.getNodeCss(nodeId, load);
+  }
+
+  /**
+   * Resolve the Figma text-style name(s) for a text node. Single-style layers
+   * read `node.textStyleId`; mixed runs read `getStyledTextSegmentsAsync`.
+   * Returns a comma-joined, `lower-underscore`-cased string, or `undefined`.
+   */
+  async resolveTextStyleName(node: LayoutSourceNode): Promise<string | undefined> {
+    if (!this.loadTextStyle) {
+      return undefined;
+    }
+    const ids = await collectTextStyleIds(node);
+    if (ids.length === 0) {
+      return undefined;
+    }
+    const names: string[] = [];
+    for (const id of ids) {
+      const style = await this.loadTextStyle(id).catch(() => null);
+      if (style) {
+        names.push(formatTokenName(style.name, 'lower-underscore'));
+      }
+    }
+    return names.length > 0 ? names.join(', ') : undefined;
   }
 }
 
@@ -115,6 +146,8 @@ class ClassNameRegistry {
 export type ExtractLayoutOptions = GenerationLimits & {
   context?: GenerationContext;
   loadVariable?: VariableLoader;
+  /** Resolves a Figma text-style id to its name; falls back to `getStyleByIdAsync`. */
+  loadTextStyle?: TextStyleLoader;
   /** Public component name to use when the selected layer is one variant. */
   rootName?: string;
 };
@@ -127,6 +160,7 @@ export async function extractLayout(
   const traversal = context.createTraversal();
   const tokens = new StructuralTokenResolver(
     options.loadVariable ?? loadFigmaVariable,
+    options.loadTextStyle ?? loadFigmaTextStyle,
     context,
   );
   const diagnostics: LayoutDiagnostic[] = [];
@@ -483,12 +517,14 @@ async function resolveTextNode(
     diagnostics,
     layerPath,
   );
+  const textStyleName = await tokens.resolveTextStyleName(node);
   return {
     kind: 'text',
     nodeId: node.id,
     layerPath,
     text: typeof node.characters === 'string' ? node.characters : node.name,
     declarations,
+    ...(textStyleName ? { textStyleName } : {}),
     ...(childStyle || declarations.length > 0
       ? {
           ...(childStyle ? { childStyle } : {}),
@@ -908,6 +944,37 @@ async function loadFigmaVariable(id: string): Promise<VariableLike | null> {
   }
   const variable = await figma.variables.getVariableByIdAsync(id);
   return variable ? { id: variable.id, name: variable.name } : null;
+}
+
+async function loadFigmaTextStyle(id: string): Promise<TextStyleLike | null> {
+  if (typeof figma === 'undefined'
+    || typeof figma.getStyleByIdAsync !== 'function') {
+    return null;
+  }
+  const style = await figma.getStyleByIdAsync(id);
+  return style ? { name: style.name } : null;
+}
+
+async function collectTextStyleIds(node: LayoutSourceNode): Promise<string[]> {
+  const id = node.textStyleId;
+  if (typeof id === 'string') {
+    return [id];
+  }
+  if (typeof node.getStyledTextSegmentsAsync !== 'function') {
+    return [];
+  }
+  try {
+    const segments = await node.getStyledTextSegmentsAsync(['textStyleId']);
+    const ids = new Set<string>();
+    for (const segment of segments) {
+      if (typeof segment.textStyleId === 'string') {
+        ids.add(segment.textStyleId);
+      }
+    }
+    return [...ids];
+  } catch {
+    return [];
+  }
 }
 
 function finite(value: number | null | undefined): number {

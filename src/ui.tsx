@@ -75,15 +75,36 @@ import type {
   OutputFormat,
   TokenCollectionSummary,
 } from './sync-tokens/types';
+import type { DocDriftReport, DocFrameMetadata } from './documentation/types';
 import { formatCssBlock } from './inspect/css-partition';
 import { formatUsageSnippet } from './inspect/usage-snippet';
 import type { FrameInspection } from './inspect/types';
 import type { ReactLayoutResult } from './layout/types';
 import type { VariantLogicResult } from './layout/variant-logic';
 
+/** Insert a text-style comment into the Style CSS block after the last `color:` declaration. */
+function insertTextStyleComment(css: string, textStyleName?: string): string {
+  if (!textStyleName || css.length === 0) {
+    return css;
+  }
+  const comment = `/* Text style: "${textStyleName}" */`;
+  const lines = css.split('\n');
+  let lastColorIndex = -1;
+  for (let i = 0; i < lines.length; i++) {
+    if (lines[i].trimStart().startsWith('color:')) {
+      lastColorIndex = i;
+    }
+  }
+  if (lastColorIndex === -1) {
+    return `${comment}\n${css}`;
+  }
+  lines.splice(lastColorIndex + 1, 0, comment);
+  return lines.join('\n');
+}
+
 export function Plugin(): h.JSX.Element {
   const [view, setView] = useState<'connect' | 'help'>('connect');
-  const [workflowTab, setWorkflowTab] = useState<'connect' | 'generate' | 'sync-tokens' | 'settings'>('connect');
+  const [workflowTab, setWorkflowTab] = useState<'connect' | 'generate' | 'sync-tokens' | 'docs' | 'settings'>('connect');
   const [inventoryFilter, setInventoryFilter] = useState<
     'all' | 'not-connected' | 'connected'
   >('all');
@@ -158,6 +179,13 @@ export function Plugin(): h.JSX.Element {
     loadTokenCollections,
     exportTokens,
     previewTokens,
+    selectedDocFrame,
+    docGenerationStatus,
+    docGenerationMessage,
+    docProgress,
+    generateTokenDocs,
+    updateDocsInPlace,
+    generateComponentDocs,
   } = useConnectionController();
 
   function handleOpenInventoryTarget(targetToken: string): void {
@@ -201,11 +229,18 @@ export function Plugin(): h.JSX.Element {
 
   // WAI-ARIA tabs pattern: Arrow keys move between tabs, Home/End jump to the ends.
   function handleTabKeyDown(event: h.JSX.TargetedKeyboardEvent<HTMLDivElement>): void {
-    const tabs: Array<'connect' | 'generate' | 'sync-tokens' | 'settings'> = ['connect', 'generate', 'sync-tokens', 'settings'];
+    const tabs: Array<'connect' | 'generate' | 'sync-tokens' | 'docs' | 'settings'> = [
+      'connect',
+      'generate',
+      'sync-tokens',
+      'docs',
+      'settings',
+    ];
     const tabIds: Record<typeof workflowTab, string> = {
       connect: 'tashil-tab-connect',
       generate: 'tashil-tab-generate',
       'sync-tokens': 'tashil-tab-sync-tokens',
+      docs: 'tashil-tab-docs',
       settings: 'tashil-tab-settings',
     };
     const currentIndex = tabs.indexOf(workflowTab);
@@ -301,6 +336,18 @@ export function Plugin(): h.JSX.Element {
                   type="button"
                 >
                   Sync Tokens
+                </button>
+                <button
+                  aria-controls="tashil-tabpanel-docs"
+                  aria-selected={workflowTab === 'docs'}
+                  class={workflowTab === 'docs' ? 'reference-tab reference-tab-active' : 'reference-tab'}
+                  id="tashil-tab-docs"
+                  onClick={() => setWorkflowTab('docs')}
+                  role="tab"
+                  tabIndex={workflowTab === 'docs' ? 0 : -1}
+                  type="button"
+                >
+                  Docs
                 </button>
                 <button
                   aria-controls="tashil-tabpanel-settings"
@@ -486,6 +533,28 @@ export function Plugin(): h.JSX.Element {
           />
         </div>
       ) : null}
+      {view === 'connect' && workflowTab === 'docs' ? (
+        <div
+          aria-labelledby="tashil-tab-docs"
+          class="tabpanel"
+          id="tashil-tabpanel-docs"
+          role="tabpanel"
+        >
+          <DocumentationView
+            docGenerationMessage={docGenerationMessage}
+            docGenerationStatus={docGenerationStatus}
+            docProgress={docProgress}
+            inventoryState={inventoryState}
+            onGenerateComponentDocs={generateComponentDocs}
+            onGenerateTokenDocs={generateTokenDocs}
+            onLoadTokenCollections={loadTokenCollections}
+            onUpdateDocsInPlace={updateDocsInPlace}
+            selectedDocFrame={selectedDocFrame}
+            tokenCollections={tokenCollections}
+            tokenCollectionsStatus={tokenCollectionsStatus}
+          />
+        </div>
+      ) : null}
       {view === 'connect' && workflowTab === 'settings' ? (
         <div aria-labelledby="tashil-tab-settings" class="tabpanel" id="tashil-tabpanel-settings" role="tabpanel">
           <OutputSettingsView
@@ -562,10 +631,335 @@ function StorybookGenerator(props: {
             new Blob([props.generation.code!], { type: 'text/typescript' }),
             props.generation.fileName ?? 'Component.stories.tsx',
           )}>Download</Button>
-          {feedback ? <span aria-live="polite" role="status">{feedback}</span> : null}
+{feedback ? <span aria-live="polite" role="status">{feedback}</span> : null}
         </div>
       ) : null}
     </section>
+  );
+}
+
+function DocumentationView(props: {
+  docGenerationMessage: string;
+  docGenerationStatus: 'error' | 'idle' | 'running' | 'success';
+  docProgress: { message: string; percent: number } | null;
+  inventoryState: ComponentInventoryState;
+  onGenerateComponentDocs: (targetToken: string, targetFormat?: 'canvas' | 'markdown') => void;
+  onGenerateTokenDocs: (collectionId: string, targetFormat?: 'canvas' | 'markdown') => void;
+  onLoadTokenCollections: () => void;
+  onUpdateDocsInPlace: (frameNodeId: string) => void;
+  selectedDocFrame: {
+    frameNodeId?: string;
+    metadata?: DocFrameMetadata;
+    drift?: DocDriftReport;
+  } | null;
+  tokenCollections: readonly TokenCollectionSummary[];
+  tokenCollectionsStatus: 'error' | 'idle' | 'loading';
+}): h.JSX.Element {
+  const {
+    docGenerationMessage,
+    docGenerationStatus,
+    docProgress,
+    inventoryState,
+    onGenerateComponentDocs,
+    onGenerateTokenDocs,
+    onLoadTokenCollections,
+    onUpdateDocsInPlace,
+    selectedDocFrame,
+    tokenCollections,
+    tokenCollectionsStatus,
+  } = props;
+
+  const [selectedCollectionId, setSelectedCollectionId] = useState<string | null>(null);
+  const [selectedTargetToken, setSelectedTargetToken] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (tokenCollections.length === 0 && tokenCollectionsStatus === 'idle') {
+      onLoadTokenCollections();
+    }
+  }, []);
+
+  useEffect(() => {
+    if (tokenCollections.length > 0) {
+      if (!selectedCollectionId || !tokenCollections.some((c) => c.id === selectedCollectionId)) {
+        setSelectedCollectionId(tokenCollections[0].id);
+      }
+    } else {
+      setSelectedCollectionId(null);
+    }
+  }, [tokenCollections, selectedCollectionId]);
+
+  useEffect(() => {
+    if (inventoryState.status === 'ready' && inventoryState.items.length > 0) {
+      if (!selectedTargetToken || !inventoryState.items.some((i) => i.targetToken === selectedTargetToken)) {
+        const connected = inventoryState.items.find((i) => i.status === 'connected');
+        setSelectedTargetToken(connected ? connected.targetToken : inventoryState.items[0].targetToken);
+      }
+    } else {
+      setSelectedTargetToken(null);
+    }
+  }, [inventoryState, selectedTargetToken]);
+
+  const collectionOptions = tokenCollections.map((c) => ({
+    value: c.id,
+    text: `${c.name} (${c.tokenCount} tokens, ${c.modes.length} mode${c.modes.length === 1 ? '' : 's'})`,
+  }));
+
+  const componentOptions = inventoryState.status === 'ready'
+    ? inventoryState.items.map((item) => ({
+        value: item.targetToken,
+        text: `${item.componentName} (${item.status === 'connected' ? 'Connected' : 'Not Connected'})`,
+      }))
+    : [];
+
+  const safeCollectionValue = collectionOptions.some((o) => o.value === selectedCollectionId)
+    ? selectedCollectionId
+    : null;
+
+  const safeComponentValue = componentOptions.some((o) => o.value === selectedTargetToken)
+    ? selectedTargetToken
+    : null;
+
+  return (
+    <main aria-labelledby="docs-heading" class="docs-view">
+      <h1 id="docs-heading" style={{ fontSize: '18px', fontWeight: 600, margin: '0 0 8px' }}>Documentation Generator</h1>
+      <p style={{ color: 'var(--figma-color-text-secondary)', fontSize: '12px', margin: '0 0 20px' }}>
+        Automatically create presentation-ready documentation frames on the Figma canvas or export structured Markdown.
+      </p>
+
+      {selectedDocFrame?.metadata && selectedDocFrame.frameNodeId ? (
+        <div
+          style={{
+            background: 'var(--figma-color-bg-secondary)',
+            border: selectedDocFrame.drift?.hasDrift
+              ? '1px solid var(--figma-color-border-warning-strong, #f54900)'
+              : '1px solid var(--figma-color-border)',
+            borderRadius: '8px',
+            padding: '16px',
+            marginBottom: '24px',
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '8px' }}>
+            <span style={{ fontSize: '13px', fontWeight: 600 }}>
+              Selected Documentation: {selectedDocFrame.metadata.targetName}
+            </span>
+            <span
+              style={{
+                fontSize: '11px',
+                padding: '2px 8px',
+                borderRadius: '4px',
+                background: selectedDocFrame.drift?.hasDrift ? '#ffedd4' : '#dcfce7',
+                color: selectedDocFrame.drift?.hasDrift ? '#7e2a0c' : '#0d542b',
+                fontWeight: 500,
+              }}
+            >
+              {selectedDocFrame.drift?.hasDrift ? 'Out of Date (Drift Detected)' : 'Up to Date'}
+            </span>
+          </div>
+
+          <p style={{ fontSize: '11px', color: 'var(--figma-color-text-secondary)', margin: '0 0 12px' }}>
+            Type: {selectedDocFrame.metadata.docType} • Generated: {selectedDocFrame.metadata.generatedAt ? new Date(selectedDocFrame.metadata.generatedAt).toLocaleString() : 'Unknown'}
+          </p>
+
+          {selectedDocFrame.drift?.hasDrift && selectedDocFrame.drift.changes ? (
+            <div style={{ marginBottom: '16px' }}>
+              <p style={{ fontSize: '11px', fontWeight: 600, color: 'var(--figma-color-text-warning, #f54900)', margin: '0 0 6px' }}>
+                Detected {selectedDocFrame.drift.changes.length} change{selectedDocFrame.drift.changes.length === 1 ? '' : 's'}:
+              </p>
+              <ul style={{ margin: 0, paddingLeft: '18px', fontSize: '11px', color: 'var(--figma-color-text)' }}>
+                {selectedDocFrame.drift.changes.slice(0, 5).map((change, idx) => (
+                  <li key={idx}>{change.message} {change.details ? `(${change.details})` : ''}</li>
+                ))}
+                {selectedDocFrame.drift.changes.length > 5 ? (
+                  <li>…and {selectedDocFrame.drift.changes.length - 5} more</li>
+                ) : null}
+              </ul>
+            </div>
+          ) : null}
+
+          <div style={{ display: 'flex', gap: '8px' }}>
+            <Button
+              disabled={docGenerationStatus === 'running'}
+              onClick={() => onUpdateDocsInPlace(selectedDocFrame.frameNodeId!)}
+            >
+              Update in Place
+            </Button>
+            {selectedDocFrame.metadata.docType === 'tokens' ? (
+              <Button
+                disabled={docGenerationStatus === 'running'}
+                onClick={() => onGenerateTokenDocs(selectedDocFrame.metadata!.targetId, 'markdown')}
+                secondary
+              >
+                Export Markdown
+              </Button>
+            ) : null}
+          </div>
+        </div>
+      ) : null}
+
+      <div style={{ display: 'grid', rowGap: '20px' }}>
+        {/* Token Documentation Section */}
+        <div style={{ border: '1px solid var(--figma-color-border)', borderRadius: '8px', padding: '16px' }}>
+          <h2 style={{ fontSize: '14px', fontWeight: 600, margin: '0 0 4px' }}>Tokens Documentation</h2>
+          <p style={{ fontSize: '11px', color: 'var(--figma-color-text-secondary)', margin: '0 0 12px' }}>
+            Generate full design token spec sheet frames on the Figma canvas across all modes.
+          </p>
+
+          <div style={{ marginBottom: '12px' }}>
+            <Field id="token-doc-collection" label="Variable Collection">
+              <Dropdown
+                disabled={collectionOptions.length === 0}
+                onValueChange={(val) => setSelectedCollectionId(val)}
+                options={collectionOptions}
+                placeholder={tokenCollectionsStatus === 'loading' ? 'Loading collections…' : 'Select a variable collection'}
+                value={safeCollectionValue}
+              />
+            </Field>
+          </div>
+
+          <div style={{ display: 'flex', gap: '8px' }}>
+            <Button
+              disabled={!safeCollectionValue || docGenerationStatus === 'running'}
+              onClick={() => {
+                if (safeCollectionValue) {
+                  onGenerateTokenDocs(safeCollectionValue, 'canvas');
+                }
+              }}
+            >
+              Generate on Canvas
+            </Button>
+            <Button
+              disabled={!safeCollectionValue || docGenerationStatus === 'running'}
+              onClick={() => {
+                if (safeCollectionValue) {
+                  onGenerateTokenDocs(safeCollectionValue, 'markdown');
+                }
+              }}
+              secondary
+            >
+              Export Markdown
+            </Button>
+          </div>
+        </div>
+
+        {/* Component Documentation Section */}
+        <div style={{ border: '1px solid var(--figma-color-border)', borderRadius: '8px', padding: '16px' }}>
+          <h2 style={{ fontSize: '14px', fontWeight: 600, margin: '0 0 4px' }}>Component Specification</h2>
+          <p style={{ fontSize: '11px', color: 'var(--figma-color-text-secondary)', margin: '0 0 12px' }}>
+            Generate props tables, code usage snippets, and variant matrix documentation for components.
+          </p>
+
+          <div style={{ marginBottom: '12px' }}>
+            <Field id="component-doc-target" label="Target Component">
+              <Dropdown
+                disabled={componentOptions.length === 0}
+                onValueChange={(val) => setSelectedTargetToken(val)}
+                options={componentOptions}
+                placeholder={inventoryState.status === 'scanning' ? 'Scanning components…' : 'Select a component'}
+                value={safeComponentValue}
+              />
+            </Field>
+          </div>
+
+          <div style={{ display: 'flex', gap: '8px' }}>
+            <Button
+              disabled={!safeComponentValue || docGenerationStatus === 'running'}
+              onClick={() => {
+                if (safeComponentValue) {
+                  onGenerateComponentDocs(safeComponentValue, 'canvas');
+                }
+              }}
+            >
+              Generate Spec on Canvas
+            </Button>
+            <Button
+              disabled={!safeComponentValue || docGenerationStatus === 'running'}
+              onClick={() => {
+                if (safeComponentValue) {
+                  onGenerateComponentDocs(safeComponentValue, 'markdown');
+                }
+              }}
+              secondary
+            >
+              Export Markdown
+            </Button>
+          </div>
+        </div>
+      </div>
+
+      {docGenerationStatus === 'running' || docProgress ? (
+        <div
+          aria-live="polite"
+          style={{
+            marginTop: '16px',
+            padding: '12px 14px',
+            borderRadius: '8px',
+            border: '1px solid var(--figma-color-border, #e5e7eb)',
+            background: 'var(--figma-color-bg-secondary, #f9fafb)',
+          }}
+        >
+          <div
+            style={{
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              marginBottom: '8px',
+            }}
+          >
+            <span style={{ fontSize: '11px', fontWeight: 500, color: 'var(--figma-color-text, #101828)' }}>
+              {docProgress?.message || docGenerationMessage || 'Processing…'}
+            </span>
+            <span
+              style={{
+                fontSize: '11px',
+                fontFamily: 'var(--figma-font-mono, monospace)',
+                fontWeight: 600,
+                color: 'var(--figma-color-text-brand, #0d99ff)',
+              }}
+            >
+              {docProgress?.percent ?? 0}%
+            </span>
+          </div>
+          <div
+            aria-label={`${docProgress?.percent ?? 0}% complete`}
+            aria-valuemax={100}
+            aria-valuemin={0}
+            aria-valuenow={docProgress?.percent ?? 0}
+            role="progressbar"
+            style={{
+              width: '100%',
+              height: '6px',
+              background: 'var(--figma-color-bg-tertiary, #e5e7eb)',
+              borderRadius: '999px',
+              overflow: 'hidden',
+            }}
+          >
+            <div
+              style={{
+                width: `${Math.max(2, docProgress?.percent ?? 0)}%`,
+                height: '100%',
+                background: 'var(--figma-color-bg-brand, #0d99ff)',
+                borderRadius: '999px',
+                transition: 'width 200ms ease-out',
+              }}
+            />
+          </div>
+        </div>
+      ) : docGenerationMessage ? (
+        <div
+          aria-live="polite"
+          style={{
+            marginTop: '16px',
+            padding: '10px 12px',
+            borderRadius: '6px',
+            fontSize: '11px',
+            background: docGenerationStatus === 'error' ? '#fee2e2' : '#f0fdf4',
+            color: docGenerationStatus === 'error' ? '#991b1b' : '#166534',
+          }}
+        >
+          {docGenerationMessage}
+        </div>
+      ) : null}
+    </main>
   );
 }
 
@@ -2248,7 +2642,9 @@ function ReactLayoutView(props: {
     variantLogic,
   } = props;
   const layoutCss = inspection ? formatCssBlock(inspection.css.layout) : '';
-  const styleCss = inspection ? formatCssBlock(inspection.css.style) : '';
+  const styleCss = inspection
+    ? insertTextStyleComment(formatCssBlock(inspection.css.style), inspection.textStyleName)
+    : '';
   const unconnectedComponents = showUnconnectedComponents
     ? Array.from(new Set(
         [...layout.diagnostics, ...(inspection?.diagnostics ?? [])]
@@ -2381,7 +2777,10 @@ function ReactLayoutView(props: {
 function InspectionView(props: { copyMode: OutputPreferences['copyMode']; inspection: FrameInspection }): h.JSX.Element {
   const { inspection } = props;
   const layoutCss = formatCssBlock(inspection.css.layout);
-  const styleCss = formatCssBlock(inspection.css.style);
+  const styleCss = insertTextStyleComment(
+    formatCssBlock(inspection.css.style),
+    inspection.textStyleName,
+  );
   const componentCount = inspection.connectedComponents.length;
 
   return (

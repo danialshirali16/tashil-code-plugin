@@ -455,3 +455,74 @@ export type ExportTokensResultHandler = {
     message?: string;
   }) => void;
 };
+
+export type GenerateTokenDocsHandler = {
+  name: 'GENERATE_TOKEN_DOCS';
+  handler: (payload: {
+    collectionId: string;
+    targetFormat?: 'canvas' | 'markdown';
+  }) => void;
+};
+
+export type GenerateTokenDocsResultHandler = {
+  name: 'GENERATE_TOKEN_DOCS_RESULT';
+  handler: (result: {
+    frameNodeId?: string;
+    markdown?: string;
+    message: string;
+    ok: boolean;
+  }) => void;
+};
+
+export type UpdateDocsInPlaceHandler = {
+  name: 'UPDATE_DOCS_IN_PLACE';
+  handler: (payload: {
+    frameNodeId: string;
+  }) => void;
+};
+
+export type UpdateDocsInPlaceResultHandler = {
+  name: 'UPDATE_DOCS_IN_PLACE_RESULT';
+  handler: (result: {
+    message: string;
+    ok: boolean;
+    updatedTokensCount?: number;
+  }) => void;
+};
+
+export type GenerateComponentDocsHandler = {
+  name: 'GENERATE_COMPONENT_DOCS';
+  handler: (payload: {
+    targetToken: string;
+    targetFormat?: 'canvas' | 'markdown';
+  }) => void;
+};
+
+export type GenerateComponentDocsResultHandler = {
+  name: 'GENERATE_COMPONENT_DOCS_RESULT';
+  handler: (result: {
+    frameNodeId?: string;
+    markdown?: string;
+    message: string;
+    ok: boolean;
+  }) => void;
+};
+
+export type DocFrameSelectedHandler = {
+  name: 'DOC_FRAME_SELECTED';
+  handler: (payload: {
+    frameNodeId?: string;
+    metadata?: import('./documentation/types').DocFrameMetadata;
+    drift?: import('./documentation/types').DocDriftReport;
+  }) => void;
+};
+
+export type DocGenerationProgressHandler = {
+  name: 'DOC_GENERATION_PROGRESS';
+  handler: (payload: {
+    message: string;
+    percent: number;
+  }) => void;
+};
+
+

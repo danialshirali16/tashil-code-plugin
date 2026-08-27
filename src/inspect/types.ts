@@ -63,4 +63,10 @@ export type FrameInspection = {
   css: NodeCss;
   connectedComponents: ConnectedComponentEntry[];
   diagnostics: InspectionDiagnostic[];
+  /**
+   * Snake-cased Figma text-style name(s) (`lower-underscore`). When set, the
+   * Style block prepends a text-style comment. Comma-joined for mixed runs.
+   * Only present for TEXT layers with a Figma Text Style.
+   */
+  textStyleName?: string;
 };

@@ -1,0 +1,69 @@
+# Section Guide — Documentation (`src/documentation/`)
+
+Status: Active
+Last updated: 2026-08-28
+
+The **Documentation** section provides automated documentation generation and
+in-place reconciliation for design system foundations (Figma Variable Collections
+such as Colors, Spacing, and Radius) and connected Components.
+
+It creates pixel-accurate, presentation-ready specification pages directly on
+the Figma canvas matching the Swiss-Army design system standard (exemplified
+in frame `1. Colors` [node `1386:9125`](https://www.figma.com/design/EdpV2zxUDxFXoOtnRivgQD/%E2%9C%B2--Swiss-Army?node-id=1386-9125&t=PqgRU2azybF9d8FI-11)),
+exports structured Markdown/Storybook specifications, and updates existing documentation
+frames **in place** without resetting layouts, positions, or component structures.
+
+---
+
+## Module Map
+
+| File | Purpose | Pure or Figma-aware |
+| --- | --- | --- |
+| [`src/documentation/types.ts`](file:///Users/danial/Downloads/TashilStoryBook/src/documentation/types.ts) | Domain models, metadata schema (`tashil_doc_meta`), doc IR, and drift reports. | **Pure** |
+| [`src/documentation/token-doc-model.ts`](file:///Users/danial/Downloads/TashilStoryBook/src/documentation/token-doc-model.ts) | Groups variables into folder-matching sections, dynamically derives headlines and context-aware descriptions, resolves mode values/aliases, and computes deterministic content hashes. | **Pure** |
+| [`src/documentation/doc-diff.ts`](file:///Users/danial/Downloads/TashilStoryBook/src/documentation/doc-diff.ts) | Diffs current documents against previous snapshots/metadata to report exact drift (added, modified, removed tokens and modes). | **Pure** |
+| [`src/documentation/component-doc-model.ts`](file:///Users/danial/Downloads/TashilStoryBook/src/documentation/component-doc-model.ts) | Combines props contracts, Figma properties, and variant combinations into component doc models. | **Pure** |
+| [`src/documentation/markdown-emitter.ts`](file:///Users/danial/Downloads/TashilStoryBook/src/documentation/markdown-emitter.ts) | Serializes doc IR to structured GitHub-flavored Markdown / Storybook documentation. | **Pure** |
+| [`src/documentation/figma-canvas-writer.ts`](file:///Users/danial/Downloads/TashilStoryBook/src/documentation/figma-canvas-writer.ts) | Figma canvas frame creator: loads fonts, instantiates master components from Swiss-Army, binds swatch fills to Figma Variables (`setBoundVariableForPaint`), sets column appearance modes (`applyColumnMode`), arranges frames side-by-side (100px gap), and stamps metadata. | **Figma-aware** |
+| [`src/documentation/figma-canvas-updater.ts`](file:///Users/danial/Downloads/TashilStoryBook/src/documentation/figma-canvas-updater.ts) | In-place reconciler: updates existing text cells, swatch variable bindings, and table rows 1-to-1 without deleting or repositioning the root frame. | **Figma-aware** |
+
+---
+
+## Swiss-Army Design System Component Templates
+
+The documentation builder binds to master components or component sets from the Swiss Army Knife design system:
+
+| Component / Template | Node ID | Usage |
+| --- | --- | --- |
+| `.[Documentation] Header & Footer` | `1386:9060` (`1386:9061` Header, `1386:9066` Footer) | Root specification document header and footer bars |
+| `.[Documentation] Hero` | `1422:17985` | Hero banner with dynamic title, subtitle, stats chips, and badge gradient |
+| `.[Documentation] Separator` | `1422:18167` | Section divider rule with collection title badge |
+| `.[Documentation] Section` | `1422:18185` | Section container holding headline, description, and `Slot` frame |
+| `.[Table] Header` | `1929:52306` | Column header bar across Token and Value columns |
+| `.[Table] Token Item` | `1929:52305` | Row cell representing token name and indicator |
+| `.[Table] Value Item` | `1929:52304` | Component set with variants (`Type=Color`, `Type=Number`, `Type=Boolean`, `Type=String`). For `Color`, the `Color Icon` layer fill is bound to the Figma Variable |
+| `Table` | `1929:52307` | Horizontal auto-layout container grouping one Token Column and multiple Value Columns |
+
+When master components are unavailable (e.g. running in an isolated test document), procedural fallback builders reconstruct identical auto-layout frames with exact typography, fills, and padding.
+
+---
+
+## Core Invariants & Rules for Editors
+
+1. **Pure Cores are 100% Figma-Free**:
+   - `types.ts`, `token-doc-model.ts`, `doc-diff.ts`, `component-doc-model.ts`, and `markdown-emitter.ts` must never import `@figma/plugin-typings`. They compile under `tsconfig.tests.json`.
+2. **Variable Binding on Color Swatches**:
+   - Swatch fills in `.[Table] Value Item` (`Color Icon` layer) must be bound to the Figma variable using `figma.variables.setBoundVariableForPaint(solidPaint, 'color', variable)`.
+3. **Explicit Mode Assignment on Value Columns**:
+   - Value columns must set their explicit variable mode using `applyColumnMode` via `node.setExplicitVariableModeForCollection(collection, mode.modeId)` so bound tokens resolve to the respective mode accurately.
+4. **Dynamic Headlines & Context-Aware Descriptions**:
+   - Headlines are derived from Figma folder paths (`formatDynamicHeadline`).
+   - Descriptions are generated dynamically based on token data types, scopes, and keywords (`generateDynamicSectionDescription`) without hardcoded static tables.
+5. **Metadata Tagging on Generated Frames**:
+   - Generated canvas documentation frames must always be stamped via `setPluginData('tashil_doc_meta', ...)` with `DOC_FRAME_SCHEMA_VERSION = 1`, `docType`, `targetId`, `targetName`, `contentHash`, and `modeIds`.
+6. **In-Place 1-to-1 Reconciliation**:
+   - When an existing frame is updated, reconcile sections, rows, and mode columns 1-to-1 in place so canvas position, layer IDs, links, and comments remain intact without layout degradation.
+7. **Font Loading Before Text Mutation**:
+   - Every async text mutation on the canvas must be preceded by `await figma.loadFontAsync(textNode.fontName)`.
+8. **Side-by-Side Canvas Placement**:
+   - New documentation frames are placed side-by-side to the right of existing frames with 100px margins and automatically focused in the viewport.

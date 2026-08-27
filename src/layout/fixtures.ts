@@ -125,6 +125,11 @@ type ChildLayoutOptions = {
   svg?: string;
   exportError?: Error;
   css?: Record<string, string>;
+  /** string = single text style; a symbol = mixed runs. */
+  textStyleId?: unknown;
+  /** Mock for `TextNode.getStyledTextSegmentsAsync` (mixed-style runs). */
+  getStyledTextSegmentsAsync?: (fields: readonly string[]) =>
+    Promise<readonly { textStyleId?: unknown }[]>;
 };
 
 /** A standalone TEXT node (outside any component instance). */
@@ -148,6 +153,15 @@ export function text(
     parent: { type: 'PAGE' },
     type: 'TEXT',
     visible: childOptions.visible ?? true,
+    ...(childOptions.textStyleId !== undefined
+      ? { textStyleId: childOptions.textStyleId }
+      : {}),
+    ...(childOptions.getStyledTextSegmentsAsync
+      ? { getStyledTextSegmentsAsync: childOptions.getStyledTextSegmentsAsync }
+      : {}),
+    ...(childOptions.css
+      ? { getCSSAsync: () => Promise.resolve({ ...childOptions.css }) }
+      : {}),
   } as unknown as TextDouble;
 }
 

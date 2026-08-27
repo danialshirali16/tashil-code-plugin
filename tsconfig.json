@@ -40,6 +40,7 @@
     "src/sync-tokens/types.ts",
     "src/sync-tokens/serialize.ts",
     "src/sync-tokens/serialize-formats.ts",
-    "src/sync-tokens/export-diff.ts"
+    "src/sync-tokens/export-diff.ts",
+    "src/documentation/*.ts"
   ]
 }

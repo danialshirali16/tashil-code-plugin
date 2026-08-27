@@ -42,7 +42,7 @@ and stops at the 50-selection safety limit.
 
 | File | Role |
 | --- | --- |
-| `src/inspect/inspect-frame.ts` | `inspectFrame(root, options)` — assembles the node's CSS + enumerates connected components into a `FrameInspection`. Never throws; stops at every INSTANCE/COMPONENT/COMPONENT_SET boundary. |
+| `src/inspect/inspect-frame.ts` | `inspectFrame(root, options)` — assembles the node's CSS + enumerates connected components into a `FrameInspection`. Never throws; stops at every INSTANCE/COMPONENT/COMPONENT_SET boundary. Resolves Figma Text Styles via `getStyleByIdAsync` and sets `textStyleName` on the result for TEXT layers. |
 | `src/inspect/node-css.ts` | `getNodeCss(node, context?)` — wraps `node.getCSSAsync()` and partitions. Never throws; failing/missing CSS → empty sections + `css-unavailable`. Uses the context cache when supplied. |
 | `src/inspect/css-partition.ts` | `partitionCss`, `isLayoutProperty`, `formatCssBlock`. One explicit `LAYOUT_PROPERTIES` set + `LAYOUT_PREFIXES` (`padding-`, `overflow-`, `grid-`). Unknown properties default to **Style**. Order within each bucket is preserved. |
 | `src/inspect/usage-snippet.ts` | `formatUsageSnippet(usage)` (byte-identical to `createUsageSnippet`'s single-component output) and `formatConnectedComponentsSnippet`. Falls back to per-entry snippets if cross-entry aliasing would be required. |
@@ -78,6 +78,12 @@ and stops at the 50-selection safety limit.
    `ComponentUsage`, formatters, or copied text.
 8. **Descriptions stay in Connect.** Inspect Code is focused on generated code,
    diagnostics, and references; do not add source/Figma description panels.
+9. **Text-style names appear in the Style block.** When a TEXT layer uses a
+   Figma Text Style, the Style CSS block inserts a `/* Text style: "name" */`
+   comment (snake_case via `formatTokenName(name, 'lower-underscore')`;
+   comma-joined for mixed runs) after the last `color:` declaration. If no
+   `color:` declaration is present the comment appears at the top. The CSS
+   declarations themselves are unchanged.
 
 ## Gotchas
 

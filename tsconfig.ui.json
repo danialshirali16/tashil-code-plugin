@@ -33,6 +33,7 @@
     "src/types.ts",
     "src/ui-download.ts",
     "src/sync-tokens/types.ts",
-    "src/sync-tokens/serialize.ts"
+    "src/sync-tokens/serialize.ts",
+    "src/documentation/types.ts"
   ]
 }

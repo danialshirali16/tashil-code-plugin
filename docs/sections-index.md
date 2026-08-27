@@ -15,7 +15,7 @@ every section. If you are unsure which Figma surface (Design mode vs Dev Mode)
 your change affects, read [Figma Editor Modes](section-editor-modes.md) first —
 the `figma.mode` gate in `src/main.ts` decides which code path runs.
 
-## The five sections
+## The six sections
 
 | Section | Responsibility | Entry points | Read first | One rule you will break |
 | --- | --- | --- | --- | --- |
@@ -23,7 +23,8 @@ the `figma.mode` gate in `src/main.ts` decides which code path runs.
 | **Inspect** (`src/inspect/`) | Dev-Mode-parity selected-layer CSS inspection: partition `getCSSAsync()` into Layout/Style buckets and enumerate connected components. | `src/inspect/inspect-frame.ts` | [section-inspect.md](section-inspect.md) | This consumes CSS Figma **already emitted**. Do not confuse it with Sync Tokens, which **authors** CSS from variables. Different code paths. |
 | **Layout** (`src/layout/`) | Full-tree styled-components React codegen: traverse a selected frame/group/section/text, emit one `.tsx` module with connected components as atomic usages. | `src/layout/react-layout.ts`, `src/layout/figma-layout-extractor.ts` | [section-layout.md](section-layout.md) | Connected instances are **never** expanded into internals. The one exception is an *unconnected* instance with visible children — expanded with a diagnostic. |
 | **Semantic** (`src/semantic/`) | Recipe-based connect for components whose Figma structure does not match source: schema, resolver, authoring, reconcile, source contract, figma extraction. | `src/semantic/resolver.ts`, `src/semantic/types.ts` | [section-semantic.md](section-semantic.md) | Every module here is pure and Figma-free **except** `figma-adapter.ts`. Don't import `@figma/plugin-typings` anywhere else in this folder. |
-| **Sync Tokens** (`src/sync-tokens/`) | Serialize Figma Variable collections to CSS (and JSON on the in-progress branch): the pure core; `main.ts` is the Figma adapter. | `src/sync-tokens/serialize.ts`, `src/main.ts` (token region) | [section-sync-tokens.md](section-sync-tokens.md) | The Figma Variables API is touched **only** in `src/main.ts`. The pure core in `src/sync-tokens/` must stay free of `@figma/plugin-typings` so the test project compiles it. |
+| **Sync Tokens** (`src/sync-tokens/`) | Serialize Figma Variable collections to CSS, JSON, Tailwind, and Markdown: pure core; `main.ts` is the Figma adapter. | `src/sync-tokens/serialize.ts`, `src/main.ts` (token region) | [section-sync-tokens.md](section-sync-tokens.md) | The Figma Variables API is touched **only** in `src/main.ts`. The pure core in `src/sync-tokens/` must stay free of `@figma/plugin-typings` so the test project compiles it. |
+| **Documentation** (`src/documentation/`) | Automated documentation generation and in-place reconciler for tokens, component specifications, and design system frames. | `src/documentation/token-doc-model.ts`, `src/documentation/figma-canvas-writer.ts` | [section-documentation.md](section-documentation.md) | Generated frames are stamped with `tashil_doc_meta` and reconciled in-place rather than recreated from scratch. |
 
 ## Global rules (apply everywhere)
 
@@ -108,20 +109,20 @@ public behavior, boundary, or invariants, update its `section-*.md`.
                          │  connection-health.ts                         │
                          └───────────────┬─────────────────────────────┘
                                          │  ConnectionMetadata (schema v4)
-              ┌──────────────────────────┼──────────────────────────┐
-              ▼                          ▼                          ▼
-   ┌─────────────────────┐   ┌─────────────────────┐   ┌─────────────────────┐
-   │ Inspect (src/inspect)│   │ Layout (src/layout)  │   │Semantic(src/semantic)│
-   │ selected-layer CSS   │   │ full-tree codegen    │   │ recipe-based connect │
-   │ getCSSAsync() →      │   │ frame/group/section  │   │ schema·resolver·     │
-   │ Layout/Style buckets │   │ → one .tsx module    │   │ authoring·reconcile  │
-   └─────────────────────┘   └──────────┬──────────┘   └──────────┬──────────┘
-                                        │                         │
-                                        └────────────┬────────────┘
-                                                     ▼
-                                  ┌──────────────────────────────┐
-                                  │ Sync Tokens (src/sync-tokens) │
-                                  │ Figma Variables → CSS/JSON     │
+              ┌──────────────────────────┼──────────────────────────┬──────────────────────────┐
+              ▼                          ▼                          ▼                          ▼
+   ┌─────────────────────┐   ┌─────────────────────┐   ┌─────────────────────┐   ┌───────────────────────────┐
+   │ Inspect (src/inspect)│   │ Layout (src/layout)  │   │Semantic(src/semantic)│   │Documentation(src/documen.)│
+   │ selected-layer CSS   │   │ full-tree codegen    │   │ recipe-based connect │   │ canvas specifications &   │
+   │ getCSSAsync() →      │   │ frame/group/section  │   │ schema·resolver·     │   │ in-place token & component│
+   │ Layout/Style buckets │   │ → one .tsx module    │   │ authoring·reconcile  │   │ reconciliation            │
+   └─────────────────────┘   └──────────┬──────────┘   └──────────┬──────────┘   └─────────────┬─────────────┘
+                                        │                         │                            │
+                                        └────────────┬────────────┘                            │
+                                                     ▼                                         │
+                                  ┌──────────────────────────────┐                             │
+                                  │ Sync Tokens (src/sync-tokens) │◄────────────────────────────┘
+                                  │ Figma Variables → CSS/JSON     │  reads shared collection data
                                   │ (pure core; main.ts adapts)    │
                                   └──────────────────────────────┘
 ```
@@ -131,9 +132,11 @@ public behavior, boundary, or invariants, update its `section-*.md`.
 - **Inspect**, **Layout**, and **Semantic** are the three generation surfaces;
   they share the connection model and (for Semantic) feed back into Layout via
   `resolveSemanticUsage`.
-- **Sync Tokens** is independent of connections — it reads the Figma Variables
-  API and serializes. It shares one helper (`formatTokenName`) with Layout's
-  structural-token resolver so CSS variable names match across the two.
+- **Sync Tokens** reads the Figma Variables API and serializes tokens into CSS,
+  JSON, Tailwind, and Markdown formats.
+- **Documentation** turns Figma Variable Collections and connected components into
+  pixel-accurate canvas specifications using the Swiss Army Knife design system,
+  supporting real-time in-place reconciliation when variables or component APIs evolve.
 
 ## Related documentation
 
@@ -143,6 +146,7 @@ public behavior, boundary, or invariants, update its `section-*.md`.
 - [Development guide](development.md) — setup, build, project structure, test commands.
 - [Project brief](project-brief.md) — product scope and the runtime flow.
 - Per-feature depth docs (cited from each section guide):
+  - [Token Documentation — How It Works (Architecture & Reconciliation)](token-documentation-architecture.md) · [user guide](token-documentation.md)
   - [Sync Tokens — How It Works](sync-tokens-architecture.md)
   - [Layout Composer decisions](layout-composer-decisions.md) ·
     [archived roadmap](archive/layout-composer-roadmap.md)

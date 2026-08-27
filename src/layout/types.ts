@@ -213,6 +213,14 @@ export type TextCompositionNode = {
   text: string;
   /** Token-aware text CSS returned by `getCSSAsync()`. */
   declarations: CssDeclaration[];
+  /**
+   * Snake-cased Figma text-style name(s) (`lower-underscore`). When set, the
+   * five font-* declarations are dropped from the styled block and this is
+   * emitted as an inline comment of the form `Text style: "name"`. Comma-joined
+   * for mixed runs. The IR keeps the font declarations; filtering is a
+   * rendering concern in `styled-components-emitter.ts`.
+   */
+  textStyleName?: string;
   /** How this text behaves as a flex item in its parent. */
   childStyle?: ChildStyle;
 };

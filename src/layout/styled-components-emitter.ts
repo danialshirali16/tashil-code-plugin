@@ -18,7 +18,21 @@ export type StyledDefinition = {
   name: string;
   nodeId: string;
   tag: string;
+  /** When set, font-* props were dropped and this comment replaces them. */
+  textStyleName?: string;
 };
+
+/**
+ * The five font declarations replaced by a text-style comment when a text node
+ * carries `textStyleName`. `font-style` is intentionally retained.
+ */
+const TEXT_STYLE_REPLACED_PROPERTIES = new Set([
+  'font-family',
+  'font-size',
+  'font-weight',
+  'line-height',
+  'letter-spacing',
+]);
 
 export type StyledRegistry = {
   definitions: StyledDefinition[];
@@ -111,9 +125,18 @@ export function renderStyledDefinitions(
 ): string {
   return definitions
     .map((definition) => {
-      const declarations = definition.declarations
-        .map((declaration) => renderDeclaration(declaration))
-        .join('\n');
+      const lines = definition.declarations.map((declaration) =>
+        renderDeclaration(declaration));
+      if (definition.textStyleName) {
+        const commentIndex = findTextStyleCommentIndex(definition.declarations);
+        const comment = `  /* Text style: "${definition.textStyleName}" */`;
+        if (commentIndex >= 0 && commentIndex <= lines.length) {
+          lines.splice(commentIndex, 0, comment);
+        } else {
+          lines.push(comment);
+        }
+      }
+      const declarations = lines.join('\n');
       return [
         `const ${definition.name} = styled.${definition.tag}\``,
         declarations,
@@ -121,6 +144,26 @@ export function renderStyledDefinitions(
       ].join('\n');
     })
     .join('\n\n');
+}
+
+/**
+ * Place the text-style comment right before `font-style` (the surviving
+ * declaration that immediately followed the dropped font props), so it lands
+ * between `color` and `font-style` as in the target spec. Falls back to
+ * after `color`, then at the top.
+ */
+function findTextStyleCommentIndex(declarations: readonly CssDeclaration[]): number {
+  const fontStyleIndex = declarations.findIndex(({ property }) =>
+    property.trim().toLowerCase() === 'font-style');
+  if (fontStyleIndex !== -1) {
+    return fontStyleIndex;
+  }
+  const colorIndex = declarations.findIndex(({ property }) =>
+    property.trim().toLowerCase() === 'color');
+  if (colorIndex !== -1) {
+    return colorIndex + 1;
+  }
+  return 0;
 }
 
 export function usesColorTokens(
@@ -216,15 +259,20 @@ function collectDefinitions(
   if (node.kind === 'text' && (node.declarations.length > 0 || node.childStyle)) {
     const name = names.claim(toComponentName(last(node.layerPath) ?? 'Text'));
     namesByNodeId.set(node.nodeId, name);
+    const sourceDeclarations = node.textStyleName
+      ? node.declarations.filter(({ property }) =>
+        !TEXT_STYLE_REPLACED_PROPERTIES.has(property.trim().toLowerCase()))
+      : node.declarations;
     definitions.push({
       declarations: mergeDeclarations(
-        node.declarations,
+        sourceDeclarations,
         childDeclarations(node.childStyle, parentAxis),
         suppressedProperties(node.childStyle, parentAxis),
       ),
       name,
       nodeId: node.nodeId,
       tag: 'span',
+      ...(node.textStyleName ? { textStyleName: node.textStyleName } : {}),
     });
     return;
   }

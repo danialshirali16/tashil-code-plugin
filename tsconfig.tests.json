@@ -24,6 +24,8 @@
     "src/inspect/accessibility.test.ts",
     "src/layout/imports.test.ts",
     "src/sync-tokens/*.test.ts",
+    "src/documentation/*.ts",
+    "src/documentation/*.test.ts",
     "src/semantic/*.test.ts",
     "src/semantic-editor-view.test.tsx",
     "src/ui*.test.ts",

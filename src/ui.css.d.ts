@@ -65,6 +65,7 @@ declare const styles: {
   readonly "detail-back": string;
   readonly "detail-component-name": string;
   readonly "detail-navigation": string;
+  readonly "docs-view": string;
   readonly "dot-status": string;
   readonly "eyebrow": string;
   readonly "field": string;
