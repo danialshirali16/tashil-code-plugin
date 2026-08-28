@@ -1140,25 +1140,7 @@ export async function createComponentDocFrame(
   onProgress?.('Setting up component variants showcase…', 30);
   const targetPage = options.page ?? figma.currentPage;
 
-  // Measure component natural dimensions
-  let naturalW = 100;
-  let naturalH = 48;
-  if (options.componentNode) {
-    try {
-      const node = options.componentNode;
-      const targetComponent = node.type === 'COMPONENT_SET'
-        ? ((node as ComponentSetNode).defaultVariant ?? ((node as ComponentSetNode).children[0] as ComponentNode))
-        : (node as ComponentNode);
-      if (targetComponent && 'createInstance' in targetComponent) {
-        const sample = targetComponent.createInstance();
-        naturalW = Math.max(20, sample.width);
-        naturalH = Math.max(20, sample.height);
-        sample.remove();
-      }
-    } catch (_e) {
-      // Use fallback defaults
-    }
-  }
+
 
   const matrix = doc.matrix ?? {
     columnHeaders: [{ propertyName: 'Variant', value: 'Default' }],
@@ -1183,8 +1165,8 @@ export async function createComponentDocFrame(
     for (let c = 0; c < numColumns; c++) {
       const cell = rowCells[c];
       const matching = findMatchingVariantChild(options.componentNode, cell?.combination ?? {});
-      const w = matching ? matching.width : naturalW;
-      const h = matching ? matching.height : naturalH;
+      const w = matching ? matching.width : 0;
+      const h = matching ? matching.height : 0;
       rowDims.push({ h, w });
     }
     cellDimensions.push(rowDims);
@@ -1694,7 +1676,7 @@ export function findMatchingVariantChild(
       });
     }) as ComponentNode | undefined;
 
-    return matched ?? set.defaultVariant ?? ((set.children[0] as ComponentNode) || null);
+    return matched ?? null;
   }
   return null;
 }
