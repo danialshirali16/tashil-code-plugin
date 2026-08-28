@@ -1206,8 +1206,8 @@ export async function createComponentDocFrame(
   const yAxisCol = figma.createFrame();
   yAxisCol.name = 'Y-Axis Labels';
   yAxisCol.layoutMode = 'VERTICAL';
-  yAxisCol.itemSpacing = 16;
-  yAxisCol.paddingTop = 44; // Aligns with rows below the X header
+  yAxisCol.itemSpacing = 0;
+  yAxisCol.paddingTop = 48; // Matches X-Axis Headers height
   yAxisCol.fills = [];
 
   for (const row of matrix.rows) {
@@ -1223,14 +1223,14 @@ export async function createComponentDocFrame(
   const rightArea = figma.createFrame();
   rightArea.name = 'Grid Area';
   rightArea.layoutMode = 'VERTICAL';
-  rightArea.itemSpacing = 16;
+  rightArea.itemSpacing = 0;
   rightArea.fills = [];
 
   // Top X-Axis Headers
   const xHeadersRow = figma.createFrame();
   xHeadersRow.name = 'X-Axis Headers';
   xHeadersRow.layoutMode = 'HORIZONTAL';
-  xHeadersRow.itemSpacing = 16;
+  xHeadersRow.itemSpacing = 0;
   xHeadersRow.fills = [];
 
   for (let c = 0; c < matrix.columnHeaders.length; c++) {
@@ -1249,14 +1249,14 @@ export async function createComponentDocFrame(
   const instancesFrame = figma.createFrame();
   instancesFrame.name = 'Instances';
   instancesFrame.layoutMode = 'VERTICAL';
-  instancesFrame.itemSpacing = 16;
+  instancesFrame.itemSpacing = 0;
   instancesFrame.fills = [];
 
   for (const row of matrix.rows) {
     const rowFrame = figma.createFrame();
     rowFrame.name = 'Row';
     rowFrame.layoutMode = 'HORIZONTAL';
-    rowFrame.itemSpacing = 16;
+    rowFrame.itemSpacing = 0;
     rowFrame.fills = [];
 
     for (let c = 0; c < row.cells.length; c++) {
@@ -1264,7 +1264,6 @@ export async function createComponentDocFrame(
       const colW = columnWidths[c];
       const cellFrame = figma.createFrame();
       cellFrame.name = 'Instance';
-      cellFrame.resize(colW, cellHeight);
       cellFrame.layoutMode = 'HORIZONTAL';
       cellFrame.counterAxisAlignItems = 'CENTER';
       cellFrame.primaryAxisAlignItems = 'CENTER';
@@ -1275,7 +1274,6 @@ export async function createComponentDocFrame(
       cellFrame.strokes = [{ color: { r: 0.54, g: 0.22, b: 0.96 }, type: 'SOLID' }];
       cellFrame.strokeWeight = 1;
       cellFrame.dashPattern = [4, 4];
-      cellFrame.cornerRadius = 6;
       cellFrame.fills = [{ color: { r: 0.98, g: 0.97, b: 1 }, type: 'SOLID' }];
 
       if (options.componentNode && options.componentNode.type === 'COMPONENT_SET') {
@@ -1322,6 +1320,11 @@ export async function createComponentDocFrame(
         cellFrame.appendChild(preview);
       }
 
+      // Explicitly lock fixed dimensions so auto-layout never shrinks or hugs the inner component
+      cellFrame.primaryAxisSizingMode = 'FIXED';
+      cellFrame.counterAxisSizingMode = 'FIXED';
+      cellFrame.resize(colW, cellHeight);
+
       rowFrame.appendChild(cellFrame);
     }
     instancesFrame.appendChild(rowFrame);
@@ -1357,6 +1360,8 @@ function createYAxisBracket(text: string, height: number): FrameNode {
   container.layoutMode = 'HORIZONTAL';
   container.counterAxisAlignItems = 'CENTER';
   container.itemSpacing = 12;
+  container.primaryAxisSizingMode = 'AUTO';
+  container.counterAxisSizingMode = 'FIXED';
   container.resize(160, height);
   container.fills = [];
 
@@ -1379,6 +1384,9 @@ function createYAxisBracket(text: string, height: number): FrameNode {
   bracket.fills = [];
   container.appendChild(bracket);
 
+  container.counterAxisSizingMode = 'FIXED';
+  container.resize(container.width, height);
+
   return container;
 }
 
@@ -1388,7 +1396,9 @@ function createXAxisBracket(text: string, width: number): FrameNode {
   container.layoutMode = 'VERTICAL';
   container.counterAxisAlignItems = 'CENTER';
   container.itemSpacing = 6;
-  container.resize(width, 38);
+  container.primaryAxisSizingMode = 'FIXED';
+  container.counterAxisSizingMode = 'FIXED';
+  container.resize(width, 48);
   container.fills = [];
 
   const textNode = createTextNode(text, 14, FONT_MEDIUM, {
@@ -1409,6 +1419,10 @@ function createXAxisBracket(text: string, width: number): FrameNode {
   bracket.strokeWeight = 1.5;
   bracket.fills = [];
   container.appendChild(bracket);
+
+  container.primaryAxisSizingMode = 'FIXED';
+  container.counterAxisSizingMode = 'FIXED';
+  container.resize(width, 48);
 
   return container;
 }
