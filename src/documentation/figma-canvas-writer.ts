@@ -1388,7 +1388,7 @@ export async function createComponentDocFrame(
           bracket.vectorPaths = [
             {
               windingRule: 'NONZERO',
-              data: `M 0 0 L 4 0 C 6 0 8 2 8 4 L 8 ${bracketH - 4} C 8 ${bracketH - 2} 6 ${bracketH} 4 ${bracketH} L 0 ${bracketH}`,
+              data: `M 8 0 L 4 0 C 2 0 0 2 0 4 L 0 ${bracketH - 4} C 0 ${bracketH - 2} 2 ${bracketH} 4 ${bracketH} L 8 ${bracketH}`,
             },
           ];
           bracket.strokes = [{ color: { r: 0.54, g: 0.22, b: 0.96 }, type: 'SOLID' }];
@@ -1573,7 +1573,7 @@ function createYAxisBracket(text: string, height: number): FrameNode {
   const bracketH = Math.max(20, height - 8);
   bracket.vectorPaths = [{
     windingRule: 'NONZERO',
-    data: `M 0 0 L 5 0 C 8 0 10 2 10 6 L 10 ${bracketH - 6} C 10 ${bracketH - 2} 8 ${bracketH} 5 ${bracketH} L 0 ${bracketH}`,
+    data: `M 10 0 L 5 0 C 2 0 0 2 0 6 L 0 ${bracketH - 6} C 0 ${bracketH - 2} 2 ${bracketH} 5 ${bracketH} L 10 ${bracketH}`,
   }];
   bracket.strokes = [{ color: { r: 0.54, g: 0.22, b: 0.96 }, type: 'SOLID' }];
   bracket.strokeWeight = 1.5;
