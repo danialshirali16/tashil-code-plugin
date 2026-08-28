@@ -34,4 +34,27 @@ describe('component-doc-model', () => {
     expect(variantProp?.defaultValue).toBe('primary');
     expect(variantProp?.values).toEqual(['primary', 'secondary']);
   });
+
+  it('generates a 2D variant matrix when Figma component variants are present', () => {
+    const figmaSnapshot = {
+      componentId: '100:200',
+      componentName: 'Button',
+      description: 'A button component',
+      properties: [
+        { defaultValue: 'primary', id: 'prop-1', name: 'Intent', options: ['primary', 'neutral', 'positive'], rawKey: 'Intent#1:1', type: 'VARIANT' as const },
+        { defaultValue: 'tonal', id: 'prop-2', name: 'Style', options: ['tonal', 'outline', 'ghost'], rawKey: 'Style#1:2', type: 'VARIANT' as const },
+        { defaultValue: 'md', id: 'prop-3', name: 'Size', options: ['sm', 'md', 'lg'], rawKey: 'Size#1:3', type: 'VARIANT' as const },
+      ],
+    };
+
+    const doc = buildComponentDocDocument(metadata, sourceSnapshot, figmaSnapshot);
+    expect(doc.matrix).toBeDefined();
+    expect(doc.matrix?.primaryYAxis.propertyName).toBe('Intent');
+    expect(doc.matrix?.primaryYAxis.values).toEqual(['primary', 'neutral', 'positive']);
+    expect(doc.matrix?.primaryXAxis.propertyName).toBe('Style');
+    expect(doc.matrix?.rows).toHaveLength(3);
+    expect(doc.matrix?.rows[0].cells.length).toBeGreaterThan(0);
+    expect(doc.matrix?.rows[0].cells[0].combination).toHaveProperty('Intent', 'primary');
+    expect(doc.matrix?.rows[0].cells[0].combination).toHaveProperty('Style', 'tonal');
+  });
 });

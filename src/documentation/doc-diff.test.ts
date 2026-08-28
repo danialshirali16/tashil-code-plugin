@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { diffTokenDocument, diffTokenDocuments } from './doc-diff';
+import {
+  diffComponentDocument,
+  diffComponentDocuments,
+  diffTokenDocument,
+  diffTokenDocuments,
+} from './doc-diff';
 import { buildTokenDocDocument, type RawCollectionData } from './token-doc-model';
 import type { DocFrameMetadata } from './types';
 
@@ -94,5 +99,49 @@ describe('doc-diff', () => {
     expect(report.hasDrift).toBe(true);
     expect(report.changes.some((c) => c.kind === 'token-added' && c.targetName === 'color/text/subtle')).toBe(true);
     expect(report.changes.some((c) => c.kind === 'token-value-changed' && c.targetName === 'color/text/default')).toBe(true);
+  });
+
+  it('detects component prop additions and modifications', () => {
+    const prevDoc = {
+      componentName: 'Button',
+      contentHash: 'hash-1',
+      description: 'A button',
+      figmaComponentName: 'Button',
+      importPath: '@tashilcar/swiss-army-knife',
+      props: [
+        { name: 'children', required: true, role: 'children', typeName: 'ReactNode' },
+        { name: 'variant', required: false, role: 'standard', typeName: 'string', defaultValue: 'primary' },
+      ],
+      runtimeRequirements: [],
+      sampleUsageCode: '',
+      variants: [{ combination: { variant: 'primary' }, title: 'primary' }],
+    };
+
+    const currDoc = {
+      ...prevDoc,
+      contentHash: 'hash-2',
+      props: [
+        { name: 'children', required: true, role: 'children', typeName: 'ReactNode' },
+        { name: 'variant', required: false, role: 'standard', typeName: "'primary' | 'secondary'", defaultValue: 'primary' },
+        { name: 'disabled', required: false, role: 'standard', typeName: 'boolean', defaultValue: false },
+      ],
+    };
+
+    const metadata: DocFrameMetadata = {
+      contentHash: 'hash-1',
+      docType: 'component',
+      generatedAt: '2026-08-01T00:00:00Z',
+      modeIds: [],
+      schemaVersion: 1,
+      targetId: 'Button',
+      targetName: 'Button',
+    };
+
+    const metaReport = diffComponentDocument(metadata, currDoc);
+    expect(metaReport.hasDrift).toBe(true);
+
+    const docReport = diffComponentDocuments(prevDoc, currDoc);
+    expect(docReport.hasDrift).toBe(true);
+    expect(docReport.changes.some((c) => c.kind === 'component-prop-changed' && c.targetName === 'disabled')).toBe(true);
   });
 });

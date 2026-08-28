@@ -8,6 +8,7 @@
 import {
   DOC_FRAME_SCHEMA_VERSION,
   DOC_METADATA_PLUGIN_KEY,
+  type ComponentDocDocument,
   type DocFrameMetadata,
   type TokenDocDocument,
 } from './types';
@@ -18,6 +19,7 @@ import {
   createValueColumn,
   createTokenItemNode,
   createValueItemNode,
+  createVariantMatrixSection,
   applyColumnMode,
   safeGetNodeName,
   safeFindChild,
@@ -386,5 +388,181 @@ export async function updateTokenDocFrameInPlace(
     message: `Updated ${updatedTokensCount} token cells in place.`,
     ok: true,
     updatedTokensCount,
+  };
+}
+
+export async function updateComponentDocFrameInPlace(
+  frame: FrameNode,
+  doc: ComponentDocDocument,
+  componentNode?: ComponentNode | ComponentSetNode,
+  onProgress?: (stage: string, percent: number) => void,
+): Promise<{ ok: boolean; message: string; updatedPropsCount: number }> {
+  onProgress?.('Loading fonts for update…', 10);
+  await loadRequiredFonts();
+
+  frame.resize(FRAME_WIDTH, frame.height);
+
+  let updatedPropsCount = 0;
+
+  // 1. Update Header
+  onProgress?.('Updating header & hero…', 20);
+  const header = frame.children.find(
+    (c, idx) =>
+      idx === 0 &&
+      (safeGetNodeName(c).startsWith('.[Documentation] Header & Footer') ||
+        safeGetNodeName(c).startsWith('.[Documentation] Header')),
+  );
+  if (header) {
+    const textNodes = safeFindTextNodes(header);
+    for (const t of textNodes) {
+      if (t.fontName !== figma.mixed) {
+        await figma.loadFontAsync(t.fontName);
+      }
+      const textLower = t.characters.toLowerCase();
+      if (t.name === 'Category' || textLower === 'category') {
+        t.characters = 'COMPONENT SPEC';
+      } else if (t.name === 'Page' || textLower === 'page') {
+        t.characters = doc.componentName.toUpperCase();
+      }
+    }
+  }
+
+  // 2. Update Hero
+  const hero = safeFindChild(frame, (c) => safeGetNodeName(c).startsWith('.[Documentation] Hero'));
+  if (hero) {
+    const textNodes = safeFindTextNodes(hero);
+    for (const t of textNodes) {
+      if (t.fontName !== figma.mixed) {
+        await figma.loadFontAsync(t.fontName);
+      }
+      if (t.characters.startsWith('<') && t.characters.endsWith('/>')) {
+        t.characters = `<${doc.componentName} />`;
+      } else if (t.characters.includes('Props')) {
+        t.characters = `${doc.props.length} Props`;
+      } else if (t.characters.includes('Variants')) {
+        t.characters = `${doc.variants.length} Variants`;
+      } else if (t.characters.length > 20 && !t.characters.startsWith('import')) {
+        t.characters = doc.description;
+      }
+    }
+  }
+
+  // 3. Update or Insert Variant Matrix Section
+  if (doc.matrix && doc.matrix.rows.length > 0) {
+    onProgress?.('Reconciling 2D variant matrix…', 50);
+    const existingMatrixSection = safeFindChild(frame, (c) =>
+      safeGetNodeName(c).includes('Variant Matrix'),
+    );
+    if (existingMatrixSection) {
+      const instancesContainer = safeFindChild(existingMatrixSection, (c) =>
+        safeGetNodeName(c) === 'Instances',
+      );
+      if (instancesContainer && 'children' in instancesContainer) {
+        const rowNodes = (instancesContainer as FrameNode).children.filter(
+          (c) => safeGetNodeName(c) === 'Row',
+        ) as FrameNode[];
+
+        for (let r = 0; r < doc.matrix.rows.length; r++) {
+          const rowData = doc.matrix.rows[r];
+          if (r < rowNodes.length) {
+            const rowNode = rowNodes[r];
+            const cellNodes = rowNode.children.filter((c) =>
+              safeGetNodeName(c).startsWith('Instance'),
+            ) as FrameNode[];
+
+            for (let c = 0; c < rowData.cells.length; c++) {
+              const cellData = rowData.cells[c];
+              if (c < cellNodes.length) {
+                const cellNode = cellNodes[c];
+                const instanceNode = safeFindChild(cellNode, (n) => n.type === 'INSTANCE');
+                if (instanceNode && 'setProperties' in instanceNode) {
+                  try {
+                    (instanceNode as InstanceNode).setProperties(cellData.combination);
+                  } catch (_e) {
+                    // Ignore variant property set error
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    } else {
+      const newMatrixSection = createVariantMatrixSection(doc, componentNode);
+      const propsSection = safeFindChild(frame, (c) =>
+        safeGetNodeName(c).includes('Props'),
+      );
+      if (propsSection) {
+        frame.insertChild(frame.children.indexOf(propsSection), newMatrixSection);
+      } else {
+        frame.appendChild(newMatrixSection);
+      }
+    }
+  }
+
+  // 4. Update Props Table Section
+  onProgress?.('Reconciling props table…', 75);
+  const propsSection = safeFindChild(frame, (c) => safeGetNodeName(c).includes('Props'));
+  if (propsSection) {
+    const table = safeFindChild(propsSection, (c) => safeGetNodeName(c) === 'Props Table');
+    if (table && 'children' in table) {
+      const tableFrame = table as FrameNode;
+      const existingRows = tableFrame.children.filter((c) =>
+        safeGetNodeName(c).startsWith('Prop Row'),
+      ) as FrameNode[];
+
+      for (let i = 0; i < doc.props.length; i++) {
+        const prop = doc.props[i];
+        if (i < existingRows.length) {
+          const row = existingRows[i];
+          row.name = `Prop Row — ${prop.name}`;
+          const textNodes = safeFindTextNodes(row);
+          if (textNodes.length >= 6) {
+            for (const t of textNodes) {
+              if (t.fontName !== figma.mixed) {
+                await figma.loadFontAsync(t.fontName);
+              }
+            }
+            textNodes[0].characters = prop.name;
+            textNodes[1].characters = prop.typeName;
+            textNodes[2].characters = prop.required ? 'Required' : 'Optional';
+            textNodes[3].characters = prop.defaultValue !== undefined ? String(prop.defaultValue) : '-';
+            textNodes[4].characters = prop.mappedFigmaProperty ?? '-';
+            textNodes[5].characters = prop.description ?? '-';
+          }
+          updatedPropsCount += 1;
+        }
+      }
+
+      if (existingRows.length > doc.props.length) {
+        for (let extra = doc.props.length; extra < existingRows.length; extra++) {
+          try {
+            existingRows[extra].remove();
+          } catch (_e) {
+            // Ignore removal error
+          }
+        }
+      }
+    }
+  }
+
+  // 5. Update stamped metadata
+  onProgress?.('Updating document metadata…', 95);
+  const updatedMetadata: DocFrameMetadata = {
+    contentHash: doc.contentHash,
+    docType: 'component',
+    generatedAt: new Date().toISOString(),
+    modeIds: [],
+    schemaVersion: DOC_FRAME_SCHEMA_VERSION,
+    targetId: doc.componentName,
+    targetName: doc.componentName,
+  };
+  frame.setPluginData(DOC_METADATA_PLUGIN_KEY, JSON.stringify(updatedMetadata));
+
+  onProgress?.('Update complete!', 100);
+  return {
+    message: `Updated component specification for <${doc.componentName}> in place.`,
+    ok: true,
+    updatedPropsCount,
   };
 }

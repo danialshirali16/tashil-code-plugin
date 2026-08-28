@@ -10,6 +10,7 @@ is the version of record.
 
 ### Added
 
+- Added Component Specification generation and in-place reconciliation on the Figma canvas, featuring the Swiss-Army 2D Variant Matrix (exemplified in node `1958:91236`) with dimension bracket annotations, live component instance cells with dashed purple bounding boxes (`#8a38f5`), props specification tables, and non-destructive 1-to-1 updating. See [docs/section-documentation.md](docs/section-documentation.md).
 - Added an Automated Documentation Generator and In-Place Reconciler (`src/documentation/`)
   to automatically create pixel-accurate design token and component specification frames
   directly on the Figma canvas, export structured Markdown, and update existing documentation

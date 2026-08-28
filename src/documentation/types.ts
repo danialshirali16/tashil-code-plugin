@@ -80,6 +80,29 @@ export type ComponentDocVariant = {
   title: string;
 };
 
+export type ComponentDocMatrixAxis = {
+  propertyName: string;
+  values: string[];
+};
+
+export type ComponentDocMatrixCell = {
+  combination: Record<string, string>;
+  title: string;
+};
+
+export type ComponentDocMatrixRow = {
+  cells: ComponentDocMatrixCell[];
+  rowHeader: { propertyName: string; value: string };
+};
+
+export type ComponentDocMatrix = {
+  columnHeaders: Array<{ propertyName: string; value: string }>;
+  primaryXAxis: ComponentDocMatrixAxis;
+  primaryYAxis: ComponentDocMatrixAxis;
+  rows: ComponentDocMatrixRow[];
+  secondaryXAxes?: ComponentDocMatrixAxis[];
+};
+
 export type ComponentDocDocument = {
   componentName: string;
   contentHash: string;
@@ -87,6 +110,7 @@ export type ComponentDocDocument = {
   figmaComponentName: string;
   importPath: string;
   lifecycle?: string;
+  matrix?: ComponentDocMatrix;
   props: ComponentDocProp[];
   runtimeRequirements: string[];
   sampleUsageCode: string;

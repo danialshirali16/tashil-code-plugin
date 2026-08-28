@@ -57,6 +57,7 @@ import {
   type ConnectionReferences,
   type FigmaComponentSnapshot,
   type FigmaPropertyDescriptor,
+  type SourceComponentSnapshot,
   type InspectCodeState,
   type InspectCodeStateHandler,
   type OpenComponentTargetHandler,
@@ -105,7 +106,7 @@ import {
   type RawCollectionData,
   type RawVariableValue,
 } from './documentation/token-doc-model';
-import { diffTokenDocument } from './documentation/doc-diff';
+import { diffComponentDocument, diffTokenDocument } from './documentation/doc-diff';
 import { buildComponentDocDocument } from './documentation/component-doc-model';
 import {
   emitComponentDocMarkdown,
@@ -117,6 +118,7 @@ import {
 } from './documentation/figma-canvas-writer';
 import {
   readDocFrameMetadata,
+  updateComponentDocFrameInPlace,
   updateTokenDocFrameInPlace,
 } from './documentation/figma-canvas-updater';
 import { diffTokenSnapshots } from './sync-tokens/export-diff';
@@ -2103,6 +2105,28 @@ async function sendSelectionState(
             const currentDoc = buildTokenDocDocument(rawCol);
             drift = diffTokenDocument(docMetadata, currentDoc);
           }
+        } else if (docMetadata.docType === 'component') {
+          const allNodes = figma.currentPage.findAllWithCriteria({ types: ['COMPONENT', 'COMPONENT_SET'] });
+          const matched = allNodes.find(
+            (n) => n.name === docMetadata.targetId || n.name === docMetadata.targetName || n.id === docMetadata.targetId,
+          );
+          let connectionMeta: ConnectionMetadata = {
+            componentName: docMetadata.targetName,
+            importPath: `@tashilcar/swiss-army-knife`,
+            schemaVersion: 5,
+          };
+          let figmaSnapshot: FigmaComponentSnapshot | undefined;
+          let sourceSnapshot: SourceComponentSnapshot | undefined;
+          if (matched) {
+            figmaSnapshot = createFigmaComponentSnapshot(matched);
+            const connection = readConnectionMetadata(matched);
+            if (connection.ok) {
+              connectionMeta = connection.metadata;
+              sourceSnapshot = connection.metadata.mappingDocument?.sourceSnapshot;
+            }
+          }
+          const currentDoc = buildComponentDocDocument(connectionMeta, sourceSnapshot, figmaSnapshot);
+          drift = diffComponentDocument(docMetadata, currentDoc);
         }
         emit<DocFrameSelectedHandler>('DOC_FRAME_SELECTED', {
           frameNodeId: selectedNodes[0].id,
@@ -2865,6 +2889,41 @@ async function updateDocsInPlace(frameNodeId: string): Promise<void> {
         message: result.message,
         updatedTokensCount: result.updatedTokensCount,
       });
+    } else if (metadata.docType === 'component') {
+      reportProgress('Locating master component node…', 15);
+      let componentNode: ComponentNode | ComponentSetNode | undefined;
+      const allNodes = figma.currentPage.findAllWithCriteria({ types: ['COMPONENT', 'COMPONENT_SET'] });
+      const matched = allNodes.find(
+        (n) => n.name === metadata.targetId || n.name === metadata.targetName || n.id === metadata.targetId,
+      );
+      if (matched) {
+        componentNode = matched as ComponentNode | ComponentSetNode;
+      }
+
+      let connectionMeta: ConnectionMetadata = {
+        componentName: metadata.targetName,
+        importPath: `@tashilcar/swiss-army-knife`,
+        schemaVersion: 5,
+      };
+      let figmaSnapshot: FigmaComponentSnapshot | undefined;
+      let sourceSnapshot: SourceComponentSnapshot | undefined;
+
+      if (componentNode) {
+        figmaSnapshot = createFigmaComponentSnapshot(componentNode);
+        const connection = readConnectionMetadata(componentNode);
+        if (connection.ok) {
+          connectionMeta = connection.metadata;
+          sourceSnapshot = connection.metadata.mappingDocument?.sourceSnapshot;
+        }
+      }
+
+      const doc = buildComponentDocDocument(connectionMeta, sourceSnapshot, figmaSnapshot);
+      const result = await updateComponentDocFrameInPlace(node, doc, componentNode, reportProgress);
+      emit<UpdateDocsInPlaceResultHandler>('UPDATE_DOCS_IN_PLACE_RESULT', {
+        ok: result.ok,
+        message: result.message,
+        updatedTokensCount: result.updatedPropsCount,
+      });
     } else {
       emit<UpdateDocsInPlaceResultHandler>('UPDATE_DOCS_IN_PLACE_RESULT', {
         ok: false,
@@ -2924,7 +2983,11 @@ async function generateComponentDocs(
         markdown,
       });
     } else {
-      const frame = await createComponentDocFrame(doc, undefined, reportProgress);
+      const frame = await createComponentDocFrame(
+        doc,
+        { componentNode: targetResult.selection.mainComponent },
+        reportProgress,
+      );
       emit<GenerateComponentDocsResultHandler>('GENERATE_COMPONENT_DOCS_RESULT', {
         ok: true,
         message: `Created specification frame for <${doc.componentName} />.`,

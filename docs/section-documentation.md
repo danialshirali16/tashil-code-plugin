@@ -39,6 +39,7 @@ The documentation builder binds to master components or component sets from the 
 | `.[Documentation] Hero` | `1422:17985` | Hero banner with dynamic title, subtitle, stats chips, and badge gradient |
 | `.[Documentation] Separator` | `1422:18167` | Section divider rule with collection title badge |
 | `.[Documentation] Section` | `1422:18185` | Section container holding headline, description, and `Slot` frame |
+| `Variant Matrix Grid` | `1958:91236` | 2D Variant matrix showcase with dimension bracket indicators and dashed instance bounding boxes (`#8a38f5`) |
 | `.[Table] Header` | `1929:52306` | Column header bar across Token and Value columns |
 | `.[Table] Token Item` | `1929:52305` | Row cell representing token name and indicator |
 | `.[Table] Value Item` | `1929:52304` | Component set with variants (`Type=Color`, `Type=Number`, `Type=Boolean`, `Type=String`). For `Color`, the `Color Icon` layer fill is bound to the Figma Variable |

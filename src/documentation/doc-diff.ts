@@ -148,3 +148,82 @@ export function diffTokenDocuments(
     targetName: current.collectionName,
   };
 }
+
+export function diffComponentDocument(
+  metadata: DocFrameMetadata,
+  current: import('./types').ComponentDocDocument,
+): DocDriftReport {
+  const changes: DocDriftItem[] = [];
+
+  if (metadata.contentHash !== current.contentHash) {
+    changes.push({
+      kind: 'component-prop-changed',
+      message: `Specification or variants for <${current.componentName}> have changed.`,
+      targetName: current.componentName,
+    });
+  }
+
+  return {
+    changes,
+    hasDrift: changes.length > 0 || metadata.contentHash !== current.contentHash,
+    targetId: current.componentName,
+    targetName: current.componentName,
+  };
+}
+
+export function diffComponentDocuments(
+  previous: import('./types').ComponentDocDocument,
+  current: import('./types').ComponentDocDocument,
+): DocDriftReport {
+  const changes: DocDriftItem[] = [];
+
+  const prevProps = new Map(previous.props.map((p) => [p.name, p]));
+  const currProps = new Map(current.props.map((p) => [p.name, p]));
+
+  for (const [name, prop] of currProps) {
+    if (!prevProps.has(name)) {
+      changes.push({
+        kind: 'component-prop-changed',
+        message: `Prop "${name}" (${prop.typeName}) was added.`,
+        targetName: name,
+      });
+    } else {
+      const prev = prevProps.get(name)!;
+      if (prev.typeName !== prop.typeName || prev.required !== prop.required || prev.defaultValue !== prop.defaultValue) {
+        changes.push({
+          details: `${prev.typeName}${prev.required ? ' (req)' : ''} → ${prop.typeName}${prop.required ? ' (req)' : ''}`,
+          kind: 'component-prop-changed',
+          message: `Prop "${name}" definition changed.`,
+          targetName: name,
+        });
+      }
+    }
+  }
+
+  for (const [name] of prevProps) {
+    if (!currProps.has(name)) {
+      changes.push({
+        kind: 'component-prop-changed',
+        message: `Prop "${name}" was removed.`,
+        targetName: name,
+      });
+    }
+  }
+
+  if (previous.variants.length !== current.variants.length) {
+    changes.push({
+      details: `${previous.variants.length} → ${current.variants.length}`,
+      kind: 'variant-changed',
+      message: `Variant count changed for <${current.componentName}>.`,
+      targetName: current.componentName,
+    });
+  }
+
+  return {
+    changes,
+    hasDrift: changes.length > 0,
+    targetId: current.componentName,
+    targetName: current.componentName,
+  };
+}
+
