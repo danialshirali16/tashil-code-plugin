@@ -39,13 +39,29 @@ The documentation builder binds to master components or component sets from the 
 | `.[Documentation] Hero` | `1422:17985` | Hero banner with dynamic title, subtitle, stats chips, and badge gradient |
 | `.[Documentation] Separator` | `1422:18167` | Section divider rule with collection title badge |
 | `.[Documentation] Section` | `1422:18185` | Section container holding headline, description, and `Slot` frame |
-| `Variant Matrix Grid` | `1958:91236` | 2D Variant matrix showcase with dimension bracket indicators and dashed instance bounding boxes (`#8a38f5`) |
+| `Variant Matrix Grid` | `1958:91236` | Multi-tier 2D Variant matrix showcase with layered column headers (`xTiers`), layered row headers (`yTiers`), right-facing & downward dimension bracket indicators, and dashed instance bounding boxes (`#8a38f5`) with purple `None` placeholders for unsupported permutations |
 | `.[Table] Header` | `1929:52306` | Column header bar across Token and Value columns |
 | `.[Table] Token Item` | `1929:52305` | Row cell representing token name and indicator |
 | `.[Table] Value Item` | `1929:52304` | Component set with variants (`Type=Color`, `Type=Number`, `Type=Boolean`, `Type=String`). For `Color`, the `Color Icon` layer fill is bound to the Figma Variable |
 | `Table` | `1929:52307` | Horizontal auto-layout container grouping one Token Column and multiple Value Columns |
 
 When master components are unavailable (e.g. running in an isolated test document), procedural fallback builders reconstruct identical auto-layout frames with exact typography, fills, and padding.
+
+---
+
+## Multi-Tiered Variant Matrix Architecture
+
+The component documentation generator renders a layered 2D variant matrix matching the Swiss-Army design standard:
+
+- **Multi-Level Column Headers (`xTiers`)**:
+  - **Tier 0 (Column Main)**: Top-level property group (e.g. `style: solid`, `style: tonal`) spanning all child columns with downward-facing brackets.
+  - **Tier 1 (Column Secondary)**: Sub-level property group (e.g. `size: sm`, `size: md`) spanning sub-columns with secondary brackets.
+  - **Tier 2 (Column Tertiary / Leaf)**: Leaf-level properties (e.g. `-` for false/default, `isOnlyIcon` for true) aligned directly above each column.
+- **Multi-Level Row Labels (`yTiers`)**:
+  - **Tier 0 (Row Main)**: High-level property group (e.g. `intent: primary`, `intent: neutral`) with right-facing spanning brackets (`x = 0` spine, arms pointing right).
+  - **Tier 1 (Row Secondary / Leaf)**: Sub-level states (e.g. `state: enabled`, `state: hovered`, `state: pressed`, `state: loading`, `state: disabled`) aligned with each instance row.
+- **Intersection Badge**: `❖ ComponentName` tag placed at the top-left intersection aligned with header heights.
+- **Complete Coverage & Fallbacks**: $100\%$ of all permutations are evaluated; valid Figma variants are instantiated, and unsupported combinations display a centered purple `None` placeholder.
 
 ---
 
