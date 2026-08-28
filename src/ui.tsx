@@ -183,6 +183,7 @@ export function Plugin(): h.JSX.Element {
     docGenerationStatus,
     docGenerationMessage,
     docProgress,
+    cancelDocGeneration,
     generateTokenDocs,
     updateDocsInPlace,
     generateComponentDocs,
@@ -545,6 +546,7 @@ export function Plugin(): h.JSX.Element {
             docGenerationStatus={docGenerationStatus}
             docProgress={docProgress}
             inventoryState={inventoryState}
+            onCancelDocGeneration={cancelDocGeneration}
             onGenerateComponentDocs={generateComponentDocs}
             onGenerateTokenDocs={generateTokenDocs}
             onLoadTokenCollections={loadTokenCollections}
@@ -638,11 +640,14 @@ function StorybookGenerator(props: {
   );
 }
 
+const DOC_ITEM_ICON = '💠';
+
 function DocumentationView(props: {
   docGenerationMessage: string;
   docGenerationStatus: 'error' | 'idle' | 'running' | 'success';
   docProgress: { message: string; percent: number } | null;
   inventoryState: ComponentInventoryState;
+  onCancelDocGeneration: () => void;
   onGenerateComponentDocs: (targetToken: string, targetFormat?: 'canvas' | 'markdown') => void;
   onGenerateTokenDocs: (collectionId: string, targetFormat?: 'canvas' | 'markdown') => void;
   onLoadTokenCollections: () => void;
@@ -660,6 +665,7 @@ function DocumentationView(props: {
     docGenerationStatus,
     docProgress,
     inventoryState,
+    onCancelDocGeneration,
     onGenerateComponentDocs,
     onGenerateTokenDocs,
     onLoadTokenCollections,
@@ -669,6 +675,9 @@ function DocumentationView(props: {
     tokenCollectionsStatus,
   } = props;
 
+  const [scope, setScope] = useState<'tokens' | 'components'>('tokens');
+  const [tokenSearchQuery, setTokenSearchQuery] = useState('');
+  const [componentSearchQuery, setComponentSearchQuery] = useState('');
   const [selectedCollectionId, setSelectedCollectionId] = useState<string | null>(null);
   const [selectedTargetToken, setSelectedTargetToken] = useState<string | null>(null);
 
@@ -699,266 +708,292 @@ function DocumentationView(props: {
     }
   }, [inventoryState, selectedTargetToken]);
 
-  const collectionOptions = tokenCollections.map((c) => ({
-    value: c.id,
-    text: `${c.name} (${c.tokenCount} tokens, ${c.modes.length} mode${c.modes.length === 1 ? '' : 's'})`,
-  }));
+  const filteredCollections = tokenCollections.filter((c) => {
+    const q = tokenSearchQuery.trim().toLowerCase();
+    if (!q) return true;
+    return c.name.toLowerCase().includes(q);
+  });
 
-  const componentOptions = inventoryState.status === 'ready'
-    ? inventoryState.items.map((item) => ({
-        value: item.targetToken,
-        text: `${item.componentName} (${item.status === 'connected' ? 'Connected' : 'Not Connected'})`,
-      }))
+  const filteredComponents = inventoryState.status === 'ready'
+    ? inventoryState.items.filter((item) => {
+        const q = componentSearchQuery.trim().toLowerCase();
+        if (!q) return true;
+        return item.componentName.toLowerCase().includes(q);
+      })
     : [];
 
-  const safeCollectionValue = collectionOptions.some((o) => o.value === selectedCollectionId)
-    ? selectedCollectionId
-    : null;
-
-  const safeComponentValue = componentOptions.some((o) => o.value === selectedTargetToken)
-    ? selectedTargetToken
-    : null;
+  const isRunning = docGenerationStatus === 'running';
 
   return (
     <main aria-labelledby="docs-heading" class="docs-view">
-      <h1 id="docs-heading" style={{ fontSize: '18px', fontWeight: 600, margin: '0 0 8px' }}>Documentation Generator</h1>
-      <p style={{ color: 'var(--figma-color-text-secondary)', fontSize: '12px', margin: '0 0 20px' }}>
-        Automatically create presentation-ready documentation frames on the Figma canvas or export structured Markdown.
-      </p>
-
-      {selectedDocFrame?.metadata && selectedDocFrame.frameNodeId ? (
-        <div
-          style={{
-            background: 'var(--figma-color-bg-secondary)',
-            border: selectedDocFrame.drift?.hasDrift
-              ? '1px solid var(--figma-color-border-warning-strong, #f54900)'
-              : '1px solid var(--figma-color-border)',
-            borderRadius: '8px',
-            padding: '16px',
-            marginBottom: '24px',
-          }}
-        >
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '8px' }}>
-            <span style={{ fontSize: '13px', fontWeight: 600 }}>
-              Selected Documentation: {selectedDocFrame.metadata.targetName}
-            </span>
-            <span
-              style={{
-                fontSize: '11px',
-                padding: '2px 8px',
-                borderRadius: '4px',
-                background: selectedDocFrame.drift?.hasDrift ? '#ffedd4' : '#dcfce7',
-                color: selectedDocFrame.drift?.hasDrift ? '#7e2a0c' : '#0d542b',
-                fontWeight: 500,
-              }}
-            >
-              {selectedDocFrame.drift?.hasDrift ? 'Out of Date (Drift Detected)' : 'Up to Date'}
-            </span>
-          </div>
-
-          <p style={{ fontSize: '11px', color: 'var(--figma-color-text-secondary)', margin: '0 0 12px' }}>
-            Type: {selectedDocFrame.metadata.docType} • Generated: {selectedDocFrame.metadata.generatedAt ? new Date(selectedDocFrame.metadata.generatedAt).toLocaleString() : 'Unknown'}
+      <div class="docs-scroll">
+        <div class="docs-header-block">
+          <h1 class="docs-title" id="docs-heading">Documentation Studio</h1>
+          <p class="docs-subtitle">
+            Generate presentation-ready specification sheets on the Figma canvas or export structured Markdown.
           </p>
+        </div>
 
-          {selectedDocFrame.drift?.hasDrift && selectedDocFrame.drift.changes ? (
-            <div style={{ marginBottom: '16px' }}>
-              <p style={{ fontSize: '11px', fontWeight: 600, color: 'var(--figma-color-text-warning, #f54900)', margin: '0 0 6px' }}>
-                Detected {selectedDocFrame.drift.changes.length} change{selectedDocFrame.drift.changes.length === 1 ? '' : 's'}:
-              </p>
-              <ul style={{ margin: 0, paddingLeft: '18px', fontSize: '11px', color: 'var(--figma-color-text)' }}>
-                {selectedDocFrame.drift.changes.slice(0, 5).map((change, idx) => (
-                  <li key={idx}>{change.message} {change.details ? `(${change.details})` : ''}</li>
+        {selectedDocFrame?.metadata && selectedDocFrame.frameNodeId ? (
+          <div class="docs-hud">
+            <div class="docs-hud-header">
+              <div class="docs-hud-title">
+                <span>Selected Documentation:</span>
+                <strong>{selectedDocFrame.metadata.targetName}</strong>
+              </div>
+              <span
+                class={`docs-hud-badge ${selectedDocFrame.drift?.hasDrift ? '' : 'docs-hud-badge-clean'}`}
+              >
+                {selectedDocFrame.drift?.hasDrift
+                  ? `${selectedDocFrame.drift.changes?.length ?? 1} Changes Detected`
+                  : 'Up to Date'}
+              </span>
+            </div>
+
+            <p class="docs-hud-desc">
+              Type: {selectedDocFrame.metadata.docType} • Generated:{' '}
+              {selectedDocFrame.metadata.generatedAt
+                ? new Date(selectedDocFrame.metadata.generatedAt).toLocaleDateString()
+                : 'Unknown'}
+            </p>
+
+            {selectedDocFrame.drift?.hasDrift && selectedDocFrame.drift.changes && selectedDocFrame.drift.changes.length > 0 ? (
+              <ul class="docs-hud-changes">
+                {selectedDocFrame.drift.changes.slice(0, 4).map((change, idx) => (
+                  <li class="docs-hud-change-item" key={idx}>
+                    • {change.message} {change.details ? `(${change.details})` : ''}
+                  </li>
                 ))}
-                {selectedDocFrame.drift.changes.length > 5 ? (
-                  <li>…and {selectedDocFrame.drift.changes.length - 5} more</li>
+                {selectedDocFrame.drift.changes.length > 4 ? (
+                  <li class="docs-hud-change-item">• …and {selectedDocFrame.drift.changes.length - 4} more</li>
                 ) : null}
               </ul>
-            </div>
-          ) : null}
-
-          <div style={{ display: 'flex', gap: '8px' }}>
-            <Button
-              disabled={docGenerationStatus === 'running'}
-              onClick={() => onUpdateDocsInPlace(selectedDocFrame.frameNodeId!)}
-            >
-              Update in Place
-            </Button>
-            {selectedDocFrame.metadata.docType === 'tokens' ? (
-              <Button
-                disabled={docGenerationStatus === 'running'}
-                onClick={() => onGenerateTokenDocs(selectedDocFrame.metadata!.targetId, 'markdown')}
-                secondary
-              >
-                Export Markdown
-              </Button>
             ) : null}
+
+            <div class="docs-hud-actions">
+              <Button
+                disabled={isRunning}
+                onClick={() => onUpdateDocsInPlace(selectedDocFrame.frameNodeId!)}
+              >
+                Update in Place
+              </Button>
+              {selectedDocFrame.metadata.docType === 'tokens' ? (
+                <Button
+                  disabled={isRunning}
+                  onClick={() => onGenerateTokenDocs(selectedDocFrame.metadata!.targetId, 'markdown')}
+                  secondary
+                >
+                  Export Markdown
+                </Button>
+              ) : null}
+            </div>
           </div>
+        ) : null}
+
+        <div class="docs-scope-container">
+          <span class="docs-scope-label">Documentation Scope</span>
+          <SegmentedControl
+            onValueChange={(val) => setScope(val as 'tokens' | 'components')}
+            options={[
+              { children: 'Design Tokens', value: 'tokens' },
+              { children: 'Components', value: 'components' },
+            ]}
+            value={scope}
+          />
         </div>
-      ) : null}
 
-      <div style={{ display: 'grid', rowGap: '20px' }}>
-        {/* Token Documentation Section */}
-        <div style={{ border: '1px solid var(--figma-color-border)', borderRadius: '8px', padding: '16px' }}>
-          <h2 style={{ fontSize: '14px', fontWeight: 600, margin: '0 0 4px' }}>Tokens Documentation</h2>
-          <p style={{ fontSize: '11px', color: 'var(--figma-color-text-secondary)', margin: '0 0 12px' }}>
-            Generate full design token spec sheet frames on the Figma canvas across all modes.
-          </p>
+        {scope === 'tokens' ? (
+          <div class="docs-scope-body">
+            <SearchTextbox
+              aria-label="Search token collections"
+              clearOnEscapeKeyDown
+              onValueInput={setTokenSearchQuery}
+              placeholder={tokenCollectionsStatus === 'loading' ? 'Loading collections…' : 'Search collections…'}
+              value={tokenSearchQuery}
+            />
 
-          <div style={{ marginBottom: '12px' }}>
-            <Field id="token-doc-collection" label="Variable Collection">
-              <Dropdown
-                disabled={collectionOptions.length === 0}
-                onValueChange={(val) => setSelectedCollectionId(val)}
-                options={collectionOptions}
-                placeholder={tokenCollectionsStatus === 'loading' ? 'Loading collections…' : 'Select a variable collection'}
-                value={safeCollectionValue}
+            <div class="docs-card-list">
+              {filteredCollections.length === 0 ? (
+                <div style={{ color: 'var(--figma-color-text-secondary)', fontSize: '11px', padding: '12px 0', textAlign: 'center' }}>
+                  {tokenCollectionsStatus === 'loading'
+                    ? 'Loading token collections…'
+                    : 'No token collections found.'}
+                </div>
+              ) : (
+                filteredCollections.map((col) => {
+                  const isSelected = col.id === selectedCollectionId;
+                  return (
+                    <div
+                      aria-checked={isSelected}
+                      class={`docs-card ${isSelected ? 'docs-card-active' : ''}`}
+                      key={col.id}
+                      onClick={() => setSelectedCollectionId(col.id)}
+                      role="radio"
+                      tabIndex={0}
+                    >
+                      <div class="docs-card-main">
+                        <div class="docs-card-left">
+                          <div aria-hidden="true" class="docs-card-icon">{DOC_ITEM_ICON}</div>
+                          <div class="docs-card-texts">
+                            <span class="docs-card-name">{col.name}</span>
+                            <span class="docs-card-sub">
+                              {col.tokenCount} token{col.tokenCount === 1 ? '' : 's'} • {col.modes.length} mode{col.modes.length === 1 ? '' : 's'}
+                            </span>
+                          </div>
+                        </div>
+                        <div class={`docs-card-radio ${isSelected ? 'docs-card-radio-active' : ''}`}>
+                          {isSelected ? '✓' : null}
+                        </div>
+                      </div>
+                      <div class="docs-card-footer">
+                        <div class="docs-card-tags">
+                          <span class="docs-tag">{col.tokenCount} Tokens</span>
+                          <span class="docs-tag">{col.modes.length} Modes</span>
+                        </div>
+                        {isSelected ? <span class="docs-tag-brand">Active</span> : null}
+                      </div>
+                    </div>
+                  );
+                })
+              )}
+            </div>
+          </div>
+        ) : (
+          <div class="docs-scope-body">
+            <SearchTextbox
+              aria-label="Search components"
+              clearOnEscapeKeyDown
+              onValueInput={setComponentSearchQuery}
+              placeholder={inventoryState.status === 'scanning' ? 'Scanning components…' : 'Search components in inventory…'}
+              value={componentSearchQuery}
+            />
+
+            <div class="docs-card-list">
+              {filteredComponents.length === 0 ? (
+                <div style={{ color: 'var(--figma-color-text-secondary)', fontSize: '11px', padding: '12px 0', textAlign: 'center' }}>
+                  {inventoryState.status === 'scanning'
+                    ? 'Scanning components…'
+                    : 'No matching components in inventory.'}
+                </div>
+              ) : (
+                filteredComponents.map((item) => {
+                  const isSelected = item.targetToken === selectedTargetToken;
+                  const isConnected = item.status === 'connected';
+                  return (
+                    <div
+                      aria-checked={isSelected}
+                      class={`docs-card ${isSelected ? 'docs-card-active' : ''}`}
+                      key={item.targetToken}
+                      onClick={() => setSelectedTargetToken(item.targetToken)}
+                      role="radio"
+                      tabIndex={0}
+                    >
+                      <div class="docs-card-main">
+                        <div class="docs-card-left">
+                          <div aria-hidden="true" class="docs-card-icon">{DOC_ITEM_ICON}</div>
+                          <div class="docs-card-texts">
+                            <span class="docs-card-name">{item.componentName}</span>
+                            <span class="docs-card-sub">
+                              {isConnected ? 'Connected to code source' : 'Standalone component'}
+                            </span>
+                          </div>
+                        </div>
+                        <span class={`docs-tag ${isConnected ? 'docs-tag-success' : 'docs-tag-warning'}`}>
+                          {isConnected ? 'Connected' : 'Not Connected'}
+                        </span>
+                      </div>
+                      <div class="docs-card-footer">
+                        <div class="docs-card-tags">
+                          <span class="docs-tag">{item.nodeType === 'COMPONENT_SET' ? 'Component Set' : 'Component'}</span>
+                        </div>
+                        {isSelected ? <span class="docs-tag-brand">Active</span> : null}
+                      </div>
+                    </div>
+                  );
+                })
+              )}
+            </div>
+          </div>
+        )}
+
+        {isRunning || docProgress ? (
+          <div aria-live="polite" class="docs-progress-box">
+            <div class="docs-progress-row">
+              <span class="docs-progress-text">
+                {docProgress?.message || docGenerationMessage || 'Processing…'}
+              </span>
+              <div class="docs-progress-right">
+                <span class="docs-progress-pct">{docProgress?.percent ?? 0}%</span>
+                <Button
+                  disabled={!isRunning && !docProgress}
+                  onClick={onCancelDocGeneration}
+                  secondary
+                >
+                  Cancel
+                </Button>
+              </div>
+            </div>
+            <div
+              aria-label={`${docProgress?.percent ?? 0}% complete`}
+              aria-valuemax={100}
+              aria-valuemin={0}
+              aria-valuenow={docProgress?.percent ?? 0}
+              class="docs-progress-track"
+              role="progressbar"
+            >
+              <div
+                class="docs-progress-fill"
+                style={{ width: `${Math.max(2, docProgress?.percent ?? 0)}%` }}
               />
-            </Field>
+            </div>
           </div>
-
-          <div style={{ display: 'flex', gap: '8px' }}>
-            <Button
-              disabled={!safeCollectionValue || docGenerationStatus === 'running'}
-              onClick={() => {
-                if (safeCollectionValue) {
-                  onGenerateTokenDocs(safeCollectionValue, 'canvas');
-                }
-              }}
-            >
-              Generate on Canvas
-            </Button>
-            <Button
-              disabled={!safeCollectionValue || docGenerationStatus === 'running'}
-              onClick={() => {
-                if (safeCollectionValue) {
-                  onGenerateTokenDocs(safeCollectionValue, 'markdown');
-                }
-              }}
-              secondary
-            >
-              Export Markdown
-            </Button>
+        ) : docGenerationMessage ? (
+          <div
+            aria-live="polite"
+            style={{
+              background: docGenerationStatus === 'error' ? 'var(--figma-color-bg-danger, #fee2e2)' : 'var(--figma-color-bg-secondary)',
+              borderRadius: '6px',
+              color: docGenerationStatus === 'error' ? 'var(--figma-color-text-danger, #991b1b)' : 'var(--figma-color-text)',
+              fontSize: '11px',
+              padding: '8px 12px',
+            }}
+          >
+            {docGenerationMessage}
           </div>
-        </div>
-
-        {/* Component Documentation Section */}
-        <div style={{ border: '1px solid var(--figma-color-border)', borderRadius: '8px', padding: '16px' }}>
-          <h2 style={{ fontSize: '14px', fontWeight: 600, margin: '0 0 4px' }}>Component Specification</h2>
-          <p style={{ fontSize: '11px', color: 'var(--figma-color-text-secondary)', margin: '0 0 12px' }}>
-            Generate props tables, code usage snippets, and variant matrix documentation for components.
-          </p>
-
-          <div style={{ marginBottom: '12px' }}>
-            <Field id="component-doc-target" label="Target Component">
-              <Dropdown
-                disabled={componentOptions.length === 0}
-                onValueChange={(val) => setSelectedTargetToken(val)}
-                options={componentOptions}
-                placeholder={inventoryState.status === 'scanning' ? 'Scanning components…' : 'Select a component'}
-                value={safeComponentValue}
-              />
-            </Field>
-          </div>
-
-          <div style={{ display: 'flex', gap: '8px' }}>
-            <Button
-              disabled={!safeComponentValue || docGenerationStatus === 'running'}
-              onClick={() => {
-                if (safeComponentValue) {
-                  onGenerateComponentDocs(safeComponentValue, 'canvas');
-                }
-              }}
-            >
-              Generate Spec on Canvas
-            </Button>
-            <Button
-              disabled={!safeComponentValue || docGenerationStatus === 'running'}
-              onClick={() => {
-                if (safeComponentValue) {
-                  onGenerateComponentDocs(safeComponentValue, 'markdown');
-                }
-              }}
-              secondary
-            >
-              Export Markdown
-            </Button>
-          </div>
-        </div>
+        ) : null}
       </div>
 
-      {docGenerationStatus === 'running' || docProgress ? (
-        <div
-          aria-live="polite"
-          style={{
-            marginTop: '16px',
-            padding: '12px 14px',
-            borderRadius: '8px',
-            border: '1px solid var(--figma-color-border, #e5e7eb)',
-            background: 'var(--figma-color-bg-secondary, #f9fafb)',
+      <footer class="docs-footer">
+        <Button
+          disabled={
+            (scope === 'tokens' ? !selectedCollectionId : !selectedTargetToken) || isRunning
+          }
+          onClick={() => {
+            if (scope === 'tokens' && selectedCollectionId) {
+              onGenerateTokenDocs(selectedCollectionId, 'canvas');
+            } else if (scope === 'components' && selectedTargetToken) {
+              onGenerateComponentDocs(selectedTargetToken, 'canvas');
+            }
           }}
         >
-          <div
-            style={{
-              display: 'flex',
-              justifyContent: 'space-between',
-              alignItems: 'center',
-              marginBottom: '8px',
-            }}
-          >
-            <span style={{ fontSize: '11px', fontWeight: 500, color: 'var(--figma-color-text, #101828)' }}>
-              {docProgress?.message || docGenerationMessage || 'Processing…'}
-            </span>
-            <span
-              style={{
-                fontSize: '11px',
-                fontFamily: 'var(--figma-font-mono, monospace)',
-                fontWeight: 600,
-                color: 'var(--figma-color-text-brand, #0d99ff)',
-              }}
-            >
-              {docProgress?.percent ?? 0}%
-            </span>
-          </div>
-          <div
-            aria-label={`${docProgress?.percent ?? 0}% complete`}
-            aria-valuemax={100}
-            aria-valuemin={0}
-            aria-valuenow={docProgress?.percent ?? 0}
-            role="progressbar"
-            style={{
-              width: '100%',
-              height: '6px',
-              background: 'var(--figma-color-bg-tertiary, #e5e7eb)',
-              borderRadius: '999px',
-              overflow: 'hidden',
-            }}
-          >
-            <div
-              style={{
-                width: `${Math.max(2, docProgress?.percent ?? 0)}%`,
-                height: '100%',
-                background: 'var(--figma-color-bg-brand, #0d99ff)',
-                borderRadius: '999px',
-                transition: 'width 200ms ease-out',
-              }}
-            />
-          </div>
-        </div>
-      ) : docGenerationMessage ? (
-        <div
-          aria-live="polite"
-          style={{
-            marginTop: '16px',
-            padding: '10px 12px',
-            borderRadius: '6px',
-            fontSize: '11px',
-            background: docGenerationStatus === 'error' ? '#fee2e2' : '#f0fdf4',
-            color: docGenerationStatus === 'error' ? '#991b1b' : '#166534',
+          {scope === 'tokens' ? 'Generate on Canvas' : 'Generate Spec on Canvas'}
+        </Button>
+        <Button
+          disabled={
+            (scope === 'tokens' ? !selectedCollectionId : !selectedTargetToken) || isRunning
+          }
+          onClick={() => {
+            if (scope === 'tokens' && selectedCollectionId) {
+              onGenerateTokenDocs(selectedCollectionId, 'markdown');
+            } else if (scope === 'components' && selectedTargetToken) {
+              onGenerateComponentDocs(selectedTargetToken, 'markdown');
+            }
           }}
+          secondary
         >
-          {docGenerationMessage}
-        </div>
-      ) : null}
+          Export Markdown
+        </Button>
+      </footer>
     </main>
   );
 }

@@ -230,6 +230,7 @@ export type ConnectionController = {
   docGenerationStatus: 'error' | 'idle' | 'running' | 'success';
   docGenerationMessage: string;
   docProgress: { message: string; percent: number } | null;
+  cancelDocGeneration: () => void;
   generateTokenDocs: (collectionId: string, targetFormat?: 'canvas' | 'markdown') => void;
   updateDocsInPlace: (frameNodeId: string) => void;
   generateComponentDocs: (targetToken: string, targetFormat?: 'canvas' | 'markdown') => void;
@@ -1602,6 +1603,12 @@ export function useConnectionController(): ConnectionController {
     emit<GenerateComponentDocsHandler>('GENERATE_COMPONENT_DOCS', { targetToken, targetFormat });
   };
 
+  const cancelDocGeneration = (): void => {
+    setDocGenerationStatus('idle');
+    setDocProgress(null);
+    setDocGenerationMessage('');
+  };
+
   return {
     activePendingOperation: activePendingMutation?.operation,
     cancelClear,
@@ -1673,6 +1680,7 @@ export function useConnectionController(): ConnectionController {
     docGenerationStatus,
     docGenerationMessage,
     docProgress,
+    cancelDocGeneration,
     generateTokenDocs,
     updateDocsInPlace,
     generateComponentDocs,

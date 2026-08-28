@@ -62,6 +62,7 @@ is the version of record.
 
 ### Changed
 
+- Redesigned the **Docs** tab using native Figma UI component primitives (`@create-figma-plugin/ui`), introducing a segmented scope selector (`Design Tokens` vs `Components`), interactive category collection cards with live token and mode counters, instant search filtering, a smart in-place reconciliation HUD with diff chips, and a real-time progress bar with an interactive Cancel action.
 - Layout Composer now references a text layer's Figma Text Style by name (as an
   inline `/* Text style: "…" */` comment, snake_case) instead of emitting its
   `font-family`/`font-size`/`font-weight`/`line-height`/`letter-spacing`
