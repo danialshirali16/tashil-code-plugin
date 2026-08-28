@@ -1341,8 +1341,8 @@ export async function createComponentDocFrame(
       if (cellFrame.children.length === 0) {
         const noneText = createTextNode('None', 14, FONT_MEDIUM, {
           r: 0.58,
-          g: 0.64,
-          b: 0.72,
+          g: 0.2,
+          b: 0.92,
         });
         cellFrame.appendChild(noneText);
       }
