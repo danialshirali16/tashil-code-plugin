@@ -1137,86 +1137,198 @@ export async function createComponentDocFrame(
   onProgress?.('Loading typography…', 15);
   await loadRequiredFonts();
 
-  onProgress?.('Setting up component specification frame…', 30);
+  onProgress?.('Setting up component variants showcase…', 30);
   const targetPage = options.page ?? figma.currentPage;
+
+  // Measure component natural dimensions
+  let naturalW = 100;
+  let naturalH = 48;
+  if (options.componentNode) {
+    try {
+      const node = options.componentNode;
+      const targetComponent = node.type === 'COMPONENT_SET'
+        ? ((node as ComponentSetNode).defaultVariant ?? ((node as ComponentSetNode).children[0] as ComponentNode))
+        : (node as ComponentNode);
+      if (targetComponent && 'createInstance' in targetComponent) {
+        const sample = targetComponent.createInstance();
+        naturalW = Math.max(20, sample.width);
+        naturalH = Math.max(20, sample.height);
+        sample.remove();
+      }
+    } catch (_e) {
+      // Use fallback defaults
+    }
+  }
+
+  const matrix = doc.matrix ?? {
+    columnHeaders: [{ propertyName: 'Variant', value: 'Default' }],
+    primaryXAxis: { propertyName: 'Variant', values: ['Default'] },
+    primaryYAxis: { propertyName: 'State', values: ['Default'] },
+    rows: [{
+      cells: [{ combination: {}, title: 'Default' }],
+      rowHeader: { propertyName: 'State', value: 'Default' },
+    }],
+  };
+
+  const baseCellW = Math.max(Math.ceil(naturalW) + 48, 120);
+  const cellHeight = Math.max(Math.ceil(naturalH) + 36, 80);
+
+  const columnWidths = matrix.columnHeaders.map((colHeader) => {
+    const labelText = `${colHeader.propertyName.toLowerCase()}: ${colHeader.value}`;
+    const textW = labelText.length * 9 + 32;
+    return Math.max(textW, baseCellW);
+  });
+
   const rootFrame = figma.createFrame();
-  rootFrame.name = `Spec • <${doc.componentName} />`;
-  rootFrame.resize(FRAME_WIDTH, 100);
-  rootFrame.layoutMode = 'VERTICAL';
+  rootFrame.name = `<${doc.componentName} /> • Variants`;
+  rootFrame.layoutMode = 'HORIZONTAL';
   rootFrame.primaryAxisSizingMode = 'AUTO';
-  rootFrame.counterAxisSizingMode = 'FIXED';
-  rootFrame.itemSpacing = 0;
+  rootFrame.counterAxisSizingMode = 'AUTO';
+  rootFrame.paddingLeft = 56;
+  rootFrame.paddingRight = 56;
+  rootFrame.paddingTop = 56;
+  rootFrame.paddingBottom = 56;
+  rootFrame.itemSpacing = 24;
   rootFrame.fills = [{ color: { r: 1, g: 1, b: 1 }, type: 'SOLID' }];
+  rootFrame.cornerRadius = 16;
+  rootFrame.strokes = [{ color: { r: 0.9, g: 0.91, b: 0.93 }, type: 'SOLID' }];
+  rootFrame.strokeWeight = 1;
 
   if (options.x !== undefined && options.y !== undefined) {
     rootFrame.x = options.x;
     rootFrame.y = options.y;
   } else {
-    rootFrame.x = figma.viewport.center.x - FRAME_WIDTH / 2;
-    rootFrame.y = figma.viewport.center.y - 400;
+    rootFrame.x = figma.viewport.center.x - 300;
+    rootFrame.y = figma.viewport.center.y - 200;
   }
 
-  // Header & Hero
-  onProgress?.('Creating Header & Hero…', 45);
-  rootFrame.appendChild(await createHeaderBar(doc.componentName));
+  // Y-Axis Labels Column
+  const yAxisCol = figma.createFrame();
+  yAxisCol.name = 'Y-Axis Labels';
+  yAxisCol.layoutMode = 'VERTICAL';
+  yAxisCol.itemSpacing = 16;
+  yAxisCol.paddingTop = 44; // Aligns with rows below the X header
+  yAxisCol.fills = [];
 
-  const hero = figma.createFrame();
-  hero.name = '.[Documentation] Hero';
-  hero.resize(FRAME_WIDTH, 300);
-  hero.layoutMode = 'VERTICAL';
-  hero.itemSpacing = 16;
-  hero.paddingLeft = 100;
-  hero.paddingRight = 100;
-  hero.paddingTop = 48;
-  hero.paddingBottom = 48;
-  hero.fills = [{ color: { r: 1, g: 1, b: 1 }, type: 'SOLID' }];
-  hero.strokes = [{ color: { r: 0.9, g: 0.91, b: 0.92 }, type: 'SOLID' }];
-  hero.strokeWeight = 1;
+  for (const row of matrix.rows) {
+    const yLabel = createYAxisBracket(
+      `${row.rowHeader.propertyName.toLowerCase()}: ${row.rowHeader.value}`,
+      cellHeight,
+    );
+    yAxisCol.appendChild(yLabel);
+  }
+  rootFrame.appendChild(yAxisCol);
 
-  const compTitle = createTextNode(`<${doc.componentName} />`, 48, FONT_MEDIUM, {
-    r: 0.06,
-    g: 0.1,
-    b: 0.16,
-  });
-  hero.appendChild(compTitle);
+  // Right Area (X-Headers + Instances Grid)
+  const rightArea = figma.createFrame();
+  rightArea.name = 'Grid Area';
+  rightArea.layoutMode = 'VERTICAL';
+  rightArea.itemSpacing = 16;
+  rightArea.fills = [];
 
-  const statsRow = figma.createFrame();
-  statsRow.name = 'Stats Chips';
-  statsRow.layoutMode = 'HORIZONTAL';
-  statsRow.itemSpacing = 12;
-  statsRow.counterAxisAlignItems = 'CENTER';
-  statsRow.fills = [];
+  // Top X-Axis Headers
+  const xHeadersRow = figma.createFrame();
+  xHeadersRow.name = 'X-Axis Headers';
+  xHeadersRow.layoutMode = 'HORIZONTAL';
+  xHeadersRow.itemSpacing = 16;
+  xHeadersRow.fills = [];
 
-  const propsCountChip = createChip(`${doc.props.length} Props`);
-  statsRow.appendChild(propsCountChip);
+  for (let c = 0; c < matrix.columnHeaders.length; c++) {
+    const colHeader = matrix.columnHeaders[c];
+    const colW = columnWidths[c];
+    const xLabel = createXAxisBracket(
+      `${colHeader.propertyName.toLowerCase()}: ${colHeader.value}`,
+      colW,
+    );
+    xHeadersRow.appendChild(xLabel);
+  }
+  rightArea.appendChild(xHeadersRow);
 
-  if (doc.variants.length > 0) {
-    const variantsCountChip = createChip(`${doc.variants.length} Variants`);
-    statsRow.appendChild(variantsCountChip);
+  // Instances Grid
+  onProgress?.('Instantiating component variants…', 60);
+  const instancesFrame = figma.createFrame();
+  instancesFrame.name = 'Instances';
+  instancesFrame.layoutMode = 'VERTICAL';
+  instancesFrame.itemSpacing = 16;
+  instancesFrame.fills = [];
+
+  for (const row of matrix.rows) {
+    const rowFrame = figma.createFrame();
+    rowFrame.name = 'Row';
+    rowFrame.layoutMode = 'HORIZONTAL';
+    rowFrame.itemSpacing = 16;
+    rowFrame.fills = [];
+
+    for (let c = 0; c < row.cells.length; c++) {
+      const cell = row.cells[c];
+      const colW = columnWidths[c];
+      const cellFrame = figma.createFrame();
+      cellFrame.name = 'Instance';
+      cellFrame.resize(colW, cellHeight);
+      cellFrame.layoutMode = 'HORIZONTAL';
+      cellFrame.counterAxisAlignItems = 'CENTER';
+      cellFrame.primaryAxisAlignItems = 'CENTER';
+      cellFrame.paddingLeft = 16;
+      cellFrame.paddingRight = 16;
+      cellFrame.paddingTop = 12;
+      cellFrame.paddingBottom = 12;
+      cellFrame.strokes = [{ color: { r: 0.54, g: 0.22, b: 0.96 }, type: 'SOLID' }];
+      cellFrame.strokeWeight = 1;
+      cellFrame.dashPattern = [4, 4];
+      cellFrame.cornerRadius = 6;
+      cellFrame.fills = [{ color: { r: 0.98, g: 0.97, b: 1 }, type: 'SOLID' }];
+
+      if (options.componentNode && options.componentNode.type === 'COMPONENT_SET') {
+        try {
+          const set = options.componentNode as ComponentSetNode;
+          const defaultVariant = set.defaultVariant ?? ((set.children[0] as ComponentNode) || null);
+          if (defaultVariant && 'createInstance' in defaultVariant) {
+            const inst = defaultVariant.createInstance();
+            if ('setProperties' in inst) {
+              inst.setProperties(cell.combination);
+            }
+            cellFrame.appendChild(inst);
+          }
+        } catch (_e) {
+          // Keep procedural fallback
+        }
+      } else if (options.componentNode && options.componentNode.type === 'COMPONENT') {
+        try {
+          const inst = (options.componentNode as ComponentNode).createInstance();
+          cellFrame.appendChild(inst);
+        } catch (_e) {
+          // Keep procedural fallback
+        }
+      }
+
+      if (cellFrame.children.length === 0) {
+        const preview = figma.createFrame();
+        preview.name = 'Preview';
+        preview.layoutMode = 'HORIZONTAL';
+        preview.counterAxisAlignItems = 'CENTER';
+        preview.primaryAxisAlignItems = 'CENTER';
+        preview.paddingLeft = 12;
+        preview.paddingRight = 12;
+        preview.paddingTop = 8;
+        preview.paddingBottom = 8;
+        preview.cornerRadius = 6;
+        preview.fills = [{ color: { r: 0.93, g: 0.9, b: 1 }, type: 'SOLID' }];
+        const previewText = createTextNode(cell.title, 12, FONT_MONO, {
+          r: 0.45,
+          g: 0.15,
+          b: 0.85,
+        });
+        preview.appendChild(previewText);
+        cellFrame.appendChild(preview);
+      }
+
+      rowFrame.appendChild(cellFrame);
+    }
+    instancesFrame.appendChild(rowFrame);
   }
 
-  hero.appendChild(statsRow);
-
-  const desc = createTextNode(doc.description, 18, FONT_REGULAR, { r: 0.21, g: 0.25, b: 0.33 });
-  hero.appendChild(desc);
-
-  rootFrame.appendChild(hero);
-
-  // Variant Matrix Section (node 1958:91236 style)
-  if (doc.matrix && doc.matrix.rows.length > 0) {
-    onProgress?.('Generating 2D variant matrix…', 65);
-    const matrixSection = createVariantMatrixSection(doc, options.componentNode);
-    rootFrame.appendChild(matrixSection);
-  }
-
-  // Props Table Section
-  onProgress?.('Generating props table…', 85);
-  const propsSection = createPropsTableSection(doc);
-  rootFrame.appendChild(propsSection);
-
-  // Footer
-  onProgress?.('Finalizing layout…', 95);
-  rootFrame.appendChild(await createFooterBar());
+  rightArea.appendChild(instancesFrame);
+  rootFrame.appendChild(rightArea);
 
   targetPage.appendChild(rootFrame);
 
@@ -1235,192 +1347,8 @@ export async function createComponentDocFrame(
   figma.currentPage.selection = [rootFrame];
   figma.viewport.scrollAndZoomIntoView([rootFrame]);
 
-  onProgress?.('Component spec generated!', 100);
+  onProgress?.('Component variants showcase generated!', 100);
   return rootFrame;
-}
-
-export function createVariantMatrixSection(
-  doc: ComponentDocDocument,
-  componentNode?: ComponentNode | ComponentSetNode,
-): FrameNode {
-  const matrix = doc.matrix!;
-  const section = figma.createFrame();
-  section.name = '.[Documentation] Section — Variant Matrix';
-  section.resize(FRAME_WIDTH, 100);
-  section.layoutMode = 'VERTICAL';
-  section.primaryAxisSizingMode = 'AUTO';
-  section.counterAxisSizingMode = 'FIXED';
-  section.itemSpacing = 28;
-  section.paddingLeft = 100;
-  section.paddingRight = 100;
-  section.paddingTop = 56;
-  section.paddingBottom = 56;
-  section.fills = [{ color: { r: 1, g: 1, b: 1 }, type: 'SOLID' }];
-
-  const title = createTextNode('Variant Matrix Specification', 32, FONT_MEDIUM, {
-    r: 0.06,
-    g: 0.1,
-    b: 0.16,
-  });
-  section.appendChild(title);
-
-  const sub = createTextNode(
-    `Visual permutations across ${matrix.primaryYAxis.propertyName} (rows) and ${matrix.primaryXAxis.propertyName} (columns).`,
-    16,
-    FONT_REGULAR,
-    { r: 0.42, g: 0.45, b: 0.51 },
-  );
-  section.appendChild(sub);
-
-  const matrixContainer = figma.createFrame();
-  matrixContainer.name = 'Variant Matrix';
-  matrixContainer.layoutMode = 'HORIZONTAL';
-  matrixContainer.itemSpacing = 24;
-  matrixContainer.counterAxisAlignItems = 'MIN';
-  matrixContainer.primaryAxisSizingMode = 'AUTO';
-  matrixContainer.counterAxisSizingMode = 'AUTO';
-  matrixContainer.fills = [];
-
-  const cellWidth = 164;
-  const cellHeight = 96;
-
-  // Y-Axis Labels Column
-  const yAxisCol = figma.createFrame();
-  yAxisCol.name = 'Y-Axis Labels';
-  yAxisCol.layoutMode = 'VERTICAL';
-  yAxisCol.itemSpacing = 16;
-  yAxisCol.paddingTop = 64; // Aligns with rows below the X header
-  yAxisCol.fills = [];
-
-  for (const row of matrix.rows) {
-    const yLabel = createYAxisBracket(
-      `${row.rowHeader.propertyName.toLowerCase()}: ${row.rowHeader.value}`,
-      cellHeight,
-    );
-    yAxisCol.appendChild(yLabel);
-  }
-  matrixContainer.appendChild(yAxisCol);
-
-  // Right Area (X-Headers + Instances Grid)
-  const rightArea = figma.createFrame();
-  rightArea.name = 'Grid Area';
-  rightArea.layoutMode = 'VERTICAL';
-  rightArea.itemSpacing = 16;
-  rightArea.fills = [];
-
-  // Top X-Axis Headers
-  const xHeadersRow = figma.createFrame();
-  xHeadersRow.name = 'X-Axis Headers';
-  xHeadersRow.layoutMode = 'HORIZONTAL';
-  xHeadersRow.itemSpacing = 16;
-  xHeadersRow.fills = [];
-
-  for (const colHeader of matrix.columnHeaders) {
-    const xLabel = createXAxisBracket(
-      `${colHeader.propertyName.toLowerCase()}: ${colHeader.value}`,
-      cellWidth,
-    );
-    xHeadersRow.appendChild(xLabel);
-  }
-  rightArea.appendChild(xHeadersRow);
-
-  // Instances Container
-  const instancesFrame = figma.createFrame();
-  instancesFrame.name = 'Instances';
-  instancesFrame.layoutMode = 'VERTICAL';
-  instancesFrame.itemSpacing = 16;
-  instancesFrame.fills = [];
-
-  for (const row of matrix.rows) {
-    const rowFrame = figma.createFrame();
-    rowFrame.name = 'Row';
-    rowFrame.layoutMode = 'HORIZONTAL';
-    rowFrame.itemSpacing = 16;
-    rowFrame.fills = [];
-
-    for (const cell of row.cells) {
-      const cellFrame = figma.createFrame();
-      cellFrame.name = 'Instance';
-      cellFrame.resize(cellWidth, cellHeight);
-      cellFrame.layoutMode = 'HORIZONTAL';
-      cellFrame.counterAxisAlignItems = 'CENTER';
-      cellFrame.primaryAxisAlignItems = 'CENTER';
-      cellFrame.paddingLeft = 12;
-      cellFrame.paddingRight = 12;
-      cellFrame.paddingTop = 12;
-      cellFrame.paddingBottom = 12;
-      cellFrame.strokes = [{ color: { r: 0.54, g: 0.22, b: 0.96 }, type: 'SOLID' }];
-      cellFrame.strokeWeight = 1;
-      cellFrame.dashPattern = [4, 4];
-      cellFrame.cornerRadius = 6;
-      cellFrame.fills = [{ color: { r: 0.98, g: 0.97, b: 1 }, type: 'SOLID' }];
-
-      // Try instantiating component
-      if (componentNode && componentNode.type === 'COMPONENT_SET') {
-        try {
-          const set = componentNode as ComponentSetNode;
-          const defaultVariant = set.defaultVariant ?? (set.children[0] as ComponentNode);
-          if (defaultVariant && 'createInstance' in defaultVariant) {
-            const inst = defaultVariant.createInstance();
-            if ('setProperties' in inst) {
-              inst.setProperties(cell.combination);
-            }
-            cellFrame.appendChild(inst);
-          }
-        } catch (_e) {
-          // Keep procedural fallback
-        }
-      }
-
-      if (cellFrame.children.length === 0) {
-        const preview = figma.createFrame();
-        preview.name = 'Preview';
-        preview.layoutMode = 'HORIZONTAL';
-        preview.counterAxisAlignItems = 'CENTER';
-        preview.primaryAxisAlignItems = 'CENTER';
-        preview.paddingLeft = 10;
-        preview.paddingRight = 10;
-        preview.paddingTop = 6;
-        preview.paddingBottom = 6;
-        preview.cornerRadius = 6;
-        preview.fills = [{ color: { r: 0.93, g: 0.9, b: 1 }, type: 'SOLID' }];
-        const previewText = createTextNode(cell.title, 11, FONT_MONO, {
-          r: 0.45,
-          g: 0.15,
-          b: 0.85,
-        });
-        preview.appendChild(previewText);
-        cellFrame.appendChild(preview);
-      }
-
-      rowFrame.appendChild(cellFrame);
-    }
-
-    instancesFrame.appendChild(rowFrame);
-  }
-
-  rightArea.appendChild(instancesFrame);
-  matrixContainer.appendChild(rightArea);
-  section.appendChild(matrixContainer);
-
-  return section;
-}
-
-function createChip(text: string): FrameNode {
-  const chip = figma.createFrame();
-  chip.name = 'Chip';
-  chip.layoutMode = 'HORIZONTAL';
-  chip.counterAxisAlignItems = 'CENTER';
-  chip.paddingLeft = 12;
-  chip.paddingRight = 12;
-  chip.paddingTop = 6;
-  chip.paddingBottom = 6;
-  chip.cornerRadius = 100;
-  chip.fills = [{ color: { r: 0.94, g: 0.95, b: 0.96 }, type: 'SOLID' }];
-
-  const label = createTextNode(text, 13, FONT_MEDIUM, { r: 0.2, g: 0.25, b: 0.33 });
-  chip.appendChild(label);
-  return chip;
 }
 
 function createYAxisBracket(text: string, height: number): FrameNode {
@@ -1428,7 +1356,7 @@ function createYAxisBracket(text: string, height: number): FrameNode {
   container.name = 'Label';
   container.layoutMode = 'HORIZONTAL';
   container.counterAxisAlignItems = 'CENTER';
-  container.itemSpacing = 8;
+  container.itemSpacing = 12;
   container.resize(160, height);
   container.fills = [];
 
@@ -1439,12 +1367,15 @@ function createYAxisBracket(text: string, height: number): FrameNode {
   });
   container.appendChild(textNode);
 
-  const bracket = figma.createFrame();
+  const bracket = figma.createVector();
   bracket.name = 'Bracket';
-  bracket.resize(14, Math.max(20, height - 8));
+  const bracketH = Math.max(20, height - 8);
+  bracket.vectorPaths = [{
+    windingRule: 'NONZERO',
+    data: `M 10 0 L 5 0 C 2 0 0 2 0 6 L 0 ${bracketH - 6} C 0 ${bracketH - 2} 2 ${bracketH} 5 ${bracketH} L 10 ${bracketH}`,
+  }];
   bracket.strokes = [{ color: { r: 0.54, g: 0.22, b: 0.96 }, type: 'SOLID' }];
-  bracket.strokeWeight = 1;
-  bracket.cornerRadius = 4;
+  bracket.strokeWeight = 1.5;
   bracket.fills = [];
   container.appendChild(bracket);
 
@@ -1456,8 +1387,8 @@ function createXAxisBracket(text: string, width: number): FrameNode {
   container.name = 'Label';
   container.layoutMode = 'VERTICAL';
   container.counterAxisAlignItems = 'CENTER';
-  container.itemSpacing = 8;
-  container.resize(width, 48);
+  container.itemSpacing = 6;
+  container.resize(width, 38);
   container.fills = [];
 
   const textNode = createTextNode(text, 14, FONT_MEDIUM, {
@@ -1467,124 +1398,19 @@ function createXAxisBracket(text: string, width: number): FrameNode {
   });
   container.appendChild(textNode);
 
-  const bracket = figma.createFrame();
+  const bracket = figma.createVector();
   bracket.name = 'Bracket';
-  bracket.resize(Math.max(20, width - 8), 12);
+  const bracketW = Math.max(20, width - 4);
+  bracket.vectorPaths = [{
+    windingRule: 'NONZERO',
+    data: `M 0 0 L 0 5 C 0 8 2 10 6 10 L ${bracketW - 6} 10 C ${bracketW - 2} 10 ${bracketW} 8 ${bracketW} 5 L ${bracketW} 0`,
+  }];
   bracket.strokes = [{ color: { r: 0.54, g: 0.22, b: 0.96 }, type: 'SOLID' }];
-  bracket.strokeWeight = 1;
-  bracket.cornerRadius = 4;
+  bracket.strokeWeight = 1.5;
   bracket.fills = [];
   container.appendChild(bracket);
 
   return container;
-}
-
-function createPropsTableSection(doc: ComponentDocDocument): FrameNode {
-  const section = figma.createFrame();
-  section.name = '.[Documentation] Section — Props';
-  section.resize(FRAME_WIDTH, 100);
-  section.layoutMode = 'VERTICAL';
-  section.primaryAxisSizingMode = 'AUTO';
-  section.counterAxisSizingMode = 'FIXED';
-  section.itemSpacing = 32;
-  section.paddingLeft = 100;
-  section.paddingRight = 100;
-  section.paddingTop = 56;
-  section.paddingBottom = 56;
-  section.fills = [{ color: { r: 1, g: 1, b: 1 }, type: 'SOLID' }];
-
-  const title = createTextNode('Props Specification', 32, FONT_MEDIUM, {
-    r: 0.06,
-    g: 0.1,
-    b: 0.16,
-  });
-  section.appendChild(title);
-
-  const table = figma.createFrame();
-  table.name = 'Props Table';
-  table.layoutMode = 'VERTICAL';
-  table.primaryAxisSizingMode = 'AUTO';
-  table.counterAxisSizingMode = 'FIXED';
-  table.resize(2000, 100);
-  table.cornerRadius = 8;
-  table.strokes = [{ color: { r: 0.9, g: 0.91, b: 0.92 }, type: 'SOLID' }];
-  table.strokeWeight = 1;
-  table.fills = [{ color: { r: 1, g: 1, b: 1 }, type: 'SOLID' }];
-
-  // Header row
-  const headerRow = figma.createFrame();
-  headerRow.name = 'Header Row';
-  headerRow.resize(2000, 48);
-  headerRow.layoutMode = 'HORIZONTAL';
-  headerRow.counterAxisAlignItems = 'CENTER';
-  headerRow.paddingLeft = 20;
-  headerRow.paddingRight = 20;
-  headerRow.strokes = [{ color: { r: 0.9, g: 0.91, b: 0.92 }, type: 'SOLID' }];
-  headerRow.strokeWeight = 1;
-  headerRow.fills = [{ color: { r: 0.98, g: 0.98, b: 0.99 }, type: 'SOLID' }];
-
-  headerRow.appendChild(createCellText('PROP', 350, FONT_MONO));
-  headerRow.appendChild(createCellText('TYPE', 450, FONT_MONO));
-  headerRow.appendChild(createCellText('REQUIRED', 150, FONT_MONO));
-  headerRow.appendChild(createCellText('DEFAULT', 250, FONT_MONO));
-  headerRow.appendChild(createCellText('FIGMA BINDING', 300, FONT_MONO));
-  headerRow.appendChild(createCellText('DESCRIPTION', 500, FONT_MONO));
-  table.appendChild(headerRow);
-
-  // Data rows
-  for (const prop of doc.props) {
-    const row = figma.createFrame();
-    row.name = `Prop Row — ${prop.name}`;
-    row.resize(2000, 56);
-    row.layoutMode = 'HORIZONTAL';
-    row.counterAxisAlignItems = 'CENTER';
-    row.paddingLeft = 20;
-    row.paddingRight = 20;
-    row.strokes = [{ color: { r: 0.9, g: 0.91, b: 0.92 }, type: 'SOLID' }];
-    row.strokeWeight = 1;
-    row.fills = [{ color: { r: 1, g: 1, b: 1 }, type: 'SOLID' }];
-
-    row.appendChild(createCellText(prop.name, 350, FONT_MONO, { r: 0.06, g: 0.1, b: 0.16 }));
-    row.appendChild(createCellText(prop.typeName, 450, FONT_MONO, { r: 0.14, g: 0.39, b: 0.92 }));
-    row.appendChild(
-      createCellText(prop.required ? 'Required' : 'Optional', 150, FONT_REGULAR, {
-        r: prop.required ? 0.9 : 0.42,
-        g: prop.required ? 0 : 0.45,
-        b: prop.required ? 0.04 : 0.51,
-      }),
-    );
-    row.appendChild(
-      createCellText(
-        prop.defaultValue !== undefined ? String(prop.defaultValue) : '-',
-        250,
-        FONT_REGULAR,
-      ),
-    );
-    row.appendChild(
-      createCellText(prop.mappedFigmaProperty ?? '-', 300, FONT_REGULAR, {
-        r: 0.08,
-        g: 0.59,
-        b: 0.54,
-      }),
-    );
-    row.appendChild(createCellText(prop.description ?? '-', 500, FONT_REGULAR));
-
-    table.appendChild(row);
-  }
-
-  section.appendChild(table);
-  return section;
-}
-
-function createCellText(
-  text: string,
-  width: number,
-  font: FontName,
-  color = { r: 0.42, g: 0.45, b: 0.51 },
-): TextNode {
-  const node = createTextNode(text, 14, font, color);
-  node.resize(width, node.height);
-  return node;
 }
 
 function createTextNode(

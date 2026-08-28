@@ -976,7 +976,7 @@ function DocumentationView(props: {
             }
           }}
         >
-          {scope === 'tokens' ? 'Generate on Canvas' : 'Generate Spec on Canvas'}
+          {scope === 'tokens' ? 'Generate on Canvas' : 'Generate Variants on Canvas'}
         </Button>
         <Button
           disabled={

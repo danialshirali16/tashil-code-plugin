@@ -2990,7 +2990,7 @@ async function generateComponentDocs(
       );
       emit<GenerateComponentDocsResultHandler>('GENERATE_COMPONENT_DOCS_RESULT', {
         ok: true,
-        message: `Created specification frame for <${doc.componentName} />.`,
+        message: `Generated variant matrix for <${doc.componentName} />.`,
         frameNodeId: frame.id,
       });
     }
