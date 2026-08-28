@@ -474,6 +474,25 @@ export type GenerateTokenDocsResultHandler = {
   }) => void;
 };
 
+export type LoadDocSourcePreviewHandler = {
+  name: 'LOAD_DOC_SOURCE_PREVIEW';
+  handler: (payload: {
+    requestId: string;
+    scope: 'components' | 'tokens';
+    targetId: string;
+  }) => void;
+};
+
+export type LoadDocSourcePreviewResultHandler = {
+  name: 'LOAD_DOC_SOURCE_PREVIEW_RESULT';
+  handler: (result: {
+    message?: string;
+    ok: boolean;
+    preview?: import('./documentation/types').DocSourcePreview;
+    requestId: string;
+  }) => void;
+};
+
 export type UpdateDocsInPlaceHandler = {
   name: 'UPDATE_DOCS_IN_PLACE';
   handler: (payload: {
@@ -524,5 +543,4 @@ export type DocGenerationProgressHandler = {
     percent: number;
   }) => void;
 };
-
 

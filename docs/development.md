@@ -35,7 +35,8 @@ npm run harness
 
 Then open `http://127.0.0.1:5178/dev/harness/index.html`. The harness includes a
 connected Button, generated Inspect Code output, token collections, and output
-settings. It is the source used for the README demo capture.
+settings, plus the searchable Docs library and its lazy source-preview fixtures.
+It is the source used for the README demo capture.
 
 ## Load the plugin in Figma
 
@@ -69,8 +70,8 @@ jsdom; plugin-side tests cover Figma API behavior with local test doubles.
 | Path | Responsibility |
 | --- | --- |
 | `src/main.ts` | Plugin entry point, Figma selection handling, shared plugin-data persistence, and Dev Mode codegen registration. |
-| `src/ui.tsx` | Connect Component, Inspect Code, and help views. |
-| `src/ui-controller.ts` | Source upload, mapping edits, save/clear operations, reconciliation, and UI messaging. |
+| `src/ui.tsx` | Connect Component, Inspect Code, Sync Tokens, Docs, Settings, and help views. |
+| `src/ui-controller.ts` | Source upload, mapping edits, save/clear operations, reconciliation, documentation previews, and UI messaging. |
 | `src/ui-state.ts` | Form state, validation, and pending mutation state. |
 | `src/source-schema.ts` | Local parsing of TypeScript props and simple implementation defaults. |
 | `src/mapping-editor.ts` | Compatible-property suggestions and visual mapping mutations. |

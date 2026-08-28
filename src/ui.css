@@ -3250,7 +3250,8 @@ body {
   }
 }
 
-.docs-view {
+.docs-library-view {
+  background: var(--figma-color-bg);
   box-sizing: border-box;
   display: flex;
   flex-direction: column;
@@ -3258,367 +3259,281 @@ body {
   height: 100%;
   min-height: 0;
   overflow: hidden;
-  position: relative;
   width: 100%;
 }
 
-.docs-scroll {
+.docs-library-scroll {
   box-sizing: border-box;
   display: flex;
   flex: 1 1 auto;
   flex-direction: column;
-  gap: 14px;
+  gap: 12px;
   min-height: 0;
   overflow-y: auto;
   padding: 16px;
   width: 100%;
 }
 
-.docs-header-block {
+.docs-library-header {
+  align-items: end;
   display: flex;
-  flex-direction: column;
-  gap: 4px;
+  gap: 16px;
+  justify-content: space-between;
 }
 
-.docs-title {
+.docs-library-header h1 {
   color: var(--figma-color-text);
-  font-size: 14px;
+  font-size: 16px;
   font-weight: 600;
-  line-height: 18px;
+  line-height: 22px;
   margin: 0;
 }
 
-.docs-subtitle {
+.docs-library-header p {
   color: var(--figma-color-text-secondary);
   font-size: 11px;
   line-height: 16px;
-  margin: 0;
+  margin: 2px 0 0;
 }
 
-.docs-hud {
-  background: var(--figma-color-bg-secondary);
-  border: 1px solid var(--figma-color-border);
-  border-radius: 8px;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  padding: 12px 14px;
-}
-
-.docs-hud-header {
+.docs-library-toolbar {
   align-items: center;
-  display: flex;
-  justify-content: space-between;
-}
-
-.docs-hud-title {
-  align-items: center;
-  color: var(--figma-color-text);
-  display: flex;
-  font-size: 12px;
-  font-weight: 600;
-  gap: 6px;
-}
-
-.docs-hud-badge {
-  background: var(--figma-color-bg-tertiary);
-  border: 1px solid var(--figma-color-border);
-  border-radius: 4px;
-  color: var(--figma-color-text-warning, #ea580c);
-  font-family: var(--figma-font-mono, monospace);
-  font-size: 10px;
-  font-weight: 600;
-  padding: 2px 6px;
-}
-
-.docs-hud-badge-clean {
-  color: #16a34a;
-}
-
-.docs-hud-desc {
-  color: var(--figma-color-text-secondary);
-  font-size: 11px;
-  line-height: 15px;
-  margin: 0;
-}
-
-.docs-hud-changes {
-  background: var(--figma-color-bg-tertiary);
-  border: 1px solid var(--figma-color-border);
-  border-radius: 6px;
-  font-family: var(--figma-font-mono, monospace);
-  font-size: 11px;
-  list-style: none;
-  margin: 0;
-  padding: 6px 8px;
-}
-
-.docs-hud-change-item {
-  color: var(--figma-color-text);
-  line-height: 16px;
-}
-
-.docs-hud-actions {
-  display: flex;
+  display: grid;
   gap: 8px;
-  padding-top: 4px;
-}
-
-.docs-scope-container {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
+  grid-template-columns: minmax(160px, 1fr);
   width: 100%;
 }
 
-.docs-scope-container > div,
-.docs-scope-container [class*="segmented-control"],
-.docs-scope-container [class*="segmentedControl"] {
-  display: flex !important;
-  width: 100% !important;
-}
-
-.docs-scope-container > div > *,
-.docs-scope-container [class*="segmented-control"] > *,
-.docs-scope-container [class*="segmentedControl"] > *,
-.docs-scope-container label {
-  box-sizing: border-box !important;
-  flex: 1 1 0% !important;
-  justify-content: center !important;
-  min-width: 0 !important;
-  text-align: center !important;
-  width: 100% !important;
-}
-
-.docs-scope-container label > span {
-  display: block !important;
-  overflow: hidden !important;
-  text-align: center !important;
-  text-overflow: ellipsis !important;
-  white-space: nowrap !important;
-  width: 100% !important;
-}
-
-.docs-scope-label {
-  color: var(--figma-color-text-secondary);
-  font-size: 11px;
-  font-weight: 500;
-}
-
-.docs-scope-body {
-  display: flex;
-  flex: 1 1 auto;
-  flex-direction: column;
-  gap: 10px;
-  min-height: 0;
+.docs-library-scope > div {
   width: 100%;
 }
 
-.docs-card-list {
-  display: flex;
-  flex: 1 1 auto;
-  flex-direction: column;
-  gap: 8px;
-  min-height: 0;
-  padding: 1px;
+.docs-library-scope > div > label {
+  flex: 1 1 0;
 }
 
-.docs-card {
-  background: var(--figma-color-bg-secondary);
-  border: 1px solid var(--figma-color-border);
-  border-radius: 8px;
-  cursor: pointer;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  padding: 10px 12px;
-  transition: all 120ms ease-out;
-}
-
-.docs-card:hover {
-  background: var(--figma-color-bg-hover, var(--figma-color-bg-tertiary));
-  border-color: var(--figma-color-border-brand-strong, #0d99ff);
-}
-
-.docs-card-active {
-  background: var(--figma-color-bg-secondary);
-  border-color: var(--figma-color-border-brand-strong, #0d99ff);
-  box-shadow: 0 0 0 1px var(--figma-color-border-brand-strong, #0d99ff);
-}
-
-.docs-card-main {
-  align-items: center;
-  display: flex;
-  justify-content: space-between;
-}
-
-.docs-card-left {
-  align-items: center;
-  display: flex;
-  gap: 10px;
-  min-width: 0;
-}
-
-.docs-card-icon {
-  align-items: center;
-  background: var(--figma-color-bg-tertiary);
-  border-radius: 6px;
-  color: var(--figma-color-text-brand, #0d99ff);
-  display: flex;
-  flex-shrink: 0;
-  font-size: 14px;
-  height: 28px;
-  justify-content: center;
-  width: 28px;
-}
-
-.docs-card-texts {
-  display: flex;
-  flex-direction: column;
-  min-width: 0;
-}
-
-.docs-card-name {
-  color: var(--figma-color-text);
-  font-size: 12px;
-  font-weight: 600;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.docs-card-sub {
-  color: var(--figma-color-text-secondary);
-  font-size: 10px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.docs-card-radio {
-  align-items: center;
-  border: 1px solid var(--figma-color-border);
-  border-radius: 999px;
-  display: flex;
-  flex-shrink: 0;
-  height: 14px;
-  justify-content: center;
-  width: 14px;
-}
-
-.docs-card-radio-active {
-  background: var(--figma-color-bg-brand, #0d99ff);
-  border-color: var(--figma-color-bg-brand, #0d99ff);
-  color: #ffffff;
-  font-size: 9px;
-  font-weight: bold;
-}
-
-.docs-card-footer {
-  align-items: center;
-  border-top: 1px solid var(--figma-color-border);
-  display: flex;
-  font-family: var(--figma-font-mono, monospace);
-  font-size: 10px;
-  justify-content: space-between;
-  padding-top: 6px;
-}
-
-.docs-card-tags {
-  display: flex;
-  gap: 4px;
-}
-
-.docs-tag {
-  background: var(--figma-color-bg-tertiary);
-  border-radius: 4px;
-  color: var(--figma-color-text-secondary);
-  padding: 1px 5px;
-}
-
-.docs-tag-brand {
-  color: var(--figma-color-text-brand, #0d99ff);
-  font-weight: 500;
-}
-
-.docs-tag-success {
-  background: rgba(34, 197, 94, 0.15);
-  border: 1px solid rgba(34, 197, 94, 0.3);
-  color: #16a34a;
-}
-
-.docs-tag-warning {
-  background: rgba(245, 73, 0, 0.15);
-  border: 1px solid rgba(245, 73, 0, 0.3);
-  color: #ea580c;
-}
-
-.docs-progress-box {
-  background: var(--figma-color-bg-secondary);
-  border: 1px solid var(--figma-color-border-brand-strong, #0d99ff);
-  border-radius: 8px;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  padding: 10px 12px;
-}
-
-.docs-progress-row {
-  align-items: center;
-  display: flex;
-  gap: 8px;
-  justify-content: space-between;
-}
-
-.docs-progress-text {
-  color: var(--figma-color-text-brand, #0d99ff);
-  font-size: 11px;
-  font-weight: 500;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.docs-progress-right {
-  align-items: center;
-  display: flex;
-  flex-shrink: 0;
-  gap: 8px;
-}
-
-.docs-progress-pct {
-  color: var(--figma-color-text-brand, #0d99ff);
-  font-family: var(--figma-font-mono, monospace);
-  font-size: 11px;
-  font-weight: 600;
-}
-
-.docs-progress-track {
-  background: var(--figma-color-bg-tertiary);
-  border-radius: 999px;
-  height: 5px;
-  overflow: hidden;
+.docs-library-scope > div > label > div {
   width: 100%;
 }
 
-.docs-progress-fill {
-  background: var(--figma-color-bg-brand, #0d99ff);
-  border-radius: 999px;
-  height: 100%;
-  transition: width 200ms ease-out;
-}
-
-.docs-footer {
-  align-items: center;
+.docs-library-reconcile {
   background: var(--figma-color-bg);
-  border-top: 1px solid var(--figma-color-border);
+  border: 1px solid var(--figma-color-border);
+  border-radius: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 8px;
+}
+
+.docs-library-banner-row {
+  align-items: start;
+  display: grid;
+  gap: 8px;
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+
+.docs-library-row-actions {
+  align-items: center;
   display: flex;
   flex: 0 0 auto;
   gap: 8px;
-  justify-content: flex-end;
-  min-height: 48px;
-  padding: 8px 16px;
-  z-index: 10;
+}
+
+.docs-library-selected-meta {
+  color: var(--figma-color-text-secondary);
+  font-size: 10px;
+  line-height: 14px;
+  margin: 0 8px;
+}
+
+.docs-library-change-list {
+  color: var(--figma-color-text-secondary);
+  display: grid;
+  font-size: 10px;
+  gap: 4px 20px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  line-height: 14px;
+  margin: 0 8px 2px;
+  padding-left: 16px;
+}
+
+.docs-library-list {
+  background: var(--figma-color-bg);
+  border: 1px solid var(--figma-color-border);
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.docs-library-source-row {
+  border-bottom: 1px solid var(--figma-color-border);
+}
+
+.docs-library-source-row:last-child {
+  border-bottom: 0;
+}
+
+.docs-library-source-row-selected {
+  background: var(--figma-color-bg-selected-secondary, var(--figma-color-bg-brand-tertiary));
+}
+
+.docs-library-source-select > label {
+  align-items: center;
+  box-sizing: border-box;
+  flex-direction: row-reverse;
+  min-height: 52px;
+  padding: 8px 12px;
+  width: 100%;
+}
+
+.docs-library-source-select > label:hover {
+  background: var(--figma-color-bg-hover);
+}
+
+.docs-library-source-select > label > div:last-child {
+  min-width: 0;
+  padding-top: 0;
+}
+
+.docs-library-source-copy {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.docs-library-source-copy strong {
+  color: var(--figma-color-text);
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 16px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.docs-library-source-copy > span {
+  color: var(--figma-color-text-secondary);
+  font-size: 10px;
+  line-height: 14px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.docs-library-empty {
+  color: var(--figma-color-text-secondary);
+  font-size: 11px;
+  min-height: 72px;
+  padding: 26px 12px;
+  text-align: center;
+}
+
+.docs-library-preview {
+  background: var(--figma-color-bg);
+  border: 1px solid var(--figma-color-border);
+  border-radius: 6px;
+  display: grid;
+  gap: 8px;
+  padding: 12px;
+}
+
+.docs-library-preview h2 {
+  color: var(--figma-color-text);
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 16px;
+  margin: 0;
+}
+
+.docs-library-preview-content {
+  display: grid;
+  gap: 4px;
+}
+
+.docs-library-preview-content strong {
+  color: var(--figma-color-text);
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 16px;
+}
+
+.docs-library-preview-content span,
+.docs-library-preview-content small,
+.docs-library-preview-loading,
+.docs-library-preview-error {
+  color: var(--figma-color-text-secondary);
+  font-size: 10px;
+  line-height: 14px;
+}
+
+.docs-library-preview-content small {
+  margin-top: 2px;
+}
+
+.docs-library-preview-loading {
+  align-items: center;
+  display: flex;
+  gap: 8px;
+}
+
+.docs-library-preview-error {
+  margin: 0;
+}
+
+.docs-library-progress {
+  align-items: center;
+  background: var(--figma-color-bg);
+  border: 1px solid var(--figma-color-border-brand-strong, #0d99ff);
+  border-radius: 6px;
+  display: grid;
+  gap: 10px;
+  grid-template-columns: auto minmax(140px, 1fr) auto auto;
+  padding: 8px 10px;
+}
+
+.docs-library-progress-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  min-width: 0;
+}
+
+.docs-library-progress-copy strong {
+  color: var(--figma-color-text);
+  font-size: 10px;
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.docs-library-progress-copy progress {
+  accent-color: var(--figma-color-bg-brand, #0d99ff);
+  height: 4px;
+  width: 100%;
+}
+
+.docs-library-progress > span {
+  color: var(--figma-color-text-secondary);
+  font-family: var(--figma-font-mono, monospace);
+  font-size: 10px;
+}
+
+.docs-library-result {
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+@media (max-width: 520px) {
+  .docs-library-toolbar {
+    grid-template-columns: 1fr;
+  }
+
+  .docs-library-banner-row,
+  .docs-library-change-list {
+    grid-template-columns: 1fr;
+  }
+
 }
 
 @media (max-width: 800px) {

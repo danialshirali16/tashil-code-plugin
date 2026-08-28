@@ -7,6 +7,7 @@ import {
   render,
   screen,
   waitFor,
+  within,
 } from '@testing-library/preact';
 import { h } from 'preact';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -354,6 +355,151 @@ describe('Plugin rendered interactions', () => {
     fireEvent.click(inspectTab);
     fireEvent.keyDown(inspectTab, { key: 'ArrowLeft' });
     expect(document.activeElement).toBe(connectTab);
+  });
+
+  it('presents documentation sources as native Figma rows with per-scope search', () => {
+    renderPlugin();
+    fireEvent.click(screen.getByRole('tab', { name: 'Docs' }));
+
+    receive('LOAD_TOKEN_COLLECTIONS_RESULT', {
+      ok: true,
+      collections: [
+        {
+          defaultModeId: 'light',
+          id: 'colors',
+          modes: [
+            { modeId: 'light', name: 'Light' },
+            { modeId: 'dark', name: 'Dark' },
+          ],
+          name: 'Colors',
+          tokenCount: 92,
+        },
+        {
+          defaultModeId: 'default',
+          id: 'spacing',
+          modes: [{ modeId: 'default', name: 'Default' }],
+          name: 'Spacing',
+          tokenCount: 28,
+        },
+      ],
+    });
+    receive('DOC_FRAME_SELECTED', {
+      drift: {
+        changes: [
+          { kind: 'token-added', message: 'Added Surface/Brand', targetName: 'Colors' },
+          { kind: 'token-value-changed', message: 'Changed Text/Primary', targetName: 'Colors' },
+        ],
+        hasDrift: true,
+        targetId: 'colors',
+        targetName: 'Colors',
+      },
+      frameNodeId: 'doc-frame-1',
+      metadata: {
+        contentHash: 'old-hash',
+        docType: 'tokens',
+        generatedAt: '2026-08-28T00:00:00.000Z',
+        modeIds: ['light', 'dark'],
+        schemaVersion: 1,
+        targetId: 'colors',
+        targetName: 'Colors',
+      },
+    });
+
+    expect(screen.getByRole('heading', { name: 'Documentation library' })).toBeTruthy();
+    const tokenSearch = screen.getByRole('textbox', { name: 'Search token collections' });
+    const tokenScope = screen.getByRole('radio', { name: 'Design tokens' });
+    const componentScope = screen.getByRole('radio', { name: 'Components' });
+    expect(tokenScope.compareDocumentPosition(tokenSearch) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    const docsHeader = document.querySelector('.docs-library-header');
+    const docsToolbar = document.querySelector('.docs-library-toolbar');
+    expect(docsHeader).toBeTruthy();
+    expect(docsToolbar).toBeTruthy();
+    expect(within(docsHeader as HTMLElement).getByRole('button', { name: 'Refresh' })).toBeTruthy();
+    expect(within(docsHeader as HTMLElement).queryByRole('button', { name: 'Refresh collections' })).toBeNull();
+    expect(within(docsToolbar as HTMLElement).queryByRole('button', { name: 'Refresh' })).toBeNull();
+    const sourceList = screen.getByRole('list', { name: 'Documentation sources' });
+    expect(within(sourceList).getAllByRole('listitem')).toHaveLength(2);
+    expect(within(sourceList).getByRole('checkbox', { name: /Colors/ })).toBeTruthy();
+    expect(within(sourceList).getByText('92 tokens · 2 modes')).toBeTruthy();
+    expect(screen.queryByRole('table', { name: 'Documentation sources' })).toBeNull();
+    expect(screen.getByText('Selected document “Colors” has 2 source changes.')).toBeTruthy();
+    expect(screen.queryByText('Design tokens · 2')).toBeNull();
+    expect(screen.queryByText('92 tokens across 2 modes')).toBeNull();
+    const docsFooter = document.querySelector('.docs-library-view > .sync-tokens-footer');
+    expect(docsFooter).toBeTruthy();
+    expect(within(docsFooter as HTMLElement).queryByRole('button', { name: 'Export Markdown' })).toBeNull();
+    expect(within(docsFooter as HTMLElement).getByRole('button', { name: 'Generate page' })).toBeTruthy();
+
+    fireEvent.input(tokenSearch, { target: { value: 'col' } });
+    const scanRequestCount = emittedPayloads('SCAN_COMPONENTS').length;
+    fireEvent.click(componentScope);
+    const componentSearch = screen.getByRole('textbox', { name: 'Search components' }) as HTMLInputElement;
+    expect(componentSearch.value).toBe('');
+    const componentRefresh = within(docsHeader as HTMLElement).getByRole('button', { name: 'Refresh' });
+    fireEvent.click(componentRefresh);
+    expect(emittedPayloads<{ includeCoverage?: boolean }>('SCAN_COMPONENTS')).toHaveLength(scanRequestCount + 1);
+    expect(emittedPayloads<{ includeCoverage?: boolean }>('SCAN_COMPONENTS').at(-1)?.includeCoverage).toBe(false);
+    fireEvent.input(componentSearch, { target: { value: 'button' } });
+    fireEvent.click(tokenScope);
+    expect((screen.getByRole('textbox', { name: 'Search token collections' }) as HTMLInputElement).value).toBe('col');
+  });
+
+  it('loads and renders a lightweight preview only for the selected token collection', () => {
+    renderPlugin();
+    fireEvent.click(screen.getByRole('tab', { name: 'Docs' }));
+
+    receive('LOAD_TOKEN_COLLECTIONS_RESULT', {
+      ok: true,
+      collections: [
+        {
+          defaultModeId: 'light',
+          id: 'colors',
+          modes: [
+            { modeId: 'light', name: 'Light' },
+            { modeId: 'dark', name: 'Dark' },
+          ],
+          name: 'Colors',
+          tokenCount: 92,
+        },
+        {
+          defaultModeId: 'default',
+          id: 'spacing',
+          modes: [{ modeId: 'default', name: 'Default' }],
+          name: 'Spacing',
+          tokenCount: 28,
+        },
+      ],
+    });
+
+    const requests = emittedPayloads<{
+      requestId: string;
+      scope: 'tokens' | 'components';
+      targetId: string;
+    }>('LOAD_DOC_SOURCE_PREVIEW');
+    expect(requests).toHaveLength(1);
+    expect(requests[0]).toEqual(expect.objectContaining({
+      scope: 'tokens',
+      targetId: 'colors',
+    }));
+    if (!requests[0]) return;
+
+    receive('LOAD_DOC_SOURCE_PREVIEW_RESULT', {
+      ok: true,
+      preview: {
+        groupCount: 3,
+        groupNames: ['Text', 'Background', 'Border'],
+        modeCount: 2,
+        scope: 'tokens',
+        targetId: 'colors',
+        tokenCount: 92,
+      },
+      requestId: requests[0].requestId,
+    });
+
+    const preview = screen.getByRole('region', { name: 'Documentation preview' });
+    expect(within(preview).getByText('3 groups will be generated')).toBeTruthy();
+    expect(within(preview).getByText('Text · Background · Border')).toBeTruthy();
+    expect(within(preview).getByText('92 tokens · 2 modes')).toBeTruthy();
   });
 
   it('loads and saves per-user output settings', () => {

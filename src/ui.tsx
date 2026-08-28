@@ -1,8 +1,10 @@
 import {
+  Banner,
   Button,
   Checkbox,
   Container,
   Dropdown,
+  IconApprovedCheckmark24,
   IconBackwardSmall24,
   IconCheck24,
   IconButton,
@@ -11,7 +13,11 @@ import {
   IconFolder24,
   IconHelp16,
   IconNewTab24,
+  IconRefresh16,
+  IconSearchSmall24,
   IconTimeSmall24,
+  IconWarningSmall24,
+  LoadingIndicator,
   render,
   SearchTextbox,
   SegmentedControl,
@@ -75,7 +81,11 @@ import type {
   OutputFormat,
   TokenCollectionSummary,
 } from './sync-tokens/types';
-import type { DocDriftReport, DocFrameMetadata } from './documentation/types';
+import type {
+  DocDriftReport,
+  DocFrameMetadata,
+  DocSourcePreview,
+} from './documentation/types';
 import { formatCssBlock } from './inspect/css-partition';
 import { formatUsageSnippet } from './inspect/usage-snippet';
 import type { FrameInspection } from './inspect/types';
@@ -183,7 +193,11 @@ export function Plugin(): h.JSX.Element {
     docGenerationStatus,
     docGenerationMessage,
     docProgress,
+    docSourcePreview,
+    docSourcePreviewError,
+    docSourcePreviewStatus,
     cancelDocGeneration,
+    loadDocSourcePreview,
     generateTokenDocs,
     updateDocsInPlace,
     generateComponentDocs,
@@ -545,11 +559,16 @@ export function Plugin(): h.JSX.Element {
             docGenerationMessage={docGenerationMessage}
             docGenerationStatus={docGenerationStatus}
             docProgress={docProgress}
+            docSourcePreview={docSourcePreview}
+            docSourcePreviewError={docSourcePreviewError}
+            docSourcePreviewStatus={docSourcePreviewStatus}
             inventoryState={inventoryState}
             onCancelDocGeneration={cancelDocGeneration}
             onGenerateComponentDocs={generateComponentDocs}
             onGenerateTokenDocs={generateTokenDocs}
+            onRefreshComponents={() => rescanComponents(false)}
             onLoadTokenCollections={loadTokenCollections}
+            onLoadSourcePreview={loadDocSourcePreview}
             onUpdateDocsInPlace={updateDocsInPlace}
             selectedDocFrame={selectedDocFrame}
             tokenCollections={tokenCollections}
@@ -640,16 +659,19 @@ function StorybookGenerator(props: {
   );
 }
 
-const DOC_ITEM_ICON = '💠';
-
 function DocumentationView(props: {
   docGenerationMessage: string;
   docGenerationStatus: 'error' | 'idle' | 'running' | 'success';
   docProgress: { message: string; percent: number } | null;
+  docSourcePreview: DocSourcePreview | null;
+  docSourcePreviewError: string;
+  docSourcePreviewStatus: 'error' | 'idle' | 'loading';
   inventoryState: ComponentInventoryState;
   onCancelDocGeneration: () => void;
   onGenerateComponentDocs: (targetToken: string, targetFormat?: 'canvas' | 'markdown') => void;
   onGenerateTokenDocs: (collectionId: string, targetFormat?: 'canvas' | 'markdown') => void;
+  onRefreshComponents: () => void;
+  onLoadSourcePreview: (scope: 'components' | 'tokens', targetId: string) => void;
   onLoadTokenCollections: () => void;
   onUpdateDocsInPlace: (frameNodeId: string) => void;
   selectedDocFrame: {
@@ -664,10 +686,15 @@ function DocumentationView(props: {
     docGenerationMessage,
     docGenerationStatus,
     docProgress,
+    docSourcePreview,
+    docSourcePreviewError,
+    docSourcePreviewStatus,
     inventoryState,
     onCancelDocGeneration,
     onGenerateComponentDocs,
     onGenerateTokenDocs,
+    onRefreshComponents,
+    onLoadSourcePreview,
     onLoadTokenCollections,
     onUpdateDocsInPlace,
     selectedDocFrame,
@@ -708,6 +735,13 @@ function DocumentationView(props: {
     }
   }, [inventoryState, selectedTargetToken]);
 
+  useEffect(() => {
+    const targetId = scope === 'tokens' ? selectedCollectionId : selectedTargetToken;
+    if (targetId) {
+      onLoadSourcePreview(scope, targetId);
+    }
+  }, [scope, selectedCollectionId, selectedTargetToken]);
+
   const filteredCollections = tokenCollections.filter((c) => {
     const q = tokenSearchQuery.trim().toLowerCase();
     if (!q) return true;
@@ -723,276 +757,231 @@ function DocumentationView(props: {
     : [];
 
   const isRunning = docGenerationStatus === 'running';
+  const hasSelectedSource = scope === 'tokens' ? Boolean(selectedCollectionId) : Boolean(selectedTargetToken);
+  const selectedDocChangeCount = selectedDocFrame?.drift?.changes?.length ?? 0;
 
   return (
-    <main aria-labelledby="docs-heading" class="docs-view">
-      <div class="docs-scroll">
-        <div class="docs-header-block">
-          <h1 class="docs-title" id="docs-heading">Documentation Studio</h1>
-          <p class="docs-subtitle">
-            Generate presentation-ready specification sheets on the Figma canvas or export structured Markdown.
-          </p>
-        </div>
-
-        {selectedDocFrame?.metadata && selectedDocFrame.frameNodeId ? (
-          <div class="docs-hud">
-            <div class="docs-hud-header">
-              <div class="docs-hud-title">
-                <span>Selected Documentation:</span>
-                <strong>{selectedDocFrame.metadata.targetName}</strong>
-              </div>
-              <span
-                class={`docs-hud-badge ${selectedDocFrame.drift?.hasDrift ? '' : 'docs-hud-badge-clean'}`}
-              >
-                {selectedDocFrame.drift?.hasDrift
-                  ? `${selectedDocFrame.drift.changes?.length ?? 1} Changes Detected`
-                  : 'Up to Date'}
-              </span>
-            </div>
-
-            <p class="docs-hud-desc">
-              Type: {selectedDocFrame.metadata.docType} • Generated:{' '}
-              {selectedDocFrame.metadata.generatedAt
-                ? new Date(selectedDocFrame.metadata.generatedAt).toLocaleDateString()
-                : 'Unknown'}
-            </p>
-
-            {selectedDocFrame.drift?.hasDrift && selectedDocFrame.drift.changes && selectedDocFrame.drift.changes.length > 0 ? (
-              <ul class="docs-hud-changes">
-                {selectedDocFrame.drift.changes.slice(0, 4).map((change, idx) => (
-                  <li class="docs-hud-change-item" key={idx}>
-                    • {change.message} {change.details ? `(${change.details})` : ''}
-                  </li>
-                ))}
-                {selectedDocFrame.drift.changes.length > 4 ? (
-                  <li class="docs-hud-change-item">• …and {selectedDocFrame.drift.changes.length - 4} more</li>
-                ) : null}
-              </ul>
-            ) : null}
-
-            <div class="docs-hud-actions">
-              <Button
-                disabled={isRunning}
-                onClick={() => onUpdateDocsInPlace(selectedDocFrame.frameNodeId!)}
-              >
-                Update in Place
-              </Button>
-              {selectedDocFrame.metadata.docType === 'tokens' ? (
-                <Button
-                  disabled={isRunning}
-                  onClick={() => onGenerateTokenDocs(selectedDocFrame.metadata!.targetId, 'markdown')}
-                  secondary
-                >
-                  Export Markdown
-                </Button>
-              ) : null}
-            </div>
+    <main aria-labelledby="docs-heading" class="docs-library-view">
+      <div class="docs-library-scroll">
+        <header class="docs-library-header">
+          <div>
+            <h1 id="docs-heading">Documentation library</h1>
+            <p>Publish and maintain design-system specifications.</p>
           </div>
-        ) : null}
+          <Button
+            onClick={scope === 'tokens' ? onLoadTokenCollections : onRefreshComponents}
+            secondary
+          >
+            <span class="button-content"><IconRefresh16 />Refresh</span>
+          </Button>
+        </header>
 
-        <div class="docs-scope-container">
-          <span class="docs-scope-label">Documentation Scope</span>
+        <div class="docs-library-scope">
           <SegmentedControl
-            onValueChange={(val) => setScope(val as 'tokens' | 'components')}
+            onValueChange={(value) => setScope(value as 'tokens' | 'components')}
             options={[
-              { children: 'Design Tokens', value: 'tokens' },
+              { children: 'Design tokens', value: 'tokens' },
               { children: 'Components', value: 'components' },
             ]}
             value={scope}
           />
         </div>
-
-        {scope === 'tokens' ? (
-          <div class="docs-scope-body">
-            <SearchTextbox
+        <div class="docs-library-toolbar">
+          {scope === 'tokens' ? (
+            <Textbox
               aria-label="Search token collections"
-              clearOnEscapeKeyDown
+              icon={<IconSearchSmall24 />}
               onValueInput={setTokenSearchQuery}
-              placeholder={tokenCollectionsStatus === 'loading' ? 'Loading collections…' : 'Search collections…'}
+              placeholder={tokenCollectionsStatus === 'loading' ? 'Loading collections…' : 'Search token collections…'}
               value={tokenSearchQuery}
             />
-
-            <div class="docs-card-list">
-              {filteredCollections.length === 0 ? (
-                <div style={{ color: 'var(--figma-color-text-secondary)', fontSize: '11px', padding: '12px 0', textAlign: 'center' }}>
-                  {tokenCollectionsStatus === 'loading'
-                    ? 'Loading token collections…'
-                    : 'No token collections found.'}
-                </div>
-              ) : (
-                filteredCollections.map((col) => {
-                  const isSelected = col.id === selectedCollectionId;
-                  return (
-                    <div
-                      aria-checked={isSelected}
-                      class={`docs-card ${isSelected ? 'docs-card-active' : ''}`}
-                      key={col.id}
-                      onClick={() => setSelectedCollectionId(col.id)}
-                      role="radio"
-                      tabIndex={0}
-                    >
-                      <div class="docs-card-main">
-                        <div class="docs-card-left">
-                          <div aria-hidden="true" class="docs-card-icon">{DOC_ITEM_ICON}</div>
-                          <div class="docs-card-texts">
-                            <span class="docs-card-name">{col.name}</span>
-                            <span class="docs-card-sub">
-                              {col.tokenCount} token{col.tokenCount === 1 ? '' : 's'} • {col.modes.length} mode{col.modes.length === 1 ? '' : 's'}
-                            </span>
-                          </div>
-                        </div>
-                        <div class={`docs-card-radio ${isSelected ? 'docs-card-radio-active' : ''}`}>
-                          {isSelected ? '✓' : null}
-                        </div>
-                      </div>
-                      <div class="docs-card-footer">
-                        <div class="docs-card-tags">
-                          <span class="docs-tag">{col.tokenCount} Tokens</span>
-                          <span class="docs-tag">{col.modes.length} Modes</span>
-                        </div>
-                        {isSelected ? <span class="docs-tag-brand">Active</span> : null}
-                      </div>
-                    </div>
-                  );
-                })
-              )}
-            </div>
-          </div>
-        ) : (
-          <div class="docs-scope-body">
-            <SearchTextbox
+          ) : (
+            <Textbox
               aria-label="Search components"
-              clearOnEscapeKeyDown
+              icon={<IconSearchSmall24 />}
               onValueInput={setComponentSearchQuery}
-              placeholder={inventoryState.status === 'scanning' ? 'Scanning components…' : 'Search components in inventory…'}
+              placeholder={inventoryState.status === 'scanning' ? 'Scanning components…' : 'Search components…'}
               value={componentSearchQuery}
             />
+          )}
+        </div>
 
-            <div class="docs-card-list">
-              {filteredComponents.length === 0 ? (
-                <div style={{ color: 'var(--figma-color-text-secondary)', fontSize: '11px', padding: '12px 0', textAlign: 'center' }}>
-                  {inventoryState.status === 'scanning'
-                    ? 'Scanning components…'
-                    : 'No matching components in inventory.'}
-                </div>
-              ) : (
-                filteredComponents.map((item) => {
-                  const isSelected = item.targetToken === selectedTargetToken;
-                  const isConnected = item.status === 'connected';
-                  return (
-                    <div
-                      aria-checked={isSelected}
-                      class={`docs-card ${isSelected ? 'docs-card-active' : ''}`}
-                      key={item.targetToken}
-                      onClick={() => setSelectedTargetToken(item.targetToken)}
-                      role="radio"
-                      tabIndex={0}
-                    >
-                      <div class="docs-card-main">
-                        <div class="docs-card-left">
-                          <div aria-hidden="true" class="docs-card-icon">{DOC_ITEM_ICON}</div>
-                          <div class="docs-card-texts">
-                            <span class="docs-card-name">{item.componentName}</span>
-                            <span class="docs-card-sub">
-                              {isConnected ? 'Connected to code source' : 'Standalone component'}
-                            </span>
-                          </div>
-                        </div>
-                        <span class={`docs-tag ${isConnected ? 'docs-tag-success' : 'docs-tag-warning'}`}>
-                          {isConnected ? 'Connected' : 'Not Connected'}
-                        </span>
-                      </div>
-                      <div class="docs-card-footer">
-                        <div class="docs-card-tags">
-                          <span class="docs-tag">{item.nodeType === 'COMPONENT_SET' ? 'Component Set' : 'Component'}</span>
-                        </div>
-                        {isSelected ? <span class="docs-tag-brand">Active</span> : null}
-                      </div>
-                    </div>
-                  );
-                })
-              )}
-            </div>
-          </div>
-        )}
-
-        {isRunning || docProgress ? (
-          <div aria-live="polite" class="docs-progress-box">
-            <div class="docs-progress-row">
-              <span class="docs-progress-text">
-                {docProgress?.message || docGenerationMessage || 'Processing…'}
-              </span>
-              <div class="docs-progress-right">
-                <span class="docs-progress-pct">{docProgress?.percent ?? 0}%</span>
+        {selectedDocFrame?.metadata && selectedDocFrame.frameNodeId ? (
+          <section class="docs-library-reconcile" aria-label="Selected documentation status">
+            <div class="docs-library-banner-row">
+              <Banner
+                icon={selectedDocFrame.drift?.hasDrift ? <IconWarningSmall24 /> : <IconApprovedCheckmark24 />}
+                variant={selectedDocFrame.drift?.hasDrift ? 'warning' : 'success'}
+              >
+                {selectedDocFrame.drift?.hasDrift
+                  ? `Selected document “${selectedDocFrame.metadata.targetName}” has ${selectedDocChangeCount || 1} source change${selectedDocChangeCount === 1 ? '' : 's'}.`
+                  : `Selected document “${selectedDocFrame.metadata.targetName}” is up to date.`}
+              </Banner>
+              <div class="docs-library-row-actions">
+                {selectedDocFrame.metadata.docType === 'tokens' ? (
+                  <Button
+                    disabled={isRunning}
+                    onClick={() => onGenerateTokenDocs(selectedDocFrame.metadata!.targetId, 'markdown')}
+                    secondary
+                  >
+                    Export Markdown
+                  </Button>
+                ) : null}
                 <Button
-                  disabled={!isRunning && !docProgress}
-                  onClick={onCancelDocGeneration}
-                  secondary
+                  disabled={isRunning}
+                  onClick={() => onUpdateDocsInPlace(selectedDocFrame.frameNodeId!)}
                 >
-                  Cancel
+                  Update in place
                 </Button>
               </div>
             </div>
-            <div
-              aria-label={`${docProgress?.percent ?? 0}% complete`}
-              aria-valuemax={100}
-              aria-valuemin={0}
-              aria-valuenow={docProgress?.percent ?? 0}
-              class="docs-progress-track"
-              role="progressbar"
-            >
+            <p class="docs-library-selected-meta">
+              Generated {selectedDocFrame.metadata.generatedAt
+                ? new Date(selectedDocFrame.metadata.generatedAt).toLocaleDateString()
+                : 'on an unknown date'} · {selectedDocFrame.metadata.docType}
+            </p>
+            {selectedDocFrame.drift?.hasDrift && selectedDocFrame.drift.changes?.length ? (
+              <ul class="docs-library-change-list">
+                {selectedDocFrame.drift.changes.slice(0, 4).map((change, index) => (
+                  <li key={index}>{change.message}{change.details ? ` (${change.details})` : ''}</li>
+                ))}
+                {selectedDocFrame.drift.changes.length > 4 ? (
+                  <li>…and {selectedDocFrame.drift.changes.length - 4} more</li>
+                ) : null}
+              </ul>
+            ) : null}
+          </section>
+        ) : null}
+
+        <section aria-label="Documentation sources" class="docs-library-list" role="list">
+          {scope === 'tokens' ? (
+            filteredCollections.length > 0 ? filteredCollections.map((collection) => {
+              const isSelected = collection.id === selectedCollectionId;
+              return (
+                <div
+                  class={`docs-library-source-row ${isSelected ? 'docs-library-source-row-selected' : ''}`}
+                  key={collection.id}
+                  role="listitem"
+                >
+                  <div class="docs-library-source-select">
+                    <Checkbox
+                      aria-label={`Select ${collection.name}`}
+                      onValueChange={() => setSelectedCollectionId(collection.id)}
+                      value={isSelected}
+                    >
+                      <span class="docs-library-source-copy">
+                        <strong>{collection.name}</strong>
+                        <span>{collection.tokenCount} tokens · {collection.modes.length} modes</span>
+                      </span>
+                    </Checkbox>
+                  </div>
+                </div>
+              );
+            }) : (
+              <div class="docs-library-empty">{tokenCollectionsStatus === 'loading' ? 'Loading token collections…' : 'No token collections found.'}</div>
+            )
+          ) : filteredComponents.length > 0 ? filteredComponents.map((item) => {
+            const isSelected = item.targetToken === selectedTargetToken;
+            const instanceCount = item.instanceCount ?? 0;
+            return (
               <div
-                class="docs-progress-fill"
-                style={{ width: `${Math.max(2, docProgress?.percent ?? 0)}%` }}
-              />
+                class={`docs-library-source-row ${isSelected ? 'docs-library-source-row-selected' : ''}`}
+                key={item.targetToken}
+                role="listitem"
+              >
+                <div class="docs-library-source-select">
+                  <Checkbox
+                    aria-label={`Select ${item.componentName}`}
+                    onValueChange={() => setSelectedTargetToken(item.targetToken)}
+                    value={isSelected}
+                  >
+                    <span class="docs-library-source-copy">
+                      <strong>{item.componentName}</strong>
+                      <span>{instanceCount} instance{instanceCount === 1 ? '' : 's'} · {item.pageName}</span>
+                    </span>
+                  </Checkbox>
+                </div>
+              </div>
+            );
+          }) : (
+            <div class="docs-library-empty">{inventoryState.status === 'scanning' ? 'Scanning components…' : 'No matching components in inventory.'}</div>
+          )}
+        </section>
+
+        {docSourcePreviewStatus !== 'idle' || docSourcePreview ? (
+          <section
+            aria-label="Documentation preview"
+            aria-live="polite"
+            class="docs-library-preview"
+            role="region"
+          >
+            <h2>Documentation preview</h2>
+            {docSourcePreviewStatus === 'loading' ? (
+              <div class="docs-library-preview-loading">
+                <LoadingIndicator />
+                <span>Calculating a lightweight preview…</span>
+              </div>
+            ) : docSourcePreviewStatus === 'error' ? (
+              <p class="docs-library-preview-error">{docSourcePreviewError}</p>
+            ) : docSourcePreview?.scope === 'tokens' ? (
+              <div class="docs-library-preview-content">
+                <strong>{docSourcePreview.groupCount} group{docSourcePreview.groupCount === 1 ? '' : 's'} will be generated</strong>
+                <span>
+                  {docSourcePreview.groupNames.join(' · ')}
+                  {docSourcePreview.groupCount > docSourcePreview.groupNames.length
+                    ? ` · +${docSourcePreview.groupCount - docSourcePreview.groupNames.length} more`
+                    : ''}
+                </span>
+                <small>{docSourcePreview.tokenCount} tokens · {docSourcePreview.modeCount} modes</small>
+              </div>
+            ) : docSourcePreview?.scope === 'components' ? (
+              <div class="docs-library-preview-content">
+                <strong>{docSourcePreview.combinationCount.toLocaleString()} variant combination{docSourcePreview.combinationCount === 1 ? '' : 's'} will be generated</strong>
+                <span>{docSourcePreview.propertyCount} variant propert{docSourcePreview.propertyCount === 1 ? 'y' : 'ies'}</span>
+                <small>{docSourcePreview.sourceName}</small>
+              </div>
+            ) : null}
+          </section>
+        ) : null}
+
+        {isRunning || docProgress ? (
+          <div aria-live="polite" class="docs-library-progress">
+            <LoadingIndicator />
+            <div class="docs-library-progress-copy">
+              <strong>{docProgress?.message || docGenerationMessage || 'Processing…'}</strong>
+              <progress aria-label="Documentation generation progress" max={100} value={docProgress?.percent ?? 0} />
             </div>
+            <span>{docProgress?.percent ?? 0}%</span>
+            <Button onClick={onCancelDocGeneration} secondary>Cancel</Button>
           </div>
         ) : docGenerationMessage ? (
-          <div
-            aria-live="polite"
-            style={{
-              background: docGenerationStatus === 'error' ? 'var(--figma-color-bg-danger, #fee2e2)' : 'var(--figma-color-bg-secondary)',
-              borderRadius: '6px',
-              color: docGenerationStatus === 'error' ? 'var(--figma-color-text-danger, #991b1b)' : 'var(--figma-color-text)',
-              fontSize: '11px',
-              padding: '8px 12px',
-            }}
-          >
-            {docGenerationMessage}
+          <div aria-live="polite" class="docs-library-result">
+            <Banner
+              icon={docGenerationStatus === 'error' ? <IconWarningSmall24 /> : <IconApprovedCheckmark24 />}
+              variant={docGenerationStatus === 'error' ? 'warning' : 'success'}
+            >
+              {docGenerationMessage}
+            </Banner>
           </div>
         ) : null}
       </div>
 
-      <footer class="docs-footer">
-        <Button
-          disabled={
-            (scope === 'tokens' ? !selectedCollectionId : !selectedTargetToken) || isRunning
-          }
-          onClick={() => {
-            if (scope === 'tokens' && selectedCollectionId) {
-              onGenerateTokenDocs(selectedCollectionId, 'canvas');
-            } else if (scope === 'components' && selectedTargetToken) {
-              onGenerateComponentDocs(selectedTargetToken, 'canvas');
-            }
-          }}
-        >
-          {scope === 'tokens' ? 'Generate on Canvas' : 'Generate Variants on Canvas'}
-        </Button>
-        <Button
-          disabled={
-            (scope === 'tokens' ? !selectedCollectionId : !selectedTargetToken) || isRunning
-          }
-          onClick={() => {
-            if (scope === 'tokens' && selectedCollectionId) {
-              onGenerateTokenDocs(selectedCollectionId, 'markdown');
-            } else if (scope === 'components' && selectedTargetToken) {
-              onGenerateComponentDocs(selectedTargetToken, 'markdown');
-            }
-          }}
-          secondary
-        >
-          Export Markdown
-        </Button>
+      <footer class="sync-tokens-footer">
+        <div class="spacer" />
+        <div class="primary-actions">
+          <Button
+            disabled={!hasSelectedSource || isRunning}
+            onClick={() => {
+              if (scope === 'tokens' && selectedCollectionId) {
+                onGenerateTokenDocs(selectedCollectionId, 'canvas');
+              } else if (scope === 'components' && selectedTargetToken) {
+                onGenerateComponentDocs(selectedTargetToken, 'canvas');
+              }
+            }}
+          >
+            {scope === 'tokens' ? 'Generate page' : 'Generate variants'}
+          </Button>
+        </div>
       </footer>
     </main>
   );

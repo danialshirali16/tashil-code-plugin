@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import * as tokenDocModel from './token-doc-model';
 import { buildTokenDocDocument, computeCollectionHash, type RawCollectionData } from './token-doc-model';
 
 describe('buildTokenDocDocument', () => {
@@ -36,6 +37,28 @@ describe('buildTokenDocDocument', () => {
       },
     ],
   };
+
+  it('summarizes generated groups from token names without resolving token values', () => {
+    const summarize = (tokenDocModel as unknown as {
+      summarizeTokenDocGroups?: (
+        tokenNames: readonly string[],
+        collectionName: string,
+      ) => { groupCount: number; groupNames: string[] };
+    }).summarizeTokenDocGroups;
+
+    expect(summarize).toBeTypeOf('function');
+    if (!summarize) return;
+
+    expect(summarize([
+      'color/text/default',
+      'color/bg/default',
+      'color/bg/hover',
+      'Radius/Card',
+    ], 'Colors')).toEqual({
+      groupCount: 3,
+      groupNames: ['Text', 'Bg', 'Radius'],
+    });
+  });
 
   it('groups tokens into logical semantic sections', () => {
     const doc = buildTokenDocDocument(sampleCollection);

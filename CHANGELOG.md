@@ -64,7 +64,15 @@ is the version of record.
 
 ### Changed
 
-- Redesigned the **Docs** tab using native Figma UI component primitives (`@create-figma-plugin/ui`), introducing a segmented scope selector (`Design Tokens` vs `Components`), interactive category collection cards with live token and mode counters, instant search filtering, a smart in-place reconciliation HUD with diff chips, and a real-time progress bar with an interactive Cancel action.
+- Redesigned the **Docs** tab as a compact documentation library built from
+  native Figma UI primitives (`@create-figma-plugin/ui`). Design-token and
+  component sources now use separate searches beneath a Figma segmented control,
+  selectable title-and-caption rows with native checkboxes, a header-level
+  scope-aware refresh action, a single primary canvas action in the footer,
+  lazy selected-source previews for token groups and component variant
+  combinations, an in-place update banner, and cancellable generation progress
+  without changing the generation workflow.
+  See the [Token Documentation guide](docs/token-documentation.md).
 - Layout Composer now references a text layer's Figma Text Style by name (as an
   inline `/* Text style: "…" */` comment, snake_case) instead of emitting its
   `font-family`/`font-size`/`font-weight`/`line-height`/`letter-spacing`

@@ -414,6 +414,52 @@ function respond(name: string, payload: unknown): void {
         collections: TOKEN_COLLECTIONS,
       });
       break;
+    case 'LOAD_DOC_SOURCE_PREVIEW': {
+      const previewRequest = (payload ?? {}) as {
+        requestId?: string;
+        scope?: 'components' | 'tokens';
+        targetId?: string;
+      };
+      const collection = TOKEN_COLLECTIONS.find((item) => item.id === previewRequest.targetId);
+      if (previewRequest.scope === 'tokens' && collection) {
+        const groupsByCollection: Record<string, string[]> = {
+          measurement: ['Spacing', 'Radius', 'Border'],
+          product: ['Color', 'Typography', 'Spacing', 'Elevation', 'Motion'],
+          references: ['Color', 'Opacity', 'Gradient', 'Surface'],
+          typography: ['Font Family', 'Font Size', 'Line Height'],
+        };
+        const groupNames = groupsByCollection[collection.id] ?? ['General'];
+        send('LOAD_DOC_SOURCE_PREVIEW_RESULT', {
+          ok: true,
+          preview: {
+            groupCount: groupNames.length,
+            groupNames: groupNames.slice(0, 3),
+            modeCount: collection.modes.length,
+            scope: 'tokens',
+            sourceName: collection.name,
+            targetId: collection.id,
+            tokenCount: collection.tokenCount,
+          },
+          requestId: previewRequest.requestId,
+        });
+      } else {
+        const item = INVENTORY.status === 'ready'
+          ? INVENTORY.items.find((candidate) => candidate.targetToken === previewRequest.targetId)
+          : undefined;
+        send('LOAD_DOC_SOURCE_PREVIEW_RESULT', {
+          ok: Boolean(item),
+          preview: item ? {
+            combinationCount: item.nodeType === 'COMPONENT_SET' ? 27 : 0,
+            propertyCount: item.nodeType === 'COMPONENT_SET' ? 3 : 0,
+            scope: 'components',
+            sourceName: item.componentName,
+            targetId: item.targetToken,
+          } : undefined,
+          requestId: previewRequest.requestId,
+        });
+      }
+      break;
+    }
     case 'PREVIEW_TOKENS': {
       const previewRequest = (payload ?? {}) as {
         collectionIds?: readonly string[];

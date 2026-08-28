@@ -95,6 +95,8 @@ import {
   type DocFrameSelectedHandler,
   type GenerateTokenDocsHandler,
   type GenerateTokenDocsResultHandler,
+  type LoadDocSourcePreviewHandler,
+  type LoadDocSourcePreviewResultHandler,
   type UpdateDocsInPlaceHandler,
   type UpdateDocsInPlaceResultHandler,
   type GenerateComponentDocsHandler,
@@ -103,11 +105,15 @@ import {
 } from './types';
 import {
   buildTokenDocDocument,
+  summarizeTokenDocGroups,
   type RawCollectionData,
   type RawVariableValue,
 } from './documentation/token-doc-model';
 import { diffComponentDocument, diffTokenDocument } from './documentation/doc-diff';
-import { buildComponentDocDocument } from './documentation/component-doc-model';
+import {
+  buildComponentDocDocument,
+  summarizeComponentVariants,
+} from './documentation/component-doc-model';
 import {
   emitComponentDocMarkdown,
   emitTokenDocMarkdown,
@@ -217,6 +223,10 @@ export default function (): void {
 
   on<GenerateTokenDocsHandler>('GENERATE_TOKEN_DOCS', (payload) => {
     void generateTokenDocs(payload.collectionId, payload.targetFormat);
+  });
+
+  on<LoadDocSourcePreviewHandler>('LOAD_DOC_SOURCE_PREVIEW', (payload) => {
+    void loadDocSourcePreview(payload);
   });
 
   on<UpdateDocsInPlaceHandler>('UPDATE_DOCS_IN_PLACE', (payload) => {
@@ -2798,6 +2808,69 @@ async function loadRawCollectionData(collectionId: string): Promise<RawCollectio
   }
 }
 
+async function loadDocSourcePreview(payload: {
+  requestId: string;
+  scope: 'components' | 'tokens';
+  targetId: string;
+}): Promise<void> {
+  try {
+    if (payload.scope === 'tokens') {
+      const collections = await figma.variables.getLocalVariableCollectionsAsync();
+      const collection = collections.find((candidate) => candidate.id === payload.targetId);
+      if (!collection) {
+        throw new Error('Token collection is no longer available.');
+      }
+
+      const collectionVariableIds = new Set(collection.variableIds);
+      const variables = await figma.variables.getLocalVariablesAsync();
+      const tokenNames = variables
+        .filter((variable) => collectionVariableIds.has(variable.id))
+        .map((variable) => variable.name);
+      const summary = summarizeTokenDocGroups(tokenNames, collection.name);
+
+      emit<LoadDocSourcePreviewResultHandler>('LOAD_DOC_SOURCE_PREVIEW_RESULT', {
+        ok: true,
+        preview: {
+          ...summary,
+          groupNames: summary.groupNames.slice(0, 3),
+          modeCount: collection.modes.length,
+          scope: 'tokens',
+          sourceName: collection.name,
+          targetId: collection.id,
+          tokenCount: collection.variableIds.length,
+        },
+        requestId: payload.requestId,
+      });
+      return;
+    }
+
+    const targetResult = await resolveTargetById(payload.targetId);
+    if (!targetResult.ok) {
+      throw new Error(targetResult.message);
+    }
+    const mainComponent = targetResult.selection.mainComponent;
+    const snapshot = createFigmaComponentSnapshot(mainComponent);
+    const summary = summarizeComponentVariants(snapshot.properties);
+
+    emit<LoadDocSourcePreviewResultHandler>('LOAD_DOC_SOURCE_PREVIEW_RESULT', {
+      ok: true,
+      preview: {
+        ...summary,
+        scope: 'components',
+        sourceName: mainComponent.name,
+        targetId: payload.targetId,
+      },
+      requestId: payload.requestId,
+    });
+  } catch (error) {
+    emit<LoadDocSourcePreviewResultHandler>('LOAD_DOC_SOURCE_PREVIEW_RESULT', {
+      message: errorMessage(error, 'load documentation preview'),
+      ok: false,
+      requestId: payload.requestId,
+    });
+  }
+}
+
 async function generateTokenDocs(
   collectionId: string,
   targetFormat: 'canvas' | 'markdown' = 'canvas',
@@ -3002,4 +3075,3 @@ async function generateComponentDocs(
     });
   }
 }
-

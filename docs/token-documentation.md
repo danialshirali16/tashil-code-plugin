@@ -11,8 +11,11 @@ Tashil Code can generate presentation-ready, pixel-accurate design token documen
 
 1. Open the plugin in Figma (<kbd>Cmd</kbd> + <kbd>Option</kbd> + <kbd>P</kbd> or via the Plugins menu).
 2. Switch to the **Docs** tab.
-3. Select your desired Variable Collection from the collection picker (e.g. `Colors`, `Spacing`, `Radius`).
-4. Click **Generate on Canvas**.
+3. In **Documentation library**, choose **Design tokens** in the scope control and select a
+   Variable Collection row (for example `Colors`, `Spacing`, or `Radius`). Use
+   the token search field directly below the scope control to narrow long lists.
+4. Review the lightweight preview for the number of generated groups and a few
+   representative group names, then click **Generate page** in the bottom action bar.
 5. The plugin will:
    - Construct a structured, presentation-ready specification frame using the Swiss Army Knife design system.
    - Group variables into clean sections matching your Figma folder structure (`Surface`, `Border`, `Text`, etc.).
@@ -28,8 +31,9 @@ Tashil Code can generate presentation-ready, pixel-accurate design token documen
 When you add new tokens, rename variables, or modify token values in Figma:
 
 1. Select the previously generated documentation frame on your canvas.
-2. In the plugin's **Docs** tab, the interface will detect the selected frame and display the **Update in Place** button.
-3. Click **Update in Place**.
+2. In the plugin's **Docs** tab, a native status banner reports whether the
+   selected document is current or lists source changes that need attention.
+3. Click **Update in place** beside the banner.
 4. The plugin will:
    - Reconcile all text labels, values, and swatch fills in place without moving the frame or disrupting its position on canvas.
    - Add new token rows or prune removed variables while preserving auto layout and table alignment.
@@ -41,8 +45,9 @@ When you add new tokens, rename variables, or modify token values in Figma:
 
 If you want code-ready documentation for Storybook or a developer portal:
 
-1. In the **Docs** tab, choose **Markdown** as the output format.
-2. Click **Generate Markdown**.
+1. Select a previously generated token-documentation frame on the Figma canvas.
+2. In the **Docs** tab, click **Export Markdown** beside the selected document's
+   status banner.
 3. Copy the formatted Markdown tables or save them directly into your documentation repository.
 
 ---
