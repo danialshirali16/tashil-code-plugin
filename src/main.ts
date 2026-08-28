@@ -2958,20 +2958,21 @@ async function generateComponentDocs(
       return;
     }
 
-    reportProgress('Reading connection metadata…', 10);
-    const connection = readConnectionMetadata(targetResult.selection.mainComponent);
-    if (!connection.ok) {
-      emit<GenerateComponentDocsResultHandler>('GENERATE_COMPONENT_DOCS_RESULT', {
-        ok: false,
-        message: 'Component is not connected.',
-      });
-      return;
-    }
-
-    reportProgress('Extracting props & schema…', 15);
+    reportProgress('Extracting component properties & variants…', 15);
     const figmaSnapshot = createFigmaComponentSnapshot(targetResult.selection.mainComponent);
-    const sourceSnapshot = connection.metadata.mappingDocument?.sourceSnapshot;
-    const doc = buildComponentDocDocument(connection.metadata, sourceSnapshot, figmaSnapshot);
+    const connection = readConnectionMetadata(targetResult.selection.mainComponent);
+    const connectionMeta: ConnectionMetadata = connection.ok
+      ? connection.metadata
+      : {
+          componentName: targetResult.selection.mainComponent.name,
+          importPath: `@tashilcar/swiss-army-knife`,
+          schemaVersion: 5,
+        };
+    const sourceSnapshot = connection.ok
+      ? connection.metadata.mappingDocument?.sourceSnapshot
+      : undefined;
+
+    const doc = buildComponentDocDocument(connectionMeta, sourceSnapshot, figmaSnapshot);
 
     if (targetFormat === 'markdown') {
       reportProgress('Formatting Markdown specification…', 70);
