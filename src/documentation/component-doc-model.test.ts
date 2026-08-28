@@ -56,5 +56,16 @@ describe('component-doc-model', () => {
     expect(doc.matrix?.rows[0].cells).toHaveLength(9); // 3 Style * 3 Size = 9 cells per row
     expect(doc.matrix?.rows[0].cells[0].combination).toHaveProperty('Intent', 'primary');
     expect(doc.matrix?.rows[0].cells[0].combination).toHaveProperty('Style', 'tonal');
+
+    // Verify layered X-tiers and Y-tiers
+    expect(doc.matrix?.xTiers).toBeDefined();
+    expect(doc.matrix?.xTiers).toHaveLength(2); // Style (Tier 0) + Size (Tier 1)
+    expect(doc.matrix?.xTiers?.[0].propertyName).toBe('Style');
+    expect(doc.matrix?.xTiers?.[0].groups).toHaveLength(3);
+    expect(doc.matrix?.xTiers?.[0].groups[0].span).toBe(3); // 3 sizes per style
+
+    expect(doc.matrix?.yTiers).toBeDefined();
+    expect(doc.matrix?.yTiers).toHaveLength(1); // Intent (Tier 0)
+    expect(doc.matrix?.yTiers?.[0].groups).toHaveLength(3);
   });
 });

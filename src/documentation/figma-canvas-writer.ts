@@ -1173,11 +1173,27 @@ export async function createComponentDocFrame(
   const baseCellW = Math.max(Math.ceil(naturalW) + 48, 120);
   const cellHeight = Math.max(Math.ceil(naturalH) + 36, 80);
 
-  const columnWidths = matrix.columnHeaders.map((colHeader) => {
-    const labelText = colHeader.value;
-    const textW = labelText.length * 9 + 32;
-    return Math.max(textW, baseCellW);
-  });
+  const xTiers = doc.matrix?.xTiers ?? [];
+  const yTiers = doc.matrix?.yTiers ?? [];
+  const numColumns = matrix.rows[0]?.cells.length ?? matrix.columnHeaders.length;
+
+  const columnWidths: number[] = [];
+  for (let c = 0; c < numColumns; c++) {
+    let maxNeededForCol = baseCellW;
+    for (const tier of xTiers) {
+      const group = tier.groups.find(
+        (g) => (g.colStart ?? 0) <= c && c < (g.colStart ?? 0) + g.span,
+      );
+      if (group) {
+        const textWidth = group.label.length * 8.5 + 24;
+        const perCol = Math.ceil(textWidth / group.span);
+        if (perCol > maxNeededForCol) {
+          maxNeededForCol = perCol;
+        }
+      }
+    }
+    columnWidths.push(maxNeededForCol);
+  }
 
   const rootFrame = figma.createFrame();
   rootFrame.name = `<${doc.componentName} /> • Variants`;
@@ -1203,53 +1219,207 @@ export async function createComponentDocFrame(
     rootFrame.y = figma.viewport.center.y - 200;
   }
 
-  // Y-Axis Labels Column
-  const yAxisCol = figma.createFrame();
-  yAxisCol.name = 'Y-Axis Labels';
-  yAxisCol.layoutMode = 'VERTICAL';
-  yAxisCol.primaryAxisSizingMode = 'AUTO';
-  yAxisCol.counterAxisSizingMode = 'AUTO';
-  yAxisCol.itemSpacing = 0;
-  yAxisCol.paddingTop = 48; // Matches X-Axis Headers height
-  yAxisCol.fills = [];
-
-  for (const row of matrix.rows) {
-    const yLabel = createYAxisBracket(
-      row.rowHeader.value,
-      cellHeight,
-    );
-    yAxisCol.appendChild(yLabel);
-  }
-  rootFrame.appendChild(yAxisCol);
-
   // Right Area (X-Headers + Instances Grid)
   const rightArea = figma.createFrame();
   rightArea.name = 'Grid Area';
   rightArea.layoutMode = 'VERTICAL';
   rightArea.primaryAxisSizingMode = 'AUTO';
   rightArea.counterAxisSizingMode = 'AUTO';
-  rightArea.itemSpacing = 0;
+  rightArea.itemSpacing = 8;
   rightArea.fills = [];
 
-  // Top X-Axis Headers
-  const xHeadersRow = figma.createFrame();
-  xHeadersRow.name = 'X-Axis Headers';
-  xHeadersRow.layoutMode = 'HORIZONTAL';
-  xHeadersRow.primaryAxisSizingMode = 'AUTO';
-  xHeadersRow.counterAxisSizingMode = 'AUTO';
-  xHeadersRow.itemSpacing = 0;
-  xHeadersRow.fills = [];
+  // Layered X-Axis Headers
+  const xHeadersArea = figma.createFrame();
+  xHeadersArea.name = 'X-Axis Headers';
+  xHeadersArea.layoutMode = 'VERTICAL';
+  xHeadersArea.primaryAxisSizingMode = 'AUTO';
+  xHeadersArea.counterAxisSizingMode = 'AUTO';
+  xHeadersArea.itemSpacing = 8;
+  xHeadersArea.fills = [];
 
-  for (let c = 0; c < matrix.columnHeaders.length; c++) {
-    const colHeader = matrix.columnHeaders[c];
-    const colW = columnWidths[c];
-    const xLabel = createXAxisBracket(
-      colHeader.value,
-      colW,
-    );
-    xHeadersRow.appendChild(xLabel);
+  if (xTiers.length > 0) {
+    for (let t = 0; t < xTiers.length; t++) {
+      const tier = xTiers[t];
+      const tierRow = figma.createFrame();
+      tierRow.name = `Tier ${t} — ${tier.propertyName}`;
+      tierRow.layoutMode = 'HORIZONTAL';
+      tierRow.primaryAxisSizingMode = 'AUTO';
+      tierRow.counterAxisSizingMode = 'AUTO';
+      tierRow.itemSpacing = 0;
+      tierRow.fills = [];
+
+      const isLeafTier = t === xTiers.length - 1;
+
+      for (const group of tier.groups) {
+        const colStart = group.colStart ?? 0;
+        let groupW = 0;
+        for (let i = colStart; i < colStart + group.span; i++) {
+          groupW += columnWidths[i] ?? baseCellW;
+        }
+
+        const groupContainer = figma.createFrame();
+        groupContainer.name = `Label — ${group.label}`;
+        groupContainer.layoutMode = 'VERTICAL';
+        groupContainer.counterAxisAlignItems = 'CENTER';
+        groupContainer.itemSpacing = 4;
+        groupContainer.fills = [];
+
+        const textNode = createTextNode(group.label, 13, FONT_MEDIUM, {
+          r: 0.58,
+          g: 0.2,
+          b: 0.92,
+        });
+        groupContainer.appendChild(textNode);
+
+        if (!isLeafTier || group.span > 1) {
+          const bracket = figma.createVector();
+          bracket.name = 'Bracket';
+          const bracketW = Math.max(12, groupW - 4);
+          bracket.vectorPaths = [
+            {
+              windingRule: 'NONZERO',
+              data: `M 0 8 L 0 4 C 0 2 2 0 4 0 L ${bracketW - 4} 0 C ${bracketW - 2} 0 ${bracketW} 2 ${bracketW} 4 L ${bracketW} 8`,
+            },
+          ];
+          bracket.strokes = [{ color: { r: 0.54, g: 0.22, b: 0.96 }, type: 'SOLID' }];
+          bracket.strokeWeight = 1.5;
+          bracket.fills = [];
+          groupContainer.appendChild(bracket);
+        }
+
+        groupContainer.primaryAxisSizingMode = 'FIXED';
+        groupContainer.counterAxisSizingMode = 'AUTO';
+        groupContainer.resize(groupW, isLeafTier && group.span === 1 ? 24 : 36);
+        tierRow.appendChild(groupContainer);
+      }
+      xHeadersArea.appendChild(tierRow);
+    }
+  } else {
+    const xHeadersRow = figma.createFrame();
+    xHeadersRow.name = 'X-Axis Headers';
+    xHeadersRow.layoutMode = 'HORIZONTAL';
+    xHeadersRow.primaryAxisSizingMode = 'AUTO';
+    xHeadersRow.counterAxisSizingMode = 'AUTO';
+    xHeadersRow.itemSpacing = 0;
+    xHeadersRow.fills = [];
+
+    for (let c = 0; c < matrix.columnHeaders.length; c++) {
+      const colHeader = matrix.columnHeaders[c];
+      const colW = columnWidths[c] ?? baseCellW;
+      const xLabel = createXAxisBracket(colHeader.value, colW);
+      xHeadersRow.appendChild(xLabel);
+    }
+    xHeadersArea.appendChild(xHeadersRow);
   }
-  rightArea.appendChild(xHeadersRow);
+  rightArea.appendChild(xHeadersArea);
+
+  // Layered Y-Axis Area
+  const yAxisArea = figma.createFrame();
+  yAxisArea.name = 'Y-Axis Area';
+  yAxisArea.layoutMode = 'VERTICAL';
+  yAxisArea.primaryAxisSizingMode = 'AUTO';
+  yAxisArea.counterAxisSizingMode = 'AUTO';
+  yAxisArea.itemSpacing = 8;
+  yAxisArea.fills = [];
+
+  const headerHeightEstimate = Math.max(
+    36,
+    xTiers.length > 1 ? (xTiers.length - 1) * 44 + 24 : 36,
+  );
+
+  const componentBadge = figma.createFrame();
+  componentBadge.name = 'Component Indicator';
+  componentBadge.layoutMode = 'HORIZONTAL';
+  componentBadge.counterAxisAlignItems = 'MAX';
+  componentBadge.primaryAxisAlignItems = 'MIN';
+  componentBadge.paddingBottom = 4;
+  componentBadge.fills = [];
+  const badgeText = createTextNode(`❖ ${doc.componentName}`, 13, FONT_MEDIUM, {
+    r: 0.54,
+    g: 0.22,
+    b: 0.96,
+  });
+  componentBadge.appendChild(badgeText);
+  componentBadge.counterAxisSizingMode = 'FIXED';
+  componentBadge.resize(componentBadge.width, headerHeightEstimate);
+  yAxisArea.appendChild(componentBadge);
+
+  const yTiersRow = figma.createFrame();
+  yTiersRow.name = 'Y-Tiers Row';
+  yTiersRow.layoutMode = 'HORIZONTAL';
+  yTiersRow.primaryAxisSizingMode = 'AUTO';
+  yTiersRow.counterAxisSizingMode = 'AUTO';
+  yTiersRow.itemSpacing = 12;
+  yTiersRow.fills = [];
+
+  if (yTiers.length > 0) {
+    for (let t = 0; t < yTiers.length; t++) {
+      const tier = yTiers[t];
+      const tierCol = figma.createFrame();
+      tierCol.name = `Tier ${t} — ${tier.propertyName}`;
+      tierCol.layoutMode = 'VERTICAL';
+      tierCol.primaryAxisSizingMode = 'AUTO';
+      tierCol.counterAxisSizingMode = 'AUTO';
+      tierCol.itemSpacing = 0;
+      tierCol.fills = [];
+
+      const isLeafTier = t === yTiers.length - 1;
+
+      for (const group of tier.groups) {
+        const groupH = group.span * cellHeight;
+        const groupContainer = figma.createFrame();
+        groupContainer.name = `Label — ${group.label}`;
+        groupContainer.layoutMode = 'HORIZONTAL';
+        groupContainer.counterAxisAlignItems = 'CENTER';
+        groupContainer.itemSpacing = 8;
+        groupContainer.fills = [];
+
+        const textNode = createTextNode(group.label, 13, FONT_MEDIUM, {
+          r: 0.58,
+          g: 0.2,
+          b: 0.92,
+        });
+        groupContainer.appendChild(textNode);
+
+        if (!isLeafTier || group.span > 1) {
+          const bracket = figma.createVector();
+          bracket.name = 'Bracket';
+          const bracketH = Math.max(12, groupH - 8);
+          bracket.vectorPaths = [
+            {
+              windingRule: 'NONZERO',
+              data: `M 0 0 L 4 0 C 6 0 8 2 8 4 L 8 ${bracketH - 4} C 8 ${bracketH - 2} 6 ${bracketH} 4 ${bracketH} L 0 ${bracketH}`,
+            },
+          ];
+          bracket.strokes = [{ color: { r: 0.54, g: 0.22, b: 0.96 }, type: 'SOLID' }];
+          bracket.strokeWeight = 1.5;
+          bracket.fills = [];
+          groupContainer.appendChild(bracket);
+        }
+
+        groupContainer.counterAxisSizingMode = 'FIXED';
+        groupContainer.resize(groupContainer.width, groupH);
+        tierCol.appendChild(groupContainer);
+      }
+      yTiersRow.appendChild(tierCol);
+    }
+  } else {
+    const yAxisCol = figma.createFrame();
+    yAxisCol.name = 'Y-Axis Labels';
+    yAxisCol.layoutMode = 'VERTICAL';
+    yAxisCol.primaryAxisSizingMode = 'AUTO';
+    yAxisCol.counterAxisSizingMode = 'AUTO';
+    yAxisCol.itemSpacing = 0;
+    yAxisCol.fills = [];
+
+    for (const row of matrix.rows) {
+      const yLabel = createYAxisBracket(row.rowHeader.value, cellHeight);
+      yAxisCol.appendChild(yLabel);
+    }
+    yTiersRow.appendChild(yAxisCol);
+  }
+  yAxisArea.appendChild(yTiersRow);
+  rootFrame.appendChild(yAxisArea);
 
   // Instances Grid
   onProgress?.('Instantiating component variants…', 60);

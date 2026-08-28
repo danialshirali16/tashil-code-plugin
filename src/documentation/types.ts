@@ -95,12 +95,28 @@ export type ComponentDocMatrixRow = {
   rowHeader: { propertyName: string; value: string };
 };
 
+export type ComponentDocMatrixTierGroup = {
+  colStart?: number;
+  label: string;
+  propertyName: string;
+  rowStart?: number;
+  span: number;
+  value: string;
+};
+
+export type ComponentDocMatrixTier = {
+  groups: ComponentDocMatrixTierGroup[];
+  propertyName: string;
+};
+
 export type ComponentDocMatrix = {
   columnHeaders: Array<{ propertyName: string; value: string }>;
   primaryXAxis: ComponentDocMatrixAxis;
   primaryYAxis: ComponentDocMatrixAxis;
   rows: ComponentDocMatrixRow[];
   secondaryXAxes?: ComponentDocMatrixAxis[];
+  xTiers?: ComponentDocMatrixTier[];
+  yTiers?: ComponentDocMatrixTier[];
 };
 
 export type ComponentDocDocument = {

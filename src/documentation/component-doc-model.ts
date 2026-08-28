@@ -13,6 +13,8 @@ import type {
 } from '../types';
 import type {
   ComponentDocDocument,
+  ComponentDocMatrixTier,
+  ComponentDocMatrixTierGroup,
   ComponentDocProp,
   ComponentDocVariant,
 } from './types';
@@ -257,6 +259,9 @@ export function buildVariantMatrix(
     };
   });
 
+  const xTiers = buildTiers(xProps, false);
+  const yTiers = buildTiers(yProps, true);
+
   return {
     columnHeaders,
     primaryXAxis: {
@@ -268,7 +273,74 @@ export function buildVariantMatrix(
       values: yCombinations.map((c) => Object.values(c).join(', ')),
     },
     rows,
+    xTiers,
+    yTiers,
   };
+}
+
+export function buildTiers(
+  props: FigmaPropertyDescriptor[],
+  isVertical: boolean,
+): ComponentDocMatrixTier[] {
+  if (props.length === 0) return [];
+
+  const tiers: ComponentDocMatrixTier[] = [];
+
+  for (let t = 0; t < props.length; t++) {
+    const prop = props[t];
+    const isLeaf = t === props.length - 1;
+    const isBoolean =
+      /is[A-Z]|has[A-Z]|icon|only/i.test(prop.name) ||
+      (prop.options.length === 2 &&
+        prop.options.some((o) => /^(false|true|no|yes)$/i.test(o)));
+
+    let span = 1;
+    for (let after = t + 1; after < props.length; after++) {
+      span *= props[after].options.length;
+    }
+
+    let outerReps = 1;
+    for (let before = 0; before < t; before++) {
+      outerReps *= props[before].options.length;
+    }
+
+    const groups: ComponentDocMatrixTierGroup[] = [];
+    let currentIndex = 0;
+
+    for (let r = 0; r < outerReps; r++) {
+      for (const opt of prop.options) {
+        let label: string;
+        if (isBoolean && isLeaf) {
+          if (/^(false|no)$/i.test(opt)) {
+            label = '-';
+          } else {
+            label = prop.name;
+          }
+        } else if (isLeaf && !isVertical && props.length > 1) {
+          label = opt;
+        } else {
+          label = `${prop.name.toLowerCase()}: ${opt}`;
+        }
+
+        groups.push({
+          ...(isVertical ? { rowStart: currentIndex } : { colStart: currentIndex }),
+          label,
+          propertyName: prop.name,
+          span,
+          value: opt,
+        });
+
+        currentIndex += span;
+      }
+    }
+
+    tiers.push({
+      groups,
+      propertyName: prop.name,
+    });
+  }
+
+  return tiers;
 }
 
 function generateCombinations(
