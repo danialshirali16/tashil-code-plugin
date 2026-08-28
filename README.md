@@ -3,265 +3,228 @@
 # Tashil Code
 
 > 📐 **[Install on Figma Community →](https://www.figma.com/community/plugin/1654920127584180700/tashil-code)**
-> A Figma Dev Mode plugin that connects your design system to your production
-> React library.
+>
+> A local-first Figma plugin for connecting a design system to its production
+> React code, synchronizing tokens, and publishing living documentation.
 
-Tashil Code connects your Figma design system to your production React library.
-Map real component props, generate accurate TSX, convert layouts into
-styled-components, and export Figma Variables in CSS, JSON, SCSS, or Tailwind
-formats.
+Tashil Code turns the decisions already present in a Figma design system into
+useful production artifacts. Connect a component once and get source-accurate
+React usage in Dev Mode. Inspect a layout before it is built. Export local
+Variables in formats your codebase can use. Generate and maintain design-system
+specification pages directly on the canvas.
 
-Design-system owners author the connections once; developers get copyable,
-source-accurate code in Dev Mode. The plugin runs in both the Figma Design
-editor and Dev Mode (`editorType: ["figma", "dev"]`).
+The plugin runs in both Figma Design mode and Dev Mode. Design mode is where
+owners configure connections, export tokens, and create documentation; Dev Mode
+is where developers consume the generated code.
 
 ![Connect a component, inspect its generated TSX, and copy it](assets/demo.gif)
 
-The demo uses the real browser harness and the same typed UI/controller path as
-the Figma plugin. Inspect Code and Dev Mode share the production generation
-pipeline.
+## What you can do
+
+### Connect Figma components to React
+
+Map Figma variants, booleans, text, and instance swaps to the props of a real
+React component. Source-file upload can discover props locally and help with
+the mapping; the original source text is never persisted. Connected instances
+then generate pasteable TSX, imports, mapping diagnostics, and optional
+Storybook output.
+
+### Inspect components and layouts
+
+Use **Inspect Code** in Design mode to preview the same connected-component
+output available in Dev Mode. For frames, groups, sections, and text layers,
+Tashil Code can generate a complete styled-components React module while
+keeping connected instances as atomic production components. It also shows
+Figma's token-aware Layout and Style CSS.
+
+### Sync Figma Variables
+
+Export local Variable collections as CSS custom properties, raw Markdown token
+lists, flat JSON, W3C DTCG JSON, SCSS variables/maps, or a Tailwind theme
+extension. Choose collections and modes, preview the exact files, control unit,
+color, and naming options, and download one file or a ZIP bundle.
+
+### Publish living documentation
+
+The **Docs** library creates specification pages from either a Variable
+Collection or a component. It uses separate search fields for **Design tokens**
+and **Components**, and provides a lightweight preview before generating:
+
+- Token sources show the number of documentation groups plus a few example
+  group names, without resolving every value.
+- Components show the number of variant properties and the total variant
+  combinations, without building the complete matrix first.
+
+Generate a token documentation page or a component variant matrix on the Figma
+canvas. When you select a generated document later, Tashil Code reports source
+drift and can update the frame in place. Selected token-documentation frames
+also expose an **Export Markdown** action.
+
+### Keep data in your file
+
+Tashil Code makes no network requests and has no telemetry. Connections live in
+Figma shared plugin data; user-specific formatting and export history live in
+Figma `clientStorage`; source uploads exist only in memory while the plugin
+window is open. Read the [Privacy policy](PRIVACY.md) for the full data model.
+
+## Design-mode workspace
+
+The plugin window has five workflows:
+
+| Tab | Use it for |
+| --- | --- |
+| **Components** | Browse local main components and component sets, create or maintain their React connections, review health, manage connection imports/exports, scan coverage, and generate Storybook stories. |
+| **Inspect Code** | Preview a connected component's code or generate a styled-components module from the selected design layer. |
+| **Sync Tokens** | Export local Variable collections with live file previews and formatting controls. |
+| **Docs** | Generate and maintain token documentation pages and component variant matrices. |
+| **Settings** | Configure user-local output and copy preferences without changing the Figma document. |
 
 ## Five-minute quick start
 
-1. [Install Tashil Code from Figma Community](https://www.figma.com/community/plugin/1654920127584180700/tashil-code).
-2. Open a Figma file with a main component, select it, and run **Tashil Code →
-   Connect component**.
-3. Enter the exported React component name and import path. Upload its local
-   `.ts` or `.tsx` props source if you want guided mappings, then save.
-4. Select an instance or frame. Use **Inspect Code** in Design mode, or choose
-   **Tashil UI** in Dev Mode, and copy the generated TSX.
+1. [Install Tashil Code from Figma Community](https://www.figma.com/community/plugin/1654920127584180700/tashil-code), or import the local development build as described below.
+2. Open a Figma file, select a main component or component set, then run
+   **Plugins → Development → Tashil Code → Connect component**.
+3. In **Components**, enter the exported React component name and its import
+   path. Upload its `.ts` or `.tsx` props source if you want guided mappings,
+   then save the connection.
+4. Select an instance and open **Inspect Code**, or switch Figma to Dev Mode,
+   select **Tashil UI** in the Code section, and copy the generated TSX.
+5. To publish specifications, open **Docs**, choose a token collection or a
+   component, review its lightweight preview, then generate the canvas page.
 
-Want a runnable code target first? The
-[standalone React companion](examples/quickstart/README.md) builds independently
-and contains an upload-ready Button plus representative generated output. The
-[Community demo publication guide](docs/community-demo.md) defines the matching
-Figma starter file and cold-run checklist.
+Only a component name and import path are required to save a connection.
+Storybook and source references are optional.
 
-## What it does
+## How the two Figma surfaces work
 
-- Upload local `.ts` and `.tsx` source files to discover a component's props.
-- Visually map source props and values to Figma variant, boolean, text, and
-  instance-swap properties.
-- Generate React/TSX for the Figma instance currently selected in Dev Mode.
-- Generate a complete styled-components React module for a selected frame,
-  group, section, or text layer, including its nested connected components.
-- Export Figma Variable collections as CSS, flat JSON, DTCG JSON, SCSS, or
-  Tailwind token files, with a local diff against the previous export.
-- Store optional Storybook and source references alongside the connection.
-- Detect source and Figma drift so mappings can be reviewed before they break.
-
-The plugin has four workflows, surfaced as tabs in the plugin window
-(Design mode) and as the **Tashil UI** codegen language (Dev Mode):
-
-- **Connect component** — design-system owners select a main component or
-  component set, map its source props to Figma properties, and save the
-  code-generation metadata.
-- **Inspect Code** — preview the generated output for a selected frame, group,
-  section, or text layer (Layout/Style CSS + connected components) without a
-  Dev Mode seat.
-- **Sync Tokens** — export Figma Variable collections in five output formats
-  (one file per collection × mode).
-- **Settings** — configure user-local formatting and copy preferences without
-  changing the Figma document.
-
-In **Dev Mode**, selecting a connected instance yields its usage snippet and
-selecting a frame yields a complete styled-components React module.
-
-Only **Component name** and **Import path** are required. Storybook and source
-references are optional. Source parsing happens locally: the plugin saves the
-extracted prop schema and a content hash, never the uploaded source text.
-
-## React layout generation
-
-When you select a frame, group, section, or text layer in Figma Dev Mode
-(using the **Tashil UI** codegen language) or open **Inspect Code** in the
-plugin's Design mode, Tashil Code generates one complete styled-components
-`.tsx` module:
-
-```tsx
-import styled from "styled-components";
-import colors from 'styles/colors';
-import { Button } from "@tashilcar/swiss-army-knife";
-
-const PaymentFormRoot = styled.div`
-  display: flex;
-  flex-direction: column;
-  color: ${colors.text.default};
-  background: ${colors.background.neutral.default};
-  gap: var(--spacing-400, 1rem);
-  padding: var(--spacing-600, 1.5rem);
-`;
-
-export function PaymentForm() {
-  return (
-    <PaymentFormRoot>
-      <Button variant={"primary"}>Submit</Button>
-    </PaymentFormRoot>
-  );
-}
-```
-
-The generated tree preserves visible frame/group/section/text layers in
-document order. Connected instances become their real production React usages
-and remain atomic—the generator never expands component internals. Figma CSS
-color variables are converted to references from the frontend
-`styles/colors` token object. Variables for layout, typography, radii, and
-effects retain their CSS custom-property references inside generated styled
-declarations. Unconnected components are reported as JSX markers and generation
-notes instead of being silently expanded.
-
-Inspect Code also separates application-owned runtime requirements from
-generation diagnostics and shows counts for unresolved components, unsupported
-assets, and omitted declarations.
-
-Bound structural variables for gap, padding, width, and height are also
-reconstructed when Figma CSS is unavailable, using the same kebab-case naming
-contract as Sync Tokens and retaining measured pixel fallbacks.
-
-Freeform frames establish a relative positioning context. Their ordinary
-children, and absolute children inside auto layout, retain supported Figma-local
-coordinates and dimensions as positioned styled components.
-
-Dev Mode also keeps the selected layer's token-aware **Layout** and **Style**
-CSS inspection blocks from Figma's own CSS engine.
-
-See [Generate and inspect a frame](docs/inspect-frame.md) for the full guide.
-
-## Documentation
-
-| Doc | What it covers |
+| Surface | Purpose |
 | --- | --- |
-| [Section guide](docs/sections-index.md) | Engineer/agent onboarding: the five `src/` sections, their module maps, the rules each enforces, and global invariants. Read the matching `docs/section-*.md` before editing a section. |
-| [Project brief](docs/project-brief.md) | Product scope, runtime flow, architecture, privacy model, and frame-inspection status. |
-| [Generate and inspect a frame](docs/inspect-frame.md) | Full styled-components output, connected-component boundaries, and selected-layer CSS inspection. |
-| [Connect a component](docs/connect-component.md) | Setup from Figma selection to Dev Mode output. |
-| [Visual prop mappings](docs/prop-mapping.md) | Source/Figma mapping rules, labels, icon slots, advanced mappings, and the Switch example. |
-| [Maintain a connection](docs/maintain-connections.md) | Source and Figma drift, health states, and reconciliation. |
-| [Development guide](docs/development.md) | Local setup, project structure, testing, and loading the plugin in Figma. |
-| [Changelog](CHANGELOG.md) | Notable changes by release. |
-| [Privacy policy](PRIVACY.md) | Exactly what stays in shared plugin data, user-local storage, memory, downloads, and the clipboard. |
-| [Community demo guide](docs/community-demo.md) | Publication and cold-run checklist for the five-minute Figma starter file. |
+| **Design mode** | Author connections, inspect output, sync tokens, create and update documentation, and change local preferences. |
+| **Dev Mode** | Select an instance or a supported design layer, then choose **Tashil UI** in Figma's Code section to read generated code. Dev Mode never changes the Figma document. |
 
-## Setup
+A connected instance yields its production React usage. A frame, group, section,
+or text layer yields a styled-components module with connected child components
+left intact. The Design-mode Inspect Code view and Dev Mode share the same
+connection-resolution pipeline, so their connected-component output stays in
+parity.
 
-### Prerequisites
+## Documentation workflow
 
-- **Node.js 22** or later (pinned in [`.nvmrc`](.nvmrc); `nvm use` will pick it
-  up). The build is not tested on older Node.
-- **npm** (ships with Node).
-- A Figma account with permission to import a development plugin.
+Open **Docs** and choose one of its two scopes:
 
-### Install
+1. **Design tokens** — select a local Variable Collection, review the group
+   summary, and choose **Generate page**. The generated frame keeps native
+   Variable bindings for color swatches and can be reconciled in place after a
+   token change.
+2. **Components** — select a local component, review the expected variant
+   combination count, and choose **Generate variants** to create its
+   specification matrix.
+
+Use **Refresh** to reload the active scope—Variable Collections for the token
+scope or the component inventory for the component scope. Selecting a generated
+documentation frame shows its status, source drift when present, and an
+**Update in place** action. Token-documentation frames additionally offer
+Markdown export from that status area.
+
+For the detailed token flow, see [Token Documentation](docs/token-documentation.md).
+For the renderer, in-place reconciliation, and editor constraints, see the
+[Documentation section guide](docs/section-documentation.md).
+
+## Local development
+
+### Requirements
+
+- Node.js 22 or later (see [`.nvmrc`](.nvmrc))
+- npm
+- A Figma account that can import development plugins
+
+### Install and build
 
 ```sh
 npm install
-```
-
-### Build
-
-```sh
 npm run build
 ```
 
-This runs the TypeScript typecheck and writes the plugin bundle to `build/`
-(`build/main.js`, `build/ui.js`). It also regenerates `manifest.json` from the
-`figma-plugin` field in `package.json`.
+`npm run build` type-checks the project, builds the plugin into `build/`, and
+regenerates `manifest.json` from the `figma-plugin` configuration in
+`package.json`.
 
-For continuous rebuilds while testing in Figma:
+For continuous rebuilding:
 
 ```sh
 npm run watch
 ```
 
-### Load the plugin in Figma
-
-1. Build at least once (`npm run build`).
-2. In the Figma desktop app, open
-   **Plugins → Development → Import plugin from manifest…**.
-3. Choose this repository's [`manifest.json`](manifest.json).
-4. The plugin is now available under
-   **Plugins → Development → Tashil Code**.
-
-> After every local rebuild, **reload the development plugin in Figma** before
-> testing the new bundle — Figma caches the old code until you do. Use the
-> "Run" entry on the plugin's development page, or close and reopen it.
-
-## Using the plugin
-
-Tashil Code runs in **both** Figma editors (`editorType: ["figma", "dev"]`).
-Authoring happens in **Design mode**; generated code is consumed in **Dev Mode**.
-See [Figma Editor Modes](docs/section-editor-modes.md) for the boundary.
-
-### Design mode — author connections
-
-1. Select a main component, component set, or instance on the canvas.
-2. Run **Plugins → Development → Tashil Code → Connect component**.
-3. In the plugin window:
-   - Upload the component's local `.ts`/`.tsx` source to discover its props.
-   - Visually map source props to Figma properties, or author a semantic recipe
-     when the structures don't match.
-   - Optionally attach Storybook / source reference links.
-   - Save. Only **Component name** and **Import path** are required.
-4. Use the **Inspect Code** tab to preview the generated output without a Dev
-   Mode seat, and the **Sync Tokens** tab to export Figma Variable collections
-   in CSS, JSON, SCSS, or Tailwind formats.
-
-Source parsing is local: the plugin stores the extracted prop schema and a
-content hash, never the uploaded source text. See
-[Connect a component](docs/connect-component.md) and
-[Sync Tokens](docs/sync-tokens.md).
-
-### Dev Mode — consume generated code
-
-1. In Dev Mode, select a connected instance (or a frame/group/section/text layer).
-2. Choose **Tashil UI** in the Code section.
-3. Copy the generated TSX / styled-components module.
-
-A connected instance yields its usage snippet; a design frame yields a complete
-styled-components `.tsx` module with connected instances as atomic usages. Dev
-Mode reads connections — it never authors them.
-
-## `manifest.json` is generated
-
-`manifest.json` is regenerated by `npm run build` from the `figma-plugin` field
-in `package.json`. **Never edit it by hand.** To change the plugin name, menu,
-capabilities, or codegen languages, edit the `figma-plugin` field in
-`package.json`, rebuild, and commit the regenerated `manifest.json` alongside
-the `package.json` change.
-
-It is checked in on purpose (like `package-lock.json`) so the shipped plugin
-matches committed source. CI's `git diff --exit-code` step fails if
-`manifest.json` drifts from a clean rebuild — so an uncommitted regeneration
-will break CI.
-
-## Verify changes
-
-Run the full local verification suite before handing off a change:
+For browser-based visual QA of the real plugin UI with local Figma-message
+fixtures:
 
 ```sh
-npm run typecheck   # 4 tsconfig contexts (main, ui, tests, plugin-tests)
-npm test            # vitest run
-npm run lint        # eslint .
-npm run build       # typecheck + build-figma-plugin --minify
+npm run harness
 ```
 
-Tests use Vitest. UI interaction tests run with Preact Testing Library and
-jsdom; plugin-side tests cover Figma API behavior with local test doubles. See
-[Development guide](docs/development.md) for details.
+Then open `http://127.0.0.1:5178/dev/harness/index.html`.
+
+### Load the development plugin in Figma
+
+1. Run `npm run build` at least once.
+2. In the Figma desktop app, open **Plugins → Development → Import plugin from
+   manifest…**.
+3. Choose this repository's [`manifest.json`](manifest.json).
+4. Run **Plugins → Development → Tashil Code → Connect component** from a
+   design-system file.
+
+Reload the development plugin in Figma after each rebuild; Figma otherwise
+continues to use the previously loaded bundle.
+
+> `manifest.json` is generated. Do not edit it by hand—change the
+> `figma-plugin` section of `package.json`, run `npm run build`, and commit the
+> regenerated manifest with the configuration change.
+
+## Guides
+
+| Guide | Use it when you need to… |
+| --- | --- |
+| [Connect a component](docs/connect-component.md) | Create a connection, map props, import/export connections, scan coverage, or generate Storybook stories. |
+| [Visual prop mappings](docs/prop-mapping.md) | Understand mapping rules, slots, advanced mappings, and examples. |
+| [Maintain a connection](docs/maintain-connections.md) | Review source/Figma drift and reconcile a saved connection. |
+| [Generate and inspect a frame](docs/inspect-frame.md) | Work with full styled-components output and Figma CSS inspection. |
+| [Sync Tokens](docs/sync-tokens.md) | Export Variable collections and understand formats, modes, and naming controls. |
+| [Token Documentation](docs/token-documentation.md) | Generate, update, and export token documentation. |
+| [Development guide](docs/development.md) | Set up the repository, use the harness, understand testing, and import the development plugin. |
+| [Section guide index](docs/sections-index.md) | Navigate the project architecture and its editor invariants. |
+| [Privacy policy](PRIVACY.md) | Understand stored, transient, downloaded, clipboard, and network data. |
+| [Changelog](CHANGELOG.md) | Review notable product changes. |
+
+## Verify a change
+
+Run the complete local suite before handing off a change:
+
+```sh
+npm run typecheck
+npm test
+npm run lint
+npm run build
+```
+
+Tests use Vitest. UI interactions run through Preact Testing Library and jsdom;
+plugin-side tests use local Figma API doubles.
 
 ## Project map
 
-- `src/main.ts` — Figma plugin entry point, connection persistence, selection
-  reads, and Dev Mode codegen registration.
-- `src/ui.tsx` — Connect Component and Inspect Code screens.
-- `src/ui-controller.ts` and `src/ui-state.ts` — UI state, source upload, saves,
-  reconciliation, and form validation.
-- `src/source-schema.ts` — local TypeScript prop extraction.
-- `src/mapping-editor.ts` and `src/mapping-document.ts` — visual mapping
-  authoring state and compilation to runtime JSON.
-- `src/codegen.ts` — generated imports, TSX, and mapping diagnostics.
-- `src/connection-health.ts` — source/Figma drift detection and health status.
-- `src/inspect/` — Dev-Mode-parity selected-layer inspection: Layout/Style CSS
-  partitioning of `getCSSAsync()` output and connected-component enumeration.
-- `src/layout/` — full selected-tree styled-components React generation, component
-  resolution, traversal limits, naming, and import rendering.
+| Area | Responsibility |
+| --- | --- |
+| `src/main.ts` | Figma entry point, async Figma API adapter, selection handling, shared plugin-data persistence, Docs generation, and Dev Mode codegen registration. |
+| `src/ui.tsx` / `src/ui-controller.ts` | Preact workflows, UI state, typed message handling, source uploads, reconciliation, and documentation previews. |
+| `src/semantic/` | Recipe-based connections for components whose Figma structure differs from their source API. |
+| `src/inspect/` | Dev-Mode-parity CSS partitioning and connected-component enumeration. |
+| `src/layout/` | Selected-tree styled-components React generation. |
+| `src/sync-tokens/` | Pure token serialization for the supported export formats. |
+| `src/documentation/` | Pure document models plus Figma canvas writers and in-place reconcilers. |
+
+The UI and Figma runtime communicate through typed messages. Pure model and
+serialization code stays independent of Figma typings, keeping it testable
+outside the Figma runtime.
+
+## License
+
+MIT. See [`package.json`](package.json) for the package metadata.
