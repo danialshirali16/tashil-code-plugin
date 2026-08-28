@@ -1184,6 +1184,7 @@ export async function createComponentDocFrame(
   rootFrame.layoutMode = 'HORIZONTAL';
   rootFrame.primaryAxisSizingMode = 'AUTO';
   rootFrame.counterAxisSizingMode = 'AUTO';
+  rootFrame.clipsContent = false;
   rootFrame.paddingLeft = 56;
   rootFrame.paddingRight = 56;
   rootFrame.paddingTop = 56;
@@ -1206,6 +1207,8 @@ export async function createComponentDocFrame(
   const yAxisCol = figma.createFrame();
   yAxisCol.name = 'Y-Axis Labels';
   yAxisCol.layoutMode = 'VERTICAL';
+  yAxisCol.primaryAxisSizingMode = 'AUTO';
+  yAxisCol.counterAxisSizingMode = 'AUTO';
   yAxisCol.itemSpacing = 0;
   yAxisCol.paddingTop = 48; // Matches X-Axis Headers height
   yAxisCol.fills = [];
@@ -1223,6 +1226,8 @@ export async function createComponentDocFrame(
   const rightArea = figma.createFrame();
   rightArea.name = 'Grid Area';
   rightArea.layoutMode = 'VERTICAL';
+  rightArea.primaryAxisSizingMode = 'AUTO';
+  rightArea.counterAxisSizingMode = 'AUTO';
   rightArea.itemSpacing = 0;
   rightArea.fills = [];
 
@@ -1230,6 +1235,8 @@ export async function createComponentDocFrame(
   const xHeadersRow = figma.createFrame();
   xHeadersRow.name = 'X-Axis Headers';
   xHeadersRow.layoutMode = 'HORIZONTAL';
+  xHeadersRow.primaryAxisSizingMode = 'AUTO';
+  xHeadersRow.counterAxisSizingMode = 'AUTO';
   xHeadersRow.itemSpacing = 0;
   xHeadersRow.fills = [];
 
@@ -1249,6 +1256,8 @@ export async function createComponentDocFrame(
   const instancesFrame = figma.createFrame();
   instancesFrame.name = 'Instances';
   instancesFrame.layoutMode = 'VERTICAL';
+  instancesFrame.primaryAxisSizingMode = 'AUTO';
+  instancesFrame.counterAxisSizingMode = 'AUTO';
   instancesFrame.itemSpacing = 0;
   instancesFrame.fills = [];
 
@@ -1256,6 +1265,8 @@ export async function createComponentDocFrame(
     const rowFrame = figma.createFrame();
     rowFrame.name = 'Row';
     rowFrame.layoutMode = 'HORIZONTAL';
+    rowFrame.primaryAxisSizingMode = 'AUTO';
+    rowFrame.counterAxisSizingMode = 'AUTO';
     rowFrame.itemSpacing = 0;
     rowFrame.fills = [];
 
@@ -1362,7 +1373,6 @@ function createYAxisBracket(text: string, height: number): FrameNode {
   container.itemSpacing = 12;
   container.primaryAxisSizingMode = 'AUTO';
   container.counterAxisSizingMode = 'FIXED';
-  container.resize(160, height);
   container.fills = [];
 
   const textNode = createTextNode(text, 14, FONT_MEDIUM, {
@@ -1377,7 +1387,7 @@ function createYAxisBracket(text: string, height: number): FrameNode {
   const bracketH = Math.max(20, height - 8);
   bracket.vectorPaths = [{
     windingRule: 'NONZERO',
-    data: `M 10 0 L 5 0 C 2 0 0 2 0 6 L 0 ${bracketH - 6} C 0 ${bracketH - 2} 2 ${bracketH} 5 ${bracketH} L 10 ${bracketH}`,
+    data: `M 0 0 L 5 0 C 8 0 10 2 10 6 L 10 ${bracketH - 6} C 10 ${bracketH - 2} 8 ${bracketH} 5 ${bracketH} L 0 ${bracketH}`,
   }];
   bracket.strokes = [{ color: { r: 0.54, g: 0.22, b: 0.96 }, type: 'SOLID' }];
   bracket.strokeWeight = 1.5;
@@ -1413,7 +1423,7 @@ function createXAxisBracket(text: string, width: number): FrameNode {
   const bracketW = Math.max(20, width - 4);
   bracket.vectorPaths = [{
     windingRule: 'NONZERO',
-    data: `M 0 0 L 0 5 C 0 8 2 10 6 10 L ${bracketW - 6} 10 C ${bracketW - 2} 10 ${bracketW} 8 ${bracketW} 5 L ${bracketW} 0`,
+    data: `M 0 10 L 0 5 C 0 2 2 0 6 0 L ${bracketW - 6} 0 C ${bracketW - 2} 0 ${bracketW} 2 ${bracketW} 5 L ${bracketW} 10`,
   }];
   bracket.strokes = [{ color: { r: 0.54, g: 0.22, b: 0.96 }, type: 'SOLID' }];
   bracket.strokeWeight = 1.5;

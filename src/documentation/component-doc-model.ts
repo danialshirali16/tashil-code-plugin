@@ -205,11 +205,11 @@ export function buildVariantMatrix(
     const mainVal = combo[primaryXProp.name] ?? '';
     const subParts = Object.entries(combo)
       .filter(([k]) => k !== primaryXProp.name)
-      .map(([k, v]) => `${k}: ${v}`)
-      .join(', ');
+      .map(([k, v]) => `${k.toLowerCase()}: ${v}`)
+      .join(' • ');
     return {
       propertyName: primaryXProp.name,
-      value: subParts ? `${mainVal} (${subParts})` : mainVal,
+      value: subParts ? `${mainVal} • ${subParts}` : mainVal,
     };
   });
 
