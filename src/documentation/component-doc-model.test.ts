@@ -51,9 +51,9 @@ describe('component-doc-model', () => {
     expect(doc.matrix).toBeDefined();
     expect(doc.matrix?.primaryYAxis.propertyName).toBe('Intent');
     expect(doc.matrix?.primaryYAxis.values).toEqual(['primary', 'neutral', 'positive']);
-    expect(doc.matrix?.primaryXAxis.propertyName).toBe('Style');
+    expect(doc.matrix?.primaryXAxis.propertyName).toContain('Style');
     expect(doc.matrix?.rows).toHaveLength(3);
-    expect(doc.matrix?.rows[0].cells.length).toBeGreaterThan(0);
+    expect(doc.matrix?.rows[0].cells).toHaveLength(9); // 3 Style * 3 Size = 9 cells per row
     expect(doc.matrix?.rows[0].cells[0].combination).toHaveProperty('Intent', 'primary');
     expect(doc.matrix?.rows[0].cells[0].combination).toHaveProperty('Style', 'tonal');
   });

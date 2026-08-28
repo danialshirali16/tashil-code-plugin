@@ -1174,7 +1174,7 @@ export async function createComponentDocFrame(
   const cellHeight = Math.max(Math.ceil(naturalH) + 36, 80);
 
   const columnWidths = matrix.columnHeaders.map((colHeader) => {
-    const labelText = `${colHeader.propertyName.toLowerCase()}: ${colHeader.value}`;
+    const labelText = colHeader.value;
     const textW = labelText.length * 9 + 32;
     return Math.max(textW, baseCellW);
   });
@@ -1215,7 +1215,7 @@ export async function createComponentDocFrame(
 
   for (const row of matrix.rows) {
     const yLabel = createYAxisBracket(
-      `${row.rowHeader.propertyName.toLowerCase()}: ${row.rowHeader.value}`,
+      row.rowHeader.value,
       cellHeight,
     );
     yAxisCol.appendChild(yLabel);
@@ -1244,7 +1244,7 @@ export async function createComponentDocFrame(
     const colHeader = matrix.columnHeaders[c];
     const colW = columnWidths[c];
     const xLabel = createXAxisBracket(
-      `${colHeader.propertyName.toLowerCase()}: ${colHeader.value}`,
+      colHeader.value,
       colW,
     );
     xHeadersRow.appendChild(xLabel);

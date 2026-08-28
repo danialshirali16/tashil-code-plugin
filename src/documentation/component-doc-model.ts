@@ -8,6 +8,7 @@
 import type {
   ConnectionMetadata,
   FigmaComponentSnapshot,
+  FigmaPropertyDescriptor,
   SourceComponentSnapshot,
 } from '../types';
 import type {
@@ -123,100 +124,125 @@ export function buildVariantMatrix(
 ): ComponentDocDocument['matrix'] {
   if (!variantProps || variantProps.length === 0) return undefined;
 
-  const yPropIndex = variantProps.findIndex((p) =>
-    /intent|variant|kind|color|theme/i.test(p.name),
+  const onlyVariantProps = variantProps.filter(
+    (p) => p.type === 'VARIANT' && p.options && p.options.length > 0,
   );
-  const primaryYIndex = yPropIndex >= 0 ? yPropIndex : 0;
-  const primaryYProp = variantProps[primaryYIndex];
+  if (onlyVariantProps.length === 0) return undefined;
 
-  const remainingProps = variantProps.filter((_, idx) => idx !== primaryYIndex);
-  if (remainingProps.length === 0) {
+  if (onlyVariantProps.length === 1) {
+    const prop = onlyVariantProps[0];
     const xAxis = {
-      propertyName: primaryYProp.name,
-      values: primaryYProp.options.length > 0 ? primaryYProp.options : ['default'],
+      propertyName: prop.name,
+      values: prop.options,
     };
     const yAxis = {
-      propertyName: 'Variant',
+      propertyName: prop.name,
       values: ['All'],
     };
-    const rows = [
-      {
-        cells: xAxis.values.map((v) => ({
-          combination: { [primaryYProp.name]: v },
-          title: `${primaryYProp.name}=${v}`,
-        })),
-        rowHeader: { propertyName: 'Variant', value: 'All' },
-      },
-    ];
     return {
-      columnHeaders: xAxis.values.map((v) => ({ propertyName: primaryYProp.name, value: v })),
+      columnHeaders: prop.options.map((v) => ({
+        propertyName: prop.name,
+        value: `${prop.name.toLowerCase()}: ${v}`,
+      })),
       primaryXAxis: xAxis,
       primaryYAxis: yAxis,
-      rows,
+      rows: [
+        {
+          cells: prop.options.map((v) => ({
+            combination: { [prop.name]: v },
+            title: `${prop.name}=${v}`,
+          })),
+          rowHeader: { propertyName: prop.name, value: 'All' },
+        },
+      ],
     };
   }
 
-  const xPropIndex = remainingProps.findIndex((p) =>
-    /style|appearance|type|hierarchy/i.test(p.name),
-  );
-  const primaryXIndex = xPropIndex >= 0 ? xPropIndex : 0;
-  const primaryXProp = remainingProps[primaryXIndex];
-  const secondaryXProps = remainingProps.filter((_, idx) => idx !== primaryXIndex);
+  // Partition properties into Y-axis (vertical) and X-axis (horizontal)
+  const isYCandidate = (name: string) =>
+    /intent|variant|kind|color|theme|state|status|disabled/i.test(name);
+  const isXCandidate = (name: string) =>
+    /style|appearance|type|hierarchy|size|isOnlyIcon|icon|select/i.test(name);
 
-  const primaryXAxis = {
-    propertyName: primaryXProp.name,
-    values: primaryXProp.options.length > 0 ? primaryXProp.options : ['default'],
-  };
+  const yProps: FigmaPropertyDescriptor[] = [];
+  const xProps: FigmaPropertyDescriptor[] = [];
 
-  const primaryYAxis = {
-    propertyName: primaryYProp.name,
-    values: primaryYProp.options.length > 0 ? primaryYProp.options : ['default'],
-  };
+  for (const prop of onlyVariantProps) {
+    if (isYCandidate(prop.name) && !isXCandidate(prop.name)) {
+      yProps.push(prop);
+    } else if (isXCandidate(prop.name) && !isYCandidate(prop.name)) {
+      xProps.push(prop);
+    }
+  }
 
-  const secondaryXAxes = secondaryXProps.map((p) => ({
-    propertyName: p.name,
-    values: p.options.length > 0 ? p.options : ['default'],
-  }));
+  // Handle remaining / unclassified properties
+  const assigned = new Set([...yProps, ...xProps].map((p) => p.name));
+  const unassigned = onlyVariantProps.filter((p) => !assigned.has(p.name));
 
+  for (const prop of unassigned) {
+    const yCount = yProps.reduce((acc, p) => acc * Math.max(1, p.options.length), 1);
+    const xCount = xProps.reduce((acc, p) => acc * Math.max(1, p.options.length), 1);
+    if (yCount <= xCount) {
+      yProps.push(prop);
+    } else {
+      xProps.push(prop);
+    }
+  }
+
+  // Ensure neither axis is empty
+  if (yProps.length === 0 && xProps.length > 1) {
+    yProps.push(xProps.shift()!);
+  } else if (xProps.length === 0 && yProps.length > 1) {
+    xProps.push(yProps.pop()!);
+  }
+
+  // Generate Cartesian Product for Y
+  const yCombinations: Array<Record<string, string>> = [];
+  function recurseY(current: Record<string, string>, index: number) {
+    if (index >= yProps.length) {
+      yCombinations.push(current);
+      return;
+    }
+    const prop = yProps[index];
+    for (const opt of prop.options) {
+      recurseY({ ...current, [prop.name]: opt }, index + 1);
+    }
+  }
+  recurseY({}, 0);
+
+  // Generate Cartesian Product for X
   const xCombinations: Array<Record<string, string>> = [];
-  function recurseX(current: Record<string, string>, propIndex: number) {
-    if (propIndex >= secondaryXProps.length) {
+  function recurseX(current: Record<string, string>, index: number) {
+    if (index >= xProps.length) {
       xCombinations.push(current);
       return;
     }
-    const prop = secondaryXProps[propIndex];
-    const opts = prop.options.length > 0 ? prop.options : ['default'];
-    for (const opt of opts) {
-      recurseX({ ...current, [prop.name]: opt }, propIndex + 1);
+    const prop = xProps[index];
+    for (const opt of prop.options) {
+      recurseX({ ...current, [prop.name]: opt }, index + 1);
     }
   }
+  recurseX({}, 0);
 
-  for (const xVal of primaryXAxis.values) {
-    if (secondaryXProps.length === 0) {
-      xCombinations.push({ [primaryXProp.name]: xVal });
-    } else {
-      recurseX({ [primaryXProp.name]: xVal }, 0);
-    }
-  }
-
-  const cappedXCombos = xCombinations.slice(0, 24);
-
-  const columnHeaders = cappedXCombos.map((combo) => {
-    const mainVal = combo[primaryXProp.name] ?? '';
-    const subParts = Object.entries(combo)
-      .filter(([k]) => k !== primaryXProp.name)
+  const columnHeaders = xCombinations.map((combo) => {
+    const formatted = Object.entries(combo)
       .map(([k, v]) => `${k.toLowerCase()}: ${v}`)
       .join(' • ');
     return {
-      propertyName: primaryXProp.name,
-      value: subParts ? `${mainVal} • ${subParts}` : mainVal,
+      propertyName: xProps.map((p) => p.name).join(', '),
+      value: formatted,
     };
   });
 
-  const rows = primaryYAxis.values.map((yVal) => {
-    const cells = cappedXCombos.map((xCombo) => {
-      const fullCombo = { [primaryYProp.name]: yVal, ...xCombo };
-      const title = Object.entries(fullCombo).map(([k, v]) => `${k}=${v}`).join(', ');
+  const rows = yCombinations.map((yCombo) => {
+    const rowTitle = Object.entries(yCombo)
+      .map(([k, v]) => `${k.toLowerCase()}: ${v}`)
+      .join(' • ');
+    const cells = xCombinations.map((xCombo) => {
+      const fullCombo = { ...yCombo, ...xCombo };
+      const title = Object.entries(fullCombo)
+        .map(([k, v]) => `${k}=${v}`)
+        .join(', ');
       return {
         combination: fullCombo,
         title,
@@ -224,16 +250,24 @@ export function buildVariantMatrix(
     });
     return {
       cells,
-      rowHeader: { propertyName: primaryYProp.name, value: yVal },
+      rowHeader: {
+        propertyName: yProps.map((p) => p.name).join(', '),
+        value: rowTitle,
+      },
     };
   });
 
   return {
     columnHeaders,
-    primaryXAxis,
-    primaryYAxis,
+    primaryXAxis: {
+      propertyName: xProps.map((p) => p.name).join(', '),
+      values: xCombinations.map((c) => Object.values(c).join(', ')),
+    },
+    primaryYAxis: {
+      propertyName: yProps.map((p) => p.name).join(', '),
+      values: yCombinations.map((c) => Object.values(c).join(', ')),
+    },
     rows,
-    secondaryXAxes: secondaryXAxes.length > 0 ? secondaryXAxes : undefined,
   };
 }
 
