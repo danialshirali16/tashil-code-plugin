@@ -19,6 +19,27 @@ import type {
   ComponentDocVariant,
 } from './types';
 
+export function summarizeComponentVariants(
+  properties: ReadonlyArray<Pick<FigmaPropertyDescriptor, 'options' | 'type'>>,
+): { combinationCount: number; propertyCount: number } {
+  const variantProperties = properties.filter(
+    (property) => property.type === 'VARIANT' && property.options.length > 0,
+  );
+
+  return {
+    combinationCount: variantProperties.length === 0
+      ? 0
+      : variantProperties.reduce(
+          (count, property) => Math.min(
+            Number.MAX_SAFE_INTEGER,
+            count * property.options.length,
+          ),
+          1,
+        ),
+    propertyCount: variantProperties.length,
+  };
+}
+
 export function buildComponentDocDocument(
   metadata: ConnectionMetadata,
   sourceSnapshot?: SourceComponentSnapshot,

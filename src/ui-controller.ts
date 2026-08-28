@@ -115,13 +115,19 @@ import {
   type DocFrameSelectedHandler,
   type GenerateTokenDocsHandler,
   type GenerateTokenDocsResultHandler,
+  type LoadDocSourcePreviewHandler,
+  type LoadDocSourcePreviewResultHandler,
   type UpdateDocsInPlaceHandler,
   type UpdateDocsInPlaceResultHandler,
   type GenerateComponentDocsHandler,
   type GenerateComponentDocsResultHandler,
   type DocGenerationProgressHandler,
 } from './types';
-import type { DocDriftReport, DocFrameMetadata } from './documentation/types';
+import type {
+  DocDriftReport,
+  DocFrameMetadata,
+  DocSourcePreview,
+} from './documentation/types';
 import type {
   ExportFile,
   ExportOptions,
@@ -230,7 +236,11 @@ export type ConnectionController = {
   docGenerationStatus: 'error' | 'idle' | 'running' | 'success';
   docGenerationMessage: string;
   docProgress: { message: string; percent: number } | null;
+  docSourcePreview: DocSourcePreview | null;
+  docSourcePreviewError: string;
+  docSourcePreviewStatus: 'error' | 'idle' | 'loading';
   cancelDocGeneration: () => void;
+  loadDocSourcePreview: (scope: 'components' | 'tokens', targetId: string) => void;
   generateTokenDocs: (collectionId: string, targetFormat?: 'canvas' | 'markdown') => void;
   updateDocsInPlace: (frameNodeId: string) => void;
   generateComponentDocs: (targetToken: string, targetFormat?: 'canvas' | 'markdown') => void;
@@ -310,6 +320,12 @@ export function useConnectionController(): ConnectionController {
   const [docGenerationStatus, setDocGenerationStatus] = useState<'error' | 'idle' | 'running' | 'success'>('idle');
   const [docGenerationMessage, setDocGenerationMessage] = useState<string>('');
   const [docProgress, setDocProgress] = useState<{ message: string; percent: number } | null>(null);
+  const [docSourcePreview, setDocSourcePreview] = useState<DocSourcePreview | null>(null);
+  const [docSourcePreviewError, setDocSourcePreviewError] = useState('');
+  const [docSourcePreviewStatus, setDocSourcePreviewStatus] =
+    useState<'error' | 'idle' | 'loading'>('idle');
+  const docSourcePreviewSequenceRef = useRef(0);
+  const latestDocSourcePreviewIdRef = useRef('');
 
   const isReady = targetState.status === 'ready';
   const targetStatusAnnouncement = getTargetStatusAnnouncement(targetState);
@@ -477,6 +493,21 @@ export function useConnectionController(): ConnectionController {
       setSelectedDocFrame(payload.metadata ? payload : null);
     });
 
+    const offDocSourcePreview = on<LoadDocSourcePreviewResultHandler>('LOAD_DOC_SOURCE_PREVIEW_RESULT', (result) => {
+      if (result.requestId !== latestDocSourcePreviewIdRef.current) {
+        return;
+      }
+      if (!result.ok || !result.preview) {
+        setDocSourcePreview(null);
+        setDocSourcePreviewError(result.message || 'Could not load documentation preview.');
+        setDocSourcePreviewStatus('error');
+        return;
+      }
+      setDocSourcePreview(result.preview);
+      setDocSourcePreviewError('');
+      setDocSourcePreviewStatus('idle');
+    });
+
     const offDocProgress = on<DocGenerationProgressHandler>('DOC_GENERATION_PROGRESS', (payload) => {
       setDocProgress(payload);
       setDocGenerationMessage(payload.message);
@@ -522,6 +553,7 @@ export function useConnectionController(): ConnectionController {
       offTokensExport();
       offTokensPreview();
       offDocFrameSelected();
+      offDocSourcePreview();
       offDocProgress();
       offTokenDocsResult();
       offUpdateDocsResult();
@@ -1586,6 +1618,22 @@ export function useConnectionController(): ConnectionController {
     emit<GenerateTokenDocsHandler>('GENERATE_TOKEN_DOCS', { collectionId, targetFormat });
   };
 
+  const loadDocSourcePreview = (
+    scope: 'components' | 'tokens',
+    targetId: string,
+  ): void => {
+    const requestId = `doc-preview-${++docSourcePreviewSequenceRef.current}`;
+    latestDocSourcePreviewIdRef.current = requestId;
+    setDocSourcePreview(null);
+    setDocSourcePreviewError('');
+    setDocSourcePreviewStatus('loading');
+    emit<LoadDocSourcePreviewHandler>('LOAD_DOC_SOURCE_PREVIEW', {
+      requestId,
+      scope,
+      targetId,
+    });
+  };
+
   const updateDocsInPlace = (frameNodeId: string): void => {
     setDocGenerationStatus('running');
     setDocProgress({ message: 'Updating documentation in place…', percent: 0 });
@@ -1680,10 +1728,13 @@ export function useConnectionController(): ConnectionController {
     docGenerationStatus,
     docGenerationMessage,
     docProgress,
+    docSourcePreview,
+    docSourcePreviewError,
+    docSourcePreviewStatus,
     cancelDocGeneration,
+    loadDocSourcePreview,
     generateTokenDocs,
     updateDocsInPlace,
     generateComponentDocs,
   };
 }
-

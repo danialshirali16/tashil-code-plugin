@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import * as componentDocModel from './component-doc-model';
 import { buildComponentDocDocument } from './component-doc-model';
 import type { ConnectionMetadata, SourceComponentSnapshot } from '../types';
 
@@ -67,5 +68,26 @@ describe('component-doc-model', () => {
     expect(doc.matrix?.yTiers).toBeDefined();
     expect(doc.matrix?.yTiers).toHaveLength(1); // Intent (Tier 0)
     expect(doc.matrix?.yTiers?.[0].groups).toHaveLength(3);
+  });
+
+  it('counts variant combinations without constructing the Cartesian matrix', () => {
+    const summarize = (componentDocModel as unknown as {
+      summarizeComponentVariants?: (
+        properties: Array<{ options: string[]; type: string }>,
+      ) => { combinationCount: number; propertyCount: number };
+    }).summarizeComponentVariants;
+
+    expect(summarize).toBeTypeOf('function');
+    if (!summarize) return;
+
+    expect(summarize([
+      { options: ['primary', 'neutral', 'positive'], type: 'VARIANT' },
+      { options: ['tonal', 'outline', 'ghost'], type: 'VARIANT' },
+      { options: ['sm', 'md', 'lg'], type: 'VARIANT' },
+      { options: ['true', 'false'], type: 'BOOLEAN' },
+    ])).toEqual({
+      combinationCount: 27,
+      propertyCount: 3,
+    });
   });
 });

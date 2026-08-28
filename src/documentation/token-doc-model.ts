@@ -36,6 +36,26 @@ export type RawCollectionData = {
   }>;
 };
 
+export function summarizeTokenDocGroups(
+  tokenNames: readonly string[],
+  collectionName: string,
+): { groupCount: number; groupNames: string[] } {
+  const groups = new Map<string, string>();
+
+  for (const tokenName of tokenNames) {
+    const segments = tokenName.split('/').map((segment) => segment.trim()).filter(Boolean);
+    const { groupKey, groupTitle } = inferSectionGrouping(segments, collectionName);
+    if (!groups.has(groupKey)) {
+      groups.set(groupKey, formatDynamicHeadline(groupTitle));
+    }
+  }
+
+  return {
+    groupCount: groups.size,
+    groupNames: [...groups.values()],
+  };
+}
+
 export function buildTokenDocDocument(
   collection: RawCollectionData,
 ): TokenDocDocument {

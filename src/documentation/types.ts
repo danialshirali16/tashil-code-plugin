@@ -134,6 +134,24 @@ export type ComponentDocDocument = {
   variants: ComponentDocVariant[];
 };
 
+export type DocSourcePreview =
+  | {
+      groupCount: number;
+      groupNames: string[];
+      modeCount: number;
+      scope: 'tokens';
+      sourceName: string;
+      targetId: string;
+      tokenCount: number;
+    }
+  | {
+      combinationCount: number;
+      propertyCount: number;
+      scope: 'components';
+      sourceName: string;
+      targetId: string;
+    };
+
 export type DocDriftKind =
   | 'component-prop-changed'
   | 'mode-added'

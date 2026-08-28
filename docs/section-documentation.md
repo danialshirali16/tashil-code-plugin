@@ -15,14 +15,36 @@ frames **in place** without resetting layouts, positions, or component structure
 
 ---
 
+## Docs Interface
+
+The plugin presents these capabilities as a searchable **Documentation
+library** in `src/ui.tsx`. A native `@create-figma-plugin/ui`
+`SegmentedControl` separates design tokens from components. Each scope keeps
+its own native `Textbox` search, and native `Checkbox` controls select simple
+title-and-caption source rows. A lazy selected-source preview reports the
+number of generated token groups (with up to three sample names) or component
+variant combinations without constructing the full document or variant
+matrix. A scope-aware refresh action sits opposite the library heading and
+reloads token collections or rescans the component inventory as appropriate,
+while the shared bottom action-bar pattern used by Sync Tokens exposes only the
+primary canvas-generation action. Selecting a generated token-documentation frame
+reveals its drift report, Markdown export, and in-place update actions in a
+native banner.
+
+This view is presentation-only: new interface work must continue to use the
+existing documentation handlers and message contracts rather than duplicating
+generation, export, drift, or reconciliation logic in the UI.
+
+---
+
 ## Module Map
 
 | File | Purpose | Pure or Figma-aware |
 | --- | --- | --- |
 | [`src/documentation/types.ts`](file:///Users/danial/Downloads/TashilStoryBook/src/documentation/types.ts) | Domain models, metadata schema (`tashil_doc_meta`), doc IR, and drift reports. | **Pure** |
-| [`src/documentation/token-doc-model.ts`](file:///Users/danial/Downloads/TashilStoryBook/src/documentation/token-doc-model.ts) | Groups variables into folder-matching sections, dynamically derives headlines and context-aware descriptions, resolves mode values/aliases, and computes deterministic content hashes. | **Pure** |
+| [`src/documentation/token-doc-model.ts`](file:///Users/danial/Downloads/TashilStoryBook/src/documentation/token-doc-model.ts) | Groups variables into folder-matching sections, provides a name-only group summary for lazy previews, dynamically derives headlines and context-aware descriptions, resolves mode values/aliases, and computes deterministic content hashes. | **Pure** |
 | [`src/documentation/doc-diff.ts`](file:///Users/danial/Downloads/TashilStoryBook/src/documentation/doc-diff.ts) | Diffs current documents against previous snapshots/metadata to report exact drift (added, modified, removed tokens and modes). | **Pure** |
-| [`src/documentation/component-doc-model.ts`](file:///Users/danial/Downloads/TashilStoryBook/src/documentation/component-doc-model.ts) | Combines props contracts, Figma properties, and variant combinations into component doc models. | **Pure** |
+| [`src/documentation/component-doc-model.ts`](file:///Users/danial/Downloads/TashilStoryBook/src/documentation/component-doc-model.ts) | Combines props contracts, Figma properties, and variant combinations into component doc models, and counts combinations without expanding the Cartesian matrix for previews. | **Pure** |
 | [`src/documentation/markdown-emitter.ts`](file:///Users/danial/Downloads/TashilStoryBook/src/documentation/markdown-emitter.ts) | Serializes doc IR to structured GitHub-flavored Markdown / Storybook documentation. | **Pure** |
 | [`src/documentation/figma-canvas-writer.ts`](file:///Users/danial/Downloads/TashilStoryBook/src/documentation/figma-canvas-writer.ts) | Figma canvas frame creator: loads fonts, instantiates master components from Swiss-Army, binds swatch fills to Figma Variables (`setBoundVariableForPaint`), sets column appearance modes (`applyColumnMode`), arranges frames side-by-side (100px gap), and stamps metadata. | **Figma-aware** |
 | [`src/documentation/figma-canvas-updater.ts`](file:///Users/danial/Downloads/TashilStoryBook/src/documentation/figma-canvas-updater.ts) | In-place reconciler: updates existing text cells, swatch variable bindings, and table rows 1-to-1 without deleting or repositioning the root frame. | **Figma-aware** |
@@ -84,3 +106,5 @@ The component documentation generator renders a layered 2D variant matrix matchi
    - Every async text mutation on the canvas must be preceded by `await figma.loadFontAsync(textNode.fontName)`.
 8. **Side-by-Side Canvas Placement**:
    - New documentation frames are placed side-by-side to the right of existing frames with 100px margins and automatically focused in the viewport.
+9. **Lazy Source Previews**:
+   - Preview only the selected source. Token previews must derive group identities from variable names without resolving values; component previews must multiply variant-option counts without constructing the matrix. Ignore superseded preview responses in the UI.
