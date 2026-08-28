@@ -1170,16 +1170,51 @@ export async function createComponentDocFrame(
     }],
   };
 
-  const baseCellW = Math.max(Math.ceil(naturalW) + 48, 120);
-  const cellHeight = Math.max(Math.ceil(naturalH) + 36, 80);
-
   const xTiers = doc.matrix?.xTiers ?? [];
   const yTiers = doc.matrix?.yTiers ?? [];
+  const numRows = matrix.rows.length;
   const numColumns = matrix.rows[0]?.cells.length ?? matrix.columnHeaders.length;
 
+  // 1. Measure natural dimensions of each variant across the entire matrix
+  const cellDimensions: Array<Array<{ h: number; w: number }>> = [];
+  for (let r = 0; r < numRows; r++) {
+    const rowCells = matrix.rows[r].cells;
+    const rowDims: Array<{ h: number; w: number }> = [];
+    for (let c = 0; c < numColumns; c++) {
+      const cell = rowCells[c];
+      const matching = findMatchingVariantChild(options.componentNode, cell?.combination ?? {});
+      const w = matching ? matching.width : naturalW;
+      const h = matching ? matching.height : naturalH;
+      rowDims.push({ h, w });
+    }
+    cellDimensions.push(rowDims);
+  }
+
+  // 2. Compute dynamic row heights (max variant height in row + 36 padding, min 72px)
+  const rowHeights: number[] = [];
+  for (let r = 0; r < numRows; r++) {
+    let maxHInRow = 72;
+    for (let c = 0; c < numColumns; c++) {
+      const dim = cellDimensions[r][c];
+      if (dim.h + 36 > maxHInRow) {
+        maxHInRow = Math.ceil(dim.h) + 36;
+      }
+    }
+    rowHeights.push(maxHInRow);
+  }
+
+  // 3. Compute dynamic column widths (max variant width in column + 48 padding, min 100px)
   const columnWidths: number[] = [];
   for (let c = 0; c < numColumns; c++) {
-    let maxNeededForCol = baseCellW;
+    let maxNeededForCol = 100;
+    for (let r = 0; r < numRows; r++) {
+      const dim = cellDimensions[r][c];
+      if (dim.w + 48 > maxNeededForCol) {
+        maxNeededForCol = Math.ceil(dim.w) + 48;
+      }
+    }
+
+    // Ensure header labels across all X tiers fit
     for (const tier of xTiers) {
       const group = tier.groups.find(
         (g) => (g.colStart ?? 0) <= c && c < (g.colStart ?? 0) + g.span,
@@ -1254,7 +1289,7 @@ export async function createComponentDocFrame(
         const colStart = group.colStart ?? 0;
         let groupW = 0;
         for (let i = colStart; i < colStart + group.span; i++) {
-          groupW += columnWidths[i] ?? baseCellW;
+          groupW += columnWidths[i] ?? 120;
         }
 
         const groupContainer = figma.createFrame();
@@ -1305,7 +1340,7 @@ export async function createComponentDocFrame(
 
     for (let c = 0; c < matrix.columnHeaders.length; c++) {
       const colHeader = matrix.columnHeaders[c];
-      const colW = columnWidths[c] ?? baseCellW;
+      const colW = columnWidths[c] ?? 120;
       const xLabel = createXAxisBracket(colHeader.value, colW);
       xHeadersRow.appendChild(xLabel);
     }
@@ -1366,7 +1401,12 @@ export async function createComponentDocFrame(
       const isLeafTier = t === yTiers.length - 1;
 
       for (const group of tier.groups) {
-        const groupH = group.span * cellHeight;
+        const rowStart = group.rowStart ?? 0;
+        let groupH = 0;
+        for (let r = rowStart; r < rowStart + group.span; r++) {
+          groupH += rowHeights[r] ?? 72;
+        }
+
         const groupContainer = figma.createFrame();
         groupContainer.name = `Label — ${group.label}`;
         groupContainer.layoutMode = 'HORIZONTAL';
@@ -1412,8 +1452,10 @@ export async function createComponentDocFrame(
     yAxisCol.itemSpacing = 0;
     yAxisCol.fills = [];
 
-    for (const row of matrix.rows) {
-      const yLabel = createYAxisBracket(row.rowHeader.value, cellHeight);
+    for (let r = 0; r < matrix.rows.length; r++) {
+      const row = matrix.rows[r];
+      const rH = rowHeights[r] ?? 72;
+      const yLabel = createYAxisBracket(row.rowHeader.value, rH);
       yAxisCol.appendChild(yLabel);
     }
     yTiersRow.appendChild(yAxisCol);
@@ -1431,7 +1473,9 @@ export async function createComponentDocFrame(
   instancesFrame.itemSpacing = 0;
   instancesFrame.fills = [];
 
-  for (const row of matrix.rows) {
+  for (let r = 0; r < matrix.rows.length; r++) {
+    const row = matrix.rows[r];
+    const rH = rowHeights[r] ?? 72;
     const rowFrame = figma.createFrame();
     rowFrame.name = 'Row';
     rowFrame.layoutMode = 'HORIZONTAL';
@@ -1457,54 +1501,13 @@ export async function createComponentDocFrame(
       cellFrame.dashPattern = [4, 4];
       cellFrame.fills = [{ color: { r: 0.98, g: 0.97, b: 1 }, type: 'SOLID' }];
 
-      if (options.componentNode && options.componentNode.type === 'COMPONENT_SET') {
+      const matchingChild = findMatchingVariantChild(options.componentNode, cell.combination);
+      if (matchingChild && 'createInstance' in matchingChild) {
         try {
-          const set = options.componentNode as ComponentSetNode;
-          const comboKeys = Object.keys(cell.combination);
-
-          const matchingChild = set.children.find((child) => {
-            if (child.type !== 'COMPONENT') return false;
-            const vp = (child as ComponentNode).variantProperties;
-            if (vp) {
-              return comboKeys.every((k) => {
-                const val = cell.combination[k];
-                const foundKey = Object.keys(vp).find(
-                  (vk) => vk.toLowerCase() === k.toLowerCase(),
-                );
-                if (!foundKey) return true;
-                return vp[foundKey].toLowerCase() === String(val).toLowerCase();
-              });
-            }
-            const nameParts = child.name.split(',').map((s) => s.trim().toLowerCase());
-            return comboKeys.every((k) => {
-              const targetPart = `${k.toLowerCase()}=${String(cell.combination[k]).toLowerCase()}`;
-              return nameParts.includes(targetPart);
-            });
-          }) as ComponentNode | undefined;
-
-          if (matchingChild && 'createInstance' in matchingChild) {
-            const inst = matchingChild.createInstance();
-            cellFrame.appendChild(inst);
-          } else {
-            const defaultVariant =
-              set.defaultVariant ?? ((set.children[0] as ComponentNode) || null);
-            if (defaultVariant && 'createInstance' in defaultVariant) {
-              const inst = defaultVariant.createInstance();
-              if ('setProperties' in inst) {
-                inst.setProperties(cell.combination);
-                cellFrame.appendChild(inst);
-              }
-            }
-          }
-        } catch (_e) {
-          // Variant combination does not exist
-        }
-      } else if (options.componentNode && options.componentNode.type === 'COMPONENT') {
-        try {
-          const inst = (options.componentNode as ComponentNode).createInstance();
+          const inst = matchingChild.createInstance();
           cellFrame.appendChild(inst);
         } catch (_e) {
-          // Keep procedural fallback
+          // Variant combination instantiation fallback
         }
       }
 
@@ -1520,7 +1523,7 @@ export async function createComponentDocFrame(
       // Explicitly lock fixed dimensions so auto-layout never shrinks or hugs the inner component
       cellFrame.primaryAxisSizingMode = 'FIXED';
       cellFrame.counterAxisSizingMode = 'FIXED';
-      cellFrame.resize(colW, cellHeight);
+      cellFrame.resize(colW, rH);
 
       rowFrame.appendChild(cellFrame);
     }
@@ -1654,4 +1657,44 @@ export function hexToRgb(hex: string): RGB {
 function hexToRgba(hex: string): RGBA {
   const rgb = hexToRgb(hex);
   return { ...rgb, a: 1 };
+}
+
+export function findMatchingVariantChild(
+  componentNode: BaseNode | null | undefined,
+  combination: Record<string, string>,
+): ComponentNode | null {
+  if (!componentNode) return null;
+  if (componentNode.type === 'COMPONENT') {
+    return componentNode as ComponentNode;
+  }
+  if (componentNode.type === 'COMPONENT_SET') {
+    const set = componentNode as ComponentSetNode;
+    const comboKeys = Object.keys(combination);
+    if (comboKeys.length === 0) {
+      return set.defaultVariant ?? ((set.children[0] as ComponentNode) || null);
+    }
+
+    const matched = set.children.find((child) => {
+      if (child.type !== 'COMPONENT') return false;
+      const vp = (child as ComponentNode).variantProperties;
+      if (vp) {
+        return comboKeys.every((k) => {
+          const val = combination[k];
+          const foundKey = Object.keys(vp).find(
+            (vk) => vk.toLowerCase() === k.toLowerCase(),
+          );
+          if (!foundKey) return true;
+          return vp[foundKey].toLowerCase() === String(val).toLowerCase();
+        });
+      }
+      const nameParts = child.name.split(',').map((s) => s.trim().toLowerCase());
+      return comboKeys.every((k) => {
+        const targetPart = `${k.toLowerCase()}=${String(combination[k]).toLowerCase()}`;
+        return nameParts.includes(targetPart);
+      });
+    }) as ComponentNode | undefined;
+
+    return matched ?? set.defaultVariant ?? ((set.children[0] as ComponentNode) || null);
+  }
+  return null;
 }
