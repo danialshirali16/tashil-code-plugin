@@ -1290,16 +1290,44 @@ export async function createComponentDocFrame(
       if (options.componentNode && options.componentNode.type === 'COMPONENT_SET') {
         try {
           const set = options.componentNode as ComponentSetNode;
-          const defaultVariant = set.defaultVariant ?? ((set.children[0] as ComponentNode) || null);
-          if (defaultVariant && 'createInstance' in defaultVariant) {
-            const inst = defaultVariant.createInstance();
-            if ('setProperties' in inst) {
-              inst.setProperties(cell.combination);
+          const comboKeys = Object.keys(cell.combination);
+
+          const matchingChild = set.children.find((child) => {
+            if (child.type !== 'COMPONENT') return false;
+            const vp = (child as ComponentNode).variantProperties;
+            if (vp) {
+              return comboKeys.every((k) => {
+                const val = cell.combination[k];
+                const foundKey = Object.keys(vp).find(
+                  (vk) => vk.toLowerCase() === k.toLowerCase(),
+                );
+                if (!foundKey) return true;
+                return vp[foundKey].toLowerCase() === String(val).toLowerCase();
+              });
             }
+            const nameParts = child.name.split(',').map((s) => s.trim().toLowerCase());
+            return comboKeys.every((k) => {
+              const targetPart = `${k.toLowerCase()}=${String(cell.combination[k]).toLowerCase()}`;
+              return nameParts.includes(targetPart);
+            });
+          }) as ComponentNode | undefined;
+
+          if (matchingChild && 'createInstance' in matchingChild) {
+            const inst = matchingChild.createInstance();
             cellFrame.appendChild(inst);
+          } else {
+            const defaultVariant =
+              set.defaultVariant ?? ((set.children[0] as ComponentNode) || null);
+            if (defaultVariant && 'createInstance' in defaultVariant) {
+              const inst = defaultVariant.createInstance();
+              if ('setProperties' in inst) {
+                inst.setProperties(cell.combination);
+                cellFrame.appendChild(inst);
+              }
+            }
           }
         } catch (_e) {
-          // Keep procedural fallback
+          // Variant combination does not exist
         }
       } else if (options.componentNode && options.componentNode.type === 'COMPONENT') {
         try {
@@ -1311,24 +1339,12 @@ export async function createComponentDocFrame(
       }
 
       if (cellFrame.children.length === 0) {
-        const preview = figma.createFrame();
-        preview.name = 'Preview';
-        preview.layoutMode = 'HORIZONTAL';
-        preview.counterAxisAlignItems = 'CENTER';
-        preview.primaryAxisAlignItems = 'CENTER';
-        preview.paddingLeft = 12;
-        preview.paddingRight = 12;
-        preview.paddingTop = 8;
-        preview.paddingBottom = 8;
-        preview.cornerRadius = 6;
-        preview.fills = [{ color: { r: 0.93, g: 0.9, b: 1 }, type: 'SOLID' }];
-        const previewText = createTextNode(cell.title, 12, FONT_MONO, {
-          r: 0.45,
-          g: 0.15,
-          b: 0.85,
+        const noneText = createTextNode('None', 14, FONT_MEDIUM, {
+          r: 0.58,
+          g: 0.64,
+          b: 0.72,
         });
-        preview.appendChild(previewText);
-        cellFrame.appendChild(preview);
+        cellFrame.appendChild(noneText);
       }
 
       // Explicitly lock fixed dimensions so auto-layout never shrinks or hugs the inner component
