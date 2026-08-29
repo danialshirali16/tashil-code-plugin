@@ -365,7 +365,6 @@ Manual Figma acceptance matrix:
 - [ ] Add `docs/inspect-frame.md`: what Layout/Style show, how the connected
   summary works, why instances are atomic, Design-mode value proposition.
 - [ ] Move `layout-composer-preview.html` to `docs/archive/`.
-- [ ] Changelog entry describing the pivot and the new behavior.
 - [ ] Release as a beta; collect real usage before considering any return
   to code generation (a future "copy as TSX" affordance can be rebuilt from
   git history if users ask for it).

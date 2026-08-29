@@ -128,6 +128,28 @@ describe('buildTokenDocDocument', () => {
     ]);
   });
 
+  it('places root-level tokens in a leading General section', () => {
+    const collection: RawCollectionData = {
+      collectionId: 'col-general-first',
+      collectionName: 'Foundations',
+      modes: [{ modeId: 'default', name: 'Default' }],
+      tokens: [
+        { id: 'nested', name: 'Spacing/Large', valuesByMode: { default: { value: 24 } } },
+        { id: 'root', name: 'BaseSize', valuesByMode: { default: { value: 16 } } },
+        { id: 'nested-2', name: 'Radius/Card', valuesByMode: { default: { value: 12 } } },
+      ],
+    };
+
+    const doc = buildTokenDocDocument(collection);
+
+    expect(doc.sections.map((section) => section.id)).toEqual(['general', 'spacing', 'radius']);
+    expect(doc.sections[0]?.tokens.map((token) => token.name)).toEqual(['BaseSize']);
+    expect(tokenDocModel.summarizeTokenDocGroups(
+      collection.tokens.map((token) => token.name),
+      collection.collectionName,
+    ).groupNames).toEqual(['General', 'Spacing', 'Radius']);
+  });
+
   it('computes deterministic content hash', () => {
     const hash1 = computeCollectionHash(sampleCollection);
     const hash2 = computeCollectionHash(sampleCollection);

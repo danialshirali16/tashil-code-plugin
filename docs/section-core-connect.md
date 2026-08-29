@@ -108,6 +108,10 @@ simple subset.
 13. **CI and Code Connect reuse existing contracts.** The reviewer reruns
     `parseSourceComponent`, while `.figma.tsx` generation consumes the shared
     `ComponentUsage`. Neither path owns a second mapper.
+14. **Inventory search uses the native Figma Textbox.** Keep the controlled
+    Components inventory search on `Textbox` from `@create-figma-plugin/ui`,
+    including its search icon and accessible label; do not replace it with a
+    hand-styled HTML search input.
 
 ## Gotchas
 

@@ -141,8 +141,7 @@ body {
 .detail-back:focus-visible,
 .inventory-dot-filter:focus-visible,
 .inventory-filter:focus-visible,
-.inventory-row:focus-visible,
-.inventory-search:focus-visible {
+.inventory-row:focus-visible {
   outline: 2px solid var(--figma-color-border-brand-strong, #0d99ff);
   outline-offset: 1px;
 }
@@ -235,22 +234,7 @@ body {
 }
 
 .inventory-search {
-  appearance: none;
-  background: var(--figma-color-bg);
-  border: 1px solid var(--figma-color-border);
-  border-radius: 5px;
-  box-sizing: border-box;
-  color: var(--figma-color-text);
-  font: inherit;
-  font-size: 11px;
-  height: 32px;
   margin-top: 12px;
-  padding: 6px 10px;
-  width: 100%;
-}
-
-.inventory-search::placeholder {
-  color: var(--figma-color-text-tertiary);
 }
 
 .inventory-dot-filter {
@@ -2979,6 +2963,14 @@ body {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
+}
+
+.connection-portability-actions > * {
+  flex: 0 0 144px;
+}
+
+.connection-portability-actions > div > button {
+  width: 100%;
 }
 
 .connection-import-button {

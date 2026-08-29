@@ -4,28 +4,6 @@ Tashil Code is a Figma Dev Mode plugin (TypeScript + Preact,
 `@create-figma-plugin/build`). Single package, no monorepo. Before changing
 code, read the matching section guide in [`docs/`](docs/sections-index.md).
 
-## Roles every change must fulfill
-
-### Update `CHANGELOG.md`
-
-Every notable, user-facing change gets a `CHANGELOG.md` entry **in the same
-change that ships the code** — not as a follow-up.
-
-- Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versions
-  track the marketplace publish; there are no git tags, so `package.json` is
-  the version of record.
-- **Merged to `main`** → add under `## [Unreleased]` in the right category
-  (`Added` / `Changed` / `Fixed` / `Compatibility`). When a marketplace publish
-  is cut, move `## [Unreleased]` contents into a dated `## [1.x.0] - YYYY-MM-DD`
-  section and start a fresh empty `## [Unreleased]`.
-- **Still on a feature branch, not on `main`** → it does **not** belong in the
-  changelog yet. The changelog describes what has shipped, not what is in
-  development. (Verify with `git log main..HEAD` before claiming something is
-  released.)
-- Write user-facing prose: what changed and why it matters to a plugin user,
-  not internal refactor detail. Link the matching `docs/*.md` guide when one
-  exists.
-
 ### Keep documentation in sync
 
 - Before editing `src/<section>/`, read the matching `docs/section-*.md`.
@@ -66,4 +44,4 @@ npm run lint        # eslint .
 npm run build       # typecheck + build-figma-plugin --minify
 ```
 
-Then verify `CHANGELOG.md` and the relevant `docs/section-*.md` are updated.
+Then verify the relevant `docs/section-*.md` guide is updated.

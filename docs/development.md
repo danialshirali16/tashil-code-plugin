@@ -155,7 +155,6 @@ guide in the same change:
   handling changes.
 - [Community demo guide](community-demo.md) when onboarding or the companion
   quick-start flow changes.
-- `CHANGELOG.md` for notable user-facing changes.
 
 ### Manual Storybook verification
 

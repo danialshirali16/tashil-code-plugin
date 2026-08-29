@@ -20,7 +20,8 @@ import {
   type DocumentationGenerationCancellation,
 } from './generation-cancellation';
 
-export const FRAME_WIDTH = 1980;
+export const FRAME_WIDTH = 1900;
+const TOKEN_DOC_HORIZONTAL_PADDING = 200;
 const FONT_REGULAR = { family: 'Inter', style: 'Regular' };
 const FONT_MEDIUM = { family: 'Inter', style: 'Medium' };
 let FONT_MONO = { family: 'Geist Mono', style: 'Regular' };
@@ -231,6 +232,102 @@ export function alignTierTopRight(tier: FrameNode): void {
   tier.counterAxisAlignItems = 'MAX';
 }
 
+export function getTokenDocFrameWidth(modeCount: number): number {
+  if (modeCount <= 1) return 1100;
+  if (modeCount === 2) return 1500;
+  if (modeCount === 3) return 1900;
+  if (modeCount === 4) return 2300;
+  return 3000;
+}
+
+export function formatTokenDocFrameName(collectionName: string): string {
+  return collectionName;
+}
+
+export function formatComponentDocFrameName(componentName: string): string {
+  return `${componentName} Guideline`;
+}
+
+function setHorizontalFill(node: SceneNode): void {
+  try {
+    (node as SceneNode & { layoutSizingHorizontal: 'FILL' }).layoutSizingHorizontal = 'FILL';
+  } catch (_error) {
+    // Some locked or legacy instance descendants cannot change sizing.
+  }
+}
+
+export function applyTokenDocFullWidthLayout(rootFrame: FrameNode): void {
+  for (const child of rootFrame.children) {
+    setHorizontalFill(child);
+  }
+
+  const sections = safeFindChildren<SceneNode>(
+    rootFrame,
+    (node) => safeGetNodeName(node).startsWith('.[Documentation] Section'),
+  );
+  for (const section of sections) {
+    const title = safeFindChild<SceneNode>(section, (node) => safeGetNodeName(node) === 'Title');
+    const slot = safeFindChild<SceneNode>(section, (node) => safeGetNodeName(node) === 'Slot');
+    if (title) setHorizontalFill(title);
+    if (slot) setHorizontalFill(slot);
+
+    const table = slot
+      ? safeFindChild<FrameNode>(slot, (node) => {
+          const name = safeGetNodeName(node);
+          return name === 'Table' || name === 'Container';
+        })
+      : safeFindChild<FrameNode>(section, (node) => {
+          const name = safeGetNodeName(node);
+          return name === 'Table' || name === 'Container';
+        });
+    if (!table) continue;
+
+    try {
+      table.primaryAxisSizingMode = 'FIXED';
+    } catch (_error) {
+      // Instance-backed tables may keep their component-defined sizing mode.
+    }
+    setHorizontalFill(table);
+
+    for (const column of safeFindChildren<FrameNode>(
+      table,
+      (node) => safeGetNodeName(node) === 'Token' || safeGetNodeName(node).startsWith('Value'),
+    )) {
+      setHorizontalFill(column);
+      for (const row of column.children) {
+        setHorizontalFill(row);
+      }
+    }
+  }
+}
+
+export function setTokenSectionTitleVisibility(sectionNode: SceneNode, visible: boolean): void {
+  if (sectionNode.type === 'INSTANCE') {
+    try {
+      const propertyKey = Object.entries(sectionNode.componentProperties).find(([key, property]) =>
+        key.split('#')[0]?.trim().toLowerCase() === 'title' && property.type === 'BOOLEAN',
+      )?.[0];
+      if (propertyKey) {
+        sectionNode.setProperties({ [propertyKey]: visible });
+      }
+    } catch (_error) {
+      // Fall back to the Title layer visibility for legacy component instances.
+    }
+  }
+
+  const titleLayer = safeFindChild<SceneNode>(
+    sectionNode,
+    (node) => safeGetNodeName(node) === 'Title',
+  );
+  if (titleLayer) {
+    try {
+      titleLayer.visible = visible;
+    } catch (_error) {
+      // Ignore locked instance descendant visibility errors.
+    }
+  }
+}
+
 export async function createTokenDocFrame(
   doc: TokenDocDocument,
   options: {
@@ -250,9 +347,10 @@ export async function createTokenDocFrame(
   onProgress?.('Setting up documentation frame…', 20);
   const targetPage = options.page ?? figma.currentPage;
   const rootFrame = figma.createFrame();
+  const frameWidth = getTokenDocFrameWidth(doc.modes.length);
   try {
-  rootFrame.name = doc.title.startsWith('1.') ? doc.title : `1. ${doc.title}`;
-  rootFrame.resize(FRAME_WIDTH, 100);
+  rootFrame.name = formatTokenDocFrameName(doc.collectionName);
+  rootFrame.resize(frameWidth, 100);
   rootFrame.layoutMode = 'VERTICAL';
   rootFrame.primaryAxisSizingMode = 'AUTO';
   rootFrame.counterAxisSizingMode = 'FIXED';
@@ -284,24 +382,24 @@ export async function createTokenDocFrame(
       rootFrame.x = maxX + 100;
       rootFrame.y = baselineY;
     } else {
-      rootFrame.x = figma.viewport.center.x - FRAME_WIDTH / 2;
+      rootFrame.x = figma.viewport.center.x - frameWidth / 2;
       rootFrame.y = figma.viewport.center.y - 400;
     }
   }
 
   // 1. Header
   onProgress?.('Creating Header & Hero…', 30);
-  const header = await createHeaderBar(doc.title);
+  const header = await createHeaderBar(doc.title, frameWidth);
   cancellation?.throwIfCancelled();
   rootFrame.appendChild(header);
 
   // 2. Hero
-  const hero = await createHeroNode(doc);
+  const hero = await createHeroNode(doc, frameWidth);
   cancellation?.throwIfCancelled();
   rootFrame.appendChild(hero);
 
   // 3. Separator
-  const separator = await createSeparatorNode(doc.title);
+  const separator = await createSeparatorNode(doc.title, frameWidth);
   cancellation?.throwIfCancelled();
   rootFrame.appendChild(separator);
 
@@ -324,9 +422,11 @@ export async function createTokenDocFrame(
 
   // 5. Footer
   onProgress?.('Finalizing footer and layout…', 95);
-  const footer = await createFooterBar();
+  const footer = await createFooterBar(frameWidth);
   cancellation?.throwIfCancelled();
   rootFrame.appendChild(footer);
+
+  applyTokenDocFullWidthLayout(rootFrame);
 
   targetPage.appendChild(rootFrame);
 
@@ -380,7 +480,7 @@ export async function createTokenDocFrame(
   }
 }
 
-export async function createHeaderBar(title: string): Promise<SceneNode> {
+export async function createHeaderBar(title: string, width = FRAME_WIDTH): Promise<SceneNode> {
   const cleanTitle = title.replace(/^\d+\.\s*/, '');
   const numMatch = title.match(/^\d+/)?.[0] ?? '01';
   const paddedNum = numMatch.padStart(2, '0');
@@ -389,7 +489,7 @@ export async function createHeaderBar(title: string): Promise<SceneNode> {
   if (master) {
     try {
       const instance = master.createInstance();
-      instance.resize(FRAME_WIDTH, instance.height);
+      instance.resize(width, instance.height);
       const textNodes = safeFindTextNodes(instance);
       for (const t of textNodes) {
         const textLower = t.characters.toLowerCase();
@@ -409,13 +509,13 @@ export async function createHeaderBar(title: string): Promise<SceneNode> {
     }
   }
 
-  return createProceduralHeader(title);
+  return createProceduralHeader(title, width);
 }
 
-function createProceduralHeader(title: string): FrameNode {
+function createProceduralHeader(title: string, width: number): FrameNode {
   const bar = figma.createFrame();
   bar.name = '.[Documentation] Header & Footer';
-  bar.resize(FRAME_WIDTH, 84);
+  bar.resize(width, 84);
   bar.layoutMode = 'HORIZONTAL';
   bar.primaryAxisAlignItems = 'SPACE_BETWEEN';
   bar.counterAxisAlignItems = 'CENTER';
@@ -487,25 +587,25 @@ function createProceduralHeader(title: string): FrameNode {
   return bar;
 }
 
-export async function createFooterBar(): Promise<SceneNode> {
+export async function createFooterBar(width = FRAME_WIDTH): Promise<SceneNode> {
   const master = (await findMasterComponent('1386:9066')) ?? (await findMasterComponent('1386:9060'));
   if (master) {
     try {
       const instance = master.createInstance();
-      instance.resize(FRAME_WIDTH, instance.height);
+      instance.resize(width, instance.height);
       return instance;
     } catch (_e) {
       // fallback
     }
   }
 
-  return createProceduralFooter();
+  return createProceduralFooter(width);
 }
 
-function createProceduralFooter(): FrameNode {
+function createProceduralFooter(width: number): FrameNode {
   const bar = figma.createFrame();
   bar.name = '.[Documentation] Header & Footer';
-  bar.resize(FRAME_WIDTH, 84);
+  bar.resize(width, 84);
   bar.layoutMode = 'HORIZONTAL';
   bar.primaryAxisAlignItems = 'CENTER';
   bar.counterAxisAlignItems = 'CENTER';
@@ -530,13 +630,16 @@ function createProceduralFooter(): FrameNode {
   return bar;
 }
 
-export async function createHeroNode(doc: TokenDocDocument): Promise<SceneNode> {
+export async function createHeroNode(
+  doc: TokenDocDocument,
+  width = getTokenDocFrameWidth(doc.modes.length),
+): Promise<SceneNode> {
   const cleanTitle = doc.title.replace(/^\d+\.\s*/, '');
   const master = await findMasterComponent('1422:17985');
   if (master) {
     try {
       const instance = master.createInstance();
-      instance.resize(FRAME_WIDTH, instance.height);
+      instance.resize(width, instance.height);
       const textNodes = safeFindTextNodes(instance);
       for (const t of textNodes) {
         if (t.name === 'Headline' || t.characters === 'Headline' || t.characters.includes('Colors')) {
@@ -553,13 +656,13 @@ export async function createHeroNode(doc: TokenDocDocument): Promise<SceneNode> 
     }
   }
 
-  return createProceduralHero(doc);
+  return createProceduralHero(doc, width);
 }
 
-function createProceduralHero(doc: TokenDocDocument): FrameNode {
+function createProceduralHero(doc: TokenDocDocument, width: number): FrameNode {
   const hero = figma.createFrame();
   hero.name = '.[Documentation] Hero';
-  hero.resize(FRAME_WIDTH, 368);
+  hero.resize(width, 368);
   hero.layoutMode = 'HORIZONTAL';
   hero.primaryAxisAlignItems = 'SPACE_BETWEEN';
   hero.counterAxisAlignItems = 'CENTER';
@@ -634,13 +737,13 @@ function createProceduralHero(doc: TokenDocDocument): FrameNode {
   return hero;
 }
 
-export async function createSeparatorNode(title = 'Color'): Promise<SceneNode> {
+export async function createSeparatorNode(title = 'Color', width = FRAME_WIDTH): Promise<SceneNode> {
   const cleanTitle = title.replace(/^\d+\.\s*/, '');
   const master = await findMasterComponent('1422:18167');
   if (master) {
     try {
       const instance = master.createInstance();
-      instance.resize(FRAME_WIDTH, instance.height);
+      instance.resize(width, instance.height);
       const textNodes = safeFindTextNodes(instance);
       if (textNodes.length > 0) {
         textNodes[0].characters = `${cleanTitle} Tokens`;
@@ -651,14 +754,14 @@ export async function createSeparatorNode(title = 'Color'): Promise<SceneNode> {
     }
   }
 
-  return createProceduralSeparator(title);
+  return createProceduralSeparator(title, width);
 }
 
-function createProceduralSeparator(title = 'Color'): FrameNode {
+function createProceduralSeparator(title: string, width: number): FrameNode {
   const cleanTitle = title.replace(/^\d+\.\s*/, '');
   const sep = figma.createFrame();
   sep.name = '.[Documentation] Separator';
-  sep.resize(FRAME_WIDTH, 45);
+  sep.resize(width, 45);
   sep.layoutMode = 'HORIZONTAL';
   sep.counterAxisAlignItems = 'CENTER';
   sep.paddingLeft = 100;
@@ -687,12 +790,14 @@ export async function createSectionNode(
   cancellation?: DocumentationGenerationCancellation,
 ): Promise<SceneNode> {
   cancellation?.throwIfCancelled();
+  const frameWidth = getTokenDocFrameWidth(modes.length);
   const master = await findMasterComponent('1422:18185');
   cancellation?.throwIfCancelled();
   if (master) {
     try {
       const instance = master.createInstance();
-      instance.resize(FRAME_WIDTH, instance.height);
+      instance.resize(frameWidth, instance.height);
+      setTokenSectionTitleVisibility(instance, section.id !== 'general');
       const textNodes = safeFindTextNodes(instance);
       for (const t of textNodes) {
         if (t.name === 'Headline' || t.characters === 'Headline' || t.characters === 'Section name') {
@@ -734,8 +839,10 @@ async function createProceduralSection(
 ): Promise<FrameNode> {
   cancellation?.throwIfCancelled();
   const sectionNode = figma.createFrame();
+  const frameWidth = getTokenDocFrameWidth(modes.length);
+  const contentWidth = frameWidth - TOKEN_DOC_HORIZONTAL_PADDING;
   sectionNode.name = '.[Documentation] Section';
-  sectionNode.resize(FRAME_WIDTH, 100);
+  sectionNode.resize(frameWidth, 100);
   sectionNode.layoutMode = 'VERTICAL';
   sectionNode.primaryAxisSizingMode = 'AUTO';
   sectionNode.counterAxisSizingMode = 'FIXED';
@@ -753,7 +860,7 @@ async function createProceduralSection(
   titleFrame.itemSpacing = 8;
   titleFrame.primaryAxisSizingMode = 'AUTO';
   titleFrame.counterAxisSizingMode = 'FIXED';
-  titleFrame.resize(1780, 84);
+  titleFrame.resize(contentWidth, 84);
   titleFrame.fills = [];
 
   const headline = createTextNode(section.headline, 32, FONT_MEDIUM, { r: 0.063, g: 0.094, b: 0.157 });
@@ -765,6 +872,8 @@ async function createProceduralSection(
   titleFrame.appendChild(desc);
 
   sectionNode.appendChild(titleFrame);
+  setHorizontalFill(titleFrame);
+  setTokenSectionTitleVisibility(sectionNode, section.id !== 'general');
 
   // Table Container inside Slot
   const slot = figma.createFrame();
@@ -772,12 +881,14 @@ async function createProceduralSection(
   slot.layoutMode = 'VERTICAL';
   slot.primaryAxisSizingMode = 'AUTO';
   slot.counterAxisSizingMode = 'FIXED';
-  slot.resize(1780, 100);
+  slot.resize(contentWidth, 100);
   slot.fills = [];
 
   const table = await createTable(section.tokens, modes, collectionId, cancellation);
   slot.appendChild(table);
+  setHorizontalFill(table);
   sectionNode.appendChild(slot);
+  setHorizontalFill(slot);
 
   return sectionNode;
 }
@@ -802,9 +913,11 @@ export async function createTable(
 ): Promise<FrameNode> {
   cancellation?.throwIfCancelled();
   const container = figma.createFrame();
+  const contentWidth = getTokenDocFrameWidth(modes.length) - TOKEN_DOC_HORIZONTAL_PADDING;
   container.name = 'Table';
+  container.resize(contentWidth, 100);
   container.layoutMode = 'HORIZONTAL';
-  container.primaryAxisSizingMode = 'AUTO';
+  container.primaryAxisSizingMode = 'FIXED';
   container.counterAxisSizingMode = 'AUTO';
   container.cornerRadius = 8;
   container.clipsContent = true;
@@ -815,12 +928,14 @@ export async function createTable(
   // 1. Token Column
   const tokenColumn = await createTokenColumn(tokens, cancellation);
   container.appendChild(tokenColumn);
+  setHorizontalFill(tokenColumn);
 
   // 2. Value Columns (per mode)
   for (const mode of modes) {
     await cancellation?.yieldToMain();
     const valueColumn = await createValueColumn(tokens, mode, collectionId, cancellation);
     container.appendChild(valueColumn);
+    setHorizontalFill(valueColumn);
   }
 
   return container;
@@ -877,11 +992,16 @@ export async function createTokenColumn(
         textNodes[0].characters = 'TOKEN';
       }
       column.appendChild(headerInst);
+      setHorizontalFill(headerInst);
     } catch (_e) {
-      column.appendChild(createProceduralTokenHeader(480, 'TOKEN'));
+      const header = createProceduralTokenHeader(480, 'TOKEN');
+      column.appendChild(header);
+      setHorizontalFill(header);
     }
   } else {
-    column.appendChild(createProceduralTokenHeader(480, 'TOKEN'));
+    const header = createProceduralTokenHeader(480, 'TOKEN');
+    column.appendChild(header);
+    setHorizontalFill(header);
   }
 
   // Token items
@@ -891,6 +1011,7 @@ export async function createTokenColumn(
     const item = await createTokenItemNode(token.name);
     cancellation?.throwIfCancelled();
     column.appendChild(item);
+    setHorizontalFill(item);
   }
 
   return column;
@@ -1115,11 +1236,16 @@ export async function createValueColumn(
         t.characters = mode.name;
       }
       column.appendChild(headerInst);
+      setHorizontalFill(headerInst);
     } catch (_e) {
-      column.appendChild(createProceduralTokenHeader(380, mode.name));
+      const header = createProceduralTokenHeader(380, mode.name);
+      column.appendChild(header);
+      setHorizontalFill(header);
     }
   } else {
-    column.appendChild(createProceduralTokenHeader(380, mode.name));
+    const header = createProceduralTokenHeader(380, mode.name);
+    column.appendChild(header);
+    setHorizontalFill(header);
   }
 
   // Value items
@@ -1130,6 +1256,7 @@ export async function createValueColumn(
     const item = await createValueItemNode(val, token.id);
     cancellation?.throwIfCancelled();
     column.appendChild(item);
+    setHorizontalFill(item);
   }
 
   return column;
@@ -1287,7 +1414,7 @@ export async function createComponentDocFrame(
 
   const rootFrame = figma.createFrame();
   try {
-  rootFrame.name = `<${doc.componentName} /> • Variants`;
+  rootFrame.name = formatComponentDocFrameName(doc.componentName);
   rootFrame.layoutMode = 'HORIZONTAL';
   rootFrame.primaryAxisSizingMode = 'AUTO';
   rootFrame.counterAxisSizingMode = 'AUTO';

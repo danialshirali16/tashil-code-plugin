@@ -193,7 +193,6 @@ continues to use the previously loaded bundle.
 | [Development guide](docs/development.md) | Set up the repository, use the harness, understand testing, and import the development plugin. |
 | [Section guide index](docs/sections-index.md) | Navigate the project architecture and its editor invariants. |
 | [Privacy policy](PRIVACY.md) | Understand stored, transient, downloaded, clipboard, and network data. |
-| [Changelog](CHANGELOG.md) | Review notable product changes. |
 
 ## Verify a change
 

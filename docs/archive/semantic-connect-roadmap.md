@@ -918,7 +918,7 @@ separate privacy-approved telemetry proposal changes it.
 | Usage IR and JSX generation | `src/codegen.ts`, new semantic resolver/IR modules |
 | Inspect and Dev Mode adapters | `src/main.ts`, `src/ui.tsx` |
 | Layout Composer integration | `src/layout/figma-component-resolver.ts`, layout golden tests |
-| Documentation | `docs/`, `README.md`, `CHANGELOG.md` |
+| Documentation | `docs/`, `README.md` |
 
 Recommended new modules:
 

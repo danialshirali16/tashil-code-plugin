@@ -283,7 +283,9 @@ describe('Plugin rendered interactions', () => {
     expect(screen.getByText('Slider')).toBeTruthy();
     expect(screen.queryByText('TextField')).toBeNull();
 
-    fireEvent.input(screen.getByLabelText('Search components'), {
+    const inventorySearch = screen.getByLabelText('Search components') as HTMLInputElement;
+    expect(inventorySearch.type).toBe('text');
+    fireEvent.input(inventorySearch, {
       target: { value: 'components' },
     });
     expect(screen.getByText('Button')).toBeTruthy();
@@ -639,7 +641,8 @@ describe('Plugin rendered interactions', () => {
     expect(screen.getByLabelText('Token output preview').textContent)
       .toContain('Select a collection to preview its generated token output.');
 
-    const collectionSearch = screen.getByRole('textbox', { name: 'Search collections' });
+    const collectionSearch = screen.getByRole('textbox', { name: 'Search collections' }) as HTMLInputElement;
+    expect(collectionSearch.type).toBe('text');
     fireEvent.input(collectionSearch, { target: { value: 'Product' } });
     expect(screen.getByRole('button', { name: 'Select 1 result' })).toBeTruthy();
     fireEvent.input(collectionSearch, { target: { value: 'Missing' } });

@@ -14,7 +14,10 @@ import {
   type TokenDocDocument,
 } from './types';
 import {
-  FRAME_WIDTH,
+  applyTokenDocFullWidthLayout,
+  formatComponentDocFrameName,
+  formatTokenDocFrameName,
+  getTokenDocFrameWidth,
   loadRequiredFonts,
   createSectionNode,
   createValueColumn,
@@ -26,6 +29,7 @@ import {
   safeFindChildren,
   safeFindTextNodes,
   safeFindAll,
+  setTokenSectionTitleVisibility,
   hexToRgb,
   alignTierTopRight,
 } from './figma-canvas-writer';
@@ -87,7 +91,8 @@ export async function updateTokenDocFrameInPlace(
   await loadRequiredFonts();
   cancellation?.throwIfCancelled();
 
-  frame.resize(FRAME_WIDTH, frame.height);
+  frame.name = formatTokenDocFrameName(doc.collectionName);
+  frame.resize(getTokenDocFrameWidth(doc.modes.length), frame.height);
   frame.cornerRadius = 24;
   frame.clipsContent = true;
 
@@ -188,6 +193,7 @@ export async function updateTokenDocFrameInPlace(
     if (sIdx < existingSectionNodes.length) {
       // Reconcile existing section in place
       const sectionNode = existingSectionNodes[sIdx];
+      setTokenSectionTitleVisibility(sectionNode, section.id !== 'general');
 
       // Update Headline and Description
       const textNodes = safeFindTextNodes(sectionNode);
@@ -423,6 +429,8 @@ export async function updateTokenDocFrameInPlace(
     }
   }
 
+  applyTokenDocFullWidthLayout(frame);
+
   // Update stamped metadata
   cancellation?.throwIfCancelled();
   onProgress?.('Updating document metadata…', 95);
@@ -458,6 +466,7 @@ export async function updateComponentDocFrameInPlace(
   await loadRequiredFonts();
   cancellation?.throwIfCancelled();
 
+  frame.name = formatComponentDocFrameName(doc.componentName);
   let updatedPropsCount = 0;
 
   const yAxisArea = safeFindChild<FrameNode>(frame, (node) => safeGetNodeName(node) === 'Y-Axis Area');

@@ -12,6 +12,18 @@ the Figma canvas matching the Swiss-Army design system standard (exemplified
 in frame `1. Colors` [node `1386:9125`](https://www.figma.com/design/EdpV2zxUDxFXoOtnRivgQD/%E2%9C%B2--Swiss-Army?node-id=1386-9125&t=PqgRU2azybF9d8FI-11)),
 exports structured Markdown/Storybook specifications, and updates existing documentation
 frames **in place** without resetting layouts, positions, or component structures.
+Token-documentation frames size themselves to their collection: 1100px for one
+mode, 1500px for two, 1900px for three, 2300px for four, and 3000px for five or
+more modes. Their primary content hierarchy fills the available Auto Layout
+width at every supported size.
+Tokens without a slash-delimited group are collected into a leading `General`
+section. That section uses the same `.[Documentation] Section` component as
+other groups, but its Boolean `Title` property is disabled so the table begins
+without a redundant General heading.
+Generated root frames use stable source-facing names: exactly the Variable
+Collection name for token documents, and `<ComponentName> Guideline` for
+component documents. In-place updates repair older root-frame names to the same
+convention.
 
 ---
 
@@ -147,3 +159,9 @@ The component documentation generator renders a layered 2D variant matrix matchi
    - The Docs Cancel action must emit `CANCEL_DOC_GENERATION`, invalidate the active main-thread run, and check the shared cancellation guard between sections, table batches, matrix rows, and async Figma operations. Cancelled runs must not emit a late success/error result; newly generated partial root frames must be removed. A later generation starts with a fresh guard and must remain usable.
 19. **Generation Progress Belongs to the Fixed Action Bar**:
    - Keep the live stage message, progress bar, percentage, and Cancel action inside the fixed Docs footer. Do not add a duplicate progress card to the scrolling content.
+20. **Token Document Width Follows Mode Count**:
+   - Generated and in-place-updated token documents must use 1100px for one mode, 1500px for two, 1900px for three, 2300px for four, and 3000px for five or more. Keep the root's Header, Hero, Separator, Sections, Footer, section Title/Slot, tables, columns, and rows set to Fill Container so content uses the complete available width.
+21. **Root-Level Tokens Lead Without a Title**:
+   - Keep the `general` section first while preserving the source order of every other group. Disable the Section component's Boolean `Title` property for General and restore it for all named groups during both generation and in-place updates; procedural fallbacks must mirror this through Title-layer visibility.
+22. **Root Frame Names Are Source-Facing**:
+   - Name token-document roots exactly after `collectionName`, with no numeric prefix. Name component-document roots `<ComponentName> Guideline`. Apply the same convention during in-place updates so legacy names are repaired without replacing their frames.

@@ -4,7 +4,7 @@
 > prepared, with Figma Community publication and the cold run still pending.
 > Phase 0 remains a proposal.
 > **Date:** 2026-07-31
-> **Related docs:** `semantic-connect-roadmap.md`, `layout-composer-roadmap.md`, `visual-prop-mapping-todo.md`, `../sync-tokens.md`, `../../CHANGELOG.md`
+> **Related docs:** `semantic-connect-roadmap.md`, `layout-composer-roadmap.md`, `visual-prop-mapping-todo.md`, `../sync-tokens.md`
 
 ---
 

@@ -20,7 +20,6 @@ import {
   LoadingIndicator,
   RadioButtons,
   render,
-  SearchTextbox,
   SegmentedControl,
   Stack,
   Text,
@@ -1286,19 +1285,15 @@ function ComponentInventoryView(props: {
                 pressed={props.filter === 'connected'}
               />
             </div>
-            <label class="visually-hidden" htmlFor="tashil-component-search">
-              Search components
-            </label>
-            <input
-              class="inventory-search"
-              id="tashil-component-search"
-              onInput={(event) => {
-                props.onQueryChange(event.currentTarget.value);
-              }}
-              placeholder="Search components or pages"
-              type="search"
-              value={props.query}
-            />
+            <div class="inventory-search">
+              <Textbox
+                aria-label="Search components"
+                icon={<IconSearchSmall24 />}
+                onValueInput={props.onQueryChange}
+                placeholder="Search components or pages"
+                value={props.query}
+              />
+            </div>
             <button
               aria-pressed={props.hideDotPrefixed}
               class={props.hideDotPrefixed
@@ -2260,8 +2255,9 @@ function SyncTokensView(props: {
         </section>
 
         <div class="sync-tokens-toolbar">
-          <SearchTextbox
+          <Textbox
             aria-label="Search collections"
+            icon={<IconSearchSmall24 />}
             onValueInput={setQuery}
             placeholder="Search collections"
             value={query}

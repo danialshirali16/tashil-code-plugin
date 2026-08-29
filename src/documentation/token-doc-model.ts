@@ -54,7 +54,13 @@ export function summarizeTokenDocGroups(
 
   return {
     groupCount: groups.size,
-    groupNames: [...groups.values()],
+    groupNames: [...groups.entries()]
+      .sort(([leftKey], [rightKey]) => {
+        if (leftKey === 'general') return -1;
+        if (rightKey === 'general') return 1;
+        return 0;
+      })
+      .map(([, name]) => name),
   };
 }
 
@@ -106,8 +112,13 @@ export function buildTokenDocDocument(
     }
   }
 
+  const sectionEntries = [...sectionsMap.entries()].sort(([leftKey], [rightKey]) => {
+    if (leftKey === 'general') return -1;
+    if (rightKey === 'general') return 1;
+    return 0;
+  });
   const sections: TokenDocSection[] = [];
-  for (const [key, sectionData] of sectionsMap.entries()) {
+  for (const [key, sectionData] of sectionEntries) {
     const headline = formatDynamicHeadline(sectionData.groupTitle);
     const description = generateDynamicSectionDescription(
       headline,

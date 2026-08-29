@@ -109,6 +109,10 @@ and export orchestrator. Per selected collection, per selected mode:
    warning** — never fabricate a fallback value.
 6. **Export history is informational and user-local.** Store token hashes in
    `clientStorage`; failure to read or write history must never block export.
+7. **Collection search uses the native Figma Textbox.** Keep the controlled
+   Sync Tokens collection filter on `Textbox` from `@create-figma-plugin/ui`,
+   with the standard search icon and accessible label; do not introduce a
+   custom or `SearchTextbox` implementation.
 
 ## Gotchas
 
