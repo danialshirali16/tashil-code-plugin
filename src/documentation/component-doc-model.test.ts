@@ -90,4 +90,43 @@ describe('component-doc-model', () => {
       propertyCount: 3,
     });
   });
+
+  it('preserves Figma property and option casing in every matrix label', () => {
+    const matrix = componentDocModel.buildVariantMatrix([
+      {
+        defaultValue: 'PrimaryAction',
+        id: 'intent-mode',
+        name: 'IntentMode',
+        options: ['PrimaryAction', 'secondaryAction'],
+        rawKey: 'IntentMode#1:1',
+        type: 'VARIANT',
+      },
+      {
+        defaultValue: 'SolidFill',
+        id: 'visual-style',
+        name: 'VisualStyle',
+        options: ['SolidFill', 'GhostOutline'],
+        rawKey: 'VisualStyle#1:2',
+        type: 'VARIANT',
+      },
+      {
+        defaultValue: 'Small',
+        id: 'control-size',
+        name: 'ControlSize',
+        options: ['Small', 'Large'],
+        rawKey: 'ControlSize#1:3',
+        type: 'VARIANT',
+      },
+    ]);
+
+    expect(matrix?.yTiers?.[0].groups.map((group) => group.label))
+      .toEqual(['IntentMode: PrimaryAction', 'IntentMode: secondaryAction']);
+    expect(matrix?.xTiers?.[0].groups.map((group) => group.label))
+      .toEqual(['VisualStyle: SolidFill', 'VisualStyle: GhostOutline']);
+    expect(matrix?.xTiers?.[1].groups.slice(0, 2).map((group) => group.label))
+      .toEqual(['Small', 'Large']);
+    expect(matrix?.columnHeaders[0].value)
+      .toBe('VisualStyle: SolidFill • ControlSize: Small');
+    expect(matrix?.rows[0].rowHeader.value).toBe('IntentMode: PrimaryAction');
+  });
 });

@@ -10,6 +10,8 @@ export const DOC_METADATA_PLUGIN_KEY = 'tashil_doc_meta';
 
 export type DocType = 'component' | 'foundations' | 'tokens';
 
+export type TokenGroupingDepth = '1' | '2' | '3' | '4' | 'all';
+
 export type DocFrameMetadata = {
   contentHash: string;
   docType: DocType;
@@ -18,6 +20,7 @@ export type DocFrameMetadata = {
   schemaVersion: typeof DOC_FRAME_SCHEMA_VERSION;
   targetId: string;
   targetName: string;
+  tokenGroupingDepth?: TokenGroupingDepth;
 };
 
 export type TokenDocValue = {
@@ -58,6 +61,7 @@ export type TokenDocDocument = {
   description: string;
   heroBadgeGradient?: { from: string; to: string; via?: string };
   modes: TokenDocMode[];
+  groupingDepth: TokenGroupingDepth;
   sections: TokenDocSection[];
   title: string;
   totalTokens: number;
@@ -139,6 +143,7 @@ export type DocSourcePreview =
       groupCount: number;
       groupNames: string[];
       modeCount: number;
+      groupingDepth: TokenGroupingDepth;
       scope: 'tokens';
       sourceName: string;
       targetId: string;

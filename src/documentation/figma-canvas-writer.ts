@@ -15,6 +15,10 @@ import {
   type TokenDocMode,
   type TokenDocSection,
 } from './types';
+import {
+  isDocumentationGenerationCancelledError,
+  type DocumentationGenerationCancellation,
+} from './generation-cancellation';
 
 export const FRAME_WIDTH = 1980;
 const FONT_REGULAR = { family: 'Inter', style: 'Regular' };
@@ -229,15 +233,24 @@ export function alignTierTopRight(tier: FrameNode): void {
 
 export async function createTokenDocFrame(
   doc: TokenDocDocument,
-  options: { page?: PageNode; x?: number; y?: number } = {},
+  options: {
+    cancellation?: DocumentationGenerationCancellation;
+    page?: PageNode;
+    x?: number;
+    y?: number;
+  } = {},
   onProgress?: (stage: string, percent: number) => void,
 ): Promise<FrameNode> {
+  const { cancellation } = options;
+  cancellation?.throwIfCancelled();
   onProgress?.('Loading document typography…', 10);
   await loadRequiredFonts();
+  cancellation?.throwIfCancelled();
 
   onProgress?.('Setting up documentation frame…', 20);
   const targetPage = options.page ?? figma.currentPage;
   const rootFrame = figma.createFrame();
+  try {
   rootFrame.name = doc.title.startsWith('1.') ? doc.title : `1. ${doc.title}`;
   rootFrame.resize(FRAME_WIDTH, 100);
   rootFrame.layoutMode = 'VERTICAL';
@@ -279,35 +292,47 @@ export async function createTokenDocFrame(
   // 1. Header
   onProgress?.('Creating Header & Hero…', 30);
   const header = await createHeaderBar(doc.title);
+  cancellation?.throwIfCancelled();
   rootFrame.appendChild(header);
 
   // 2. Hero
   const hero = await createHeroNode(doc);
+  cancellation?.throwIfCancelled();
   rootFrame.appendChild(hero);
 
   // 3. Separator
   const separator = await createSeparatorNode(doc.title);
+  cancellation?.throwIfCancelled();
   rootFrame.appendChild(separator);
 
   // 4. Sections
   const totalSections = doc.sections.length;
   for (let i = 0; i < totalSections; i++) {
+    await cancellation?.yieldToMain();
     const section = doc.sections[i];
     const sectionPct = Math.round(30 + ((i + 1) / totalSections) * 60);
     onProgress?.(`Building section ${i + 1} of ${totalSections} (${section.headline})…`, sectionPct);
-    const sectionNode = await createSectionNode(section, doc.modes, doc.collectionId);
+    const sectionNode = await createSectionNode(
+      section,
+      doc.modes,
+      doc.collectionId,
+      cancellation,
+    );
+    cancellation?.throwIfCancelled();
     rootFrame.appendChild(sectionNode);
   }
 
   // 5. Footer
   onProgress?.('Finalizing footer and layout…', 95);
   const footer = await createFooterBar();
+  cancellation?.throwIfCancelled();
   rootFrame.appendChild(footer);
 
   targetPage.appendChild(rootFrame);
 
   // Apply explicit column variable modes after attaching to document
   for (const sectionNode of rootFrame.children) {
+    await cancellation?.yieldToMain();
     const slot = safeFindChild<FrameNode>(sectionNode, (n) => safeGetNodeName(n) === 'Slot');
     const table = slot
       ? safeFindChild<FrameNode>(slot, (n) => safeGetNodeName(n) === 'Table' || safeGetNodeName(n) === 'Container')
@@ -319,9 +344,11 @@ export async function createTokenDocFrame(
         (c) => safeGetNodeName(c) === 'Value' || safeGetNodeName(c).startsWith('Value'),
       );
       for (let mIdx = 0; mIdx < doc.modes.length; mIdx++) {
+        cancellation?.throwIfCancelled();
         const col = valCols[mIdx];
         if (col) {
           await applyColumnMode(col, doc.modes[mIdx], doc.collectionId);
+          cancellation?.throwIfCancelled();
         }
       }
     }
@@ -336,6 +363,7 @@ export async function createTokenDocFrame(
     schemaVersion: DOC_FRAME_SCHEMA_VERSION,
     targetId: doc.collectionId,
     targetName: doc.collectionName,
+    tokenGroupingDepth: doc.groupingDepth,
   };
   rootFrame.setPluginData(DOC_METADATA_PLUGIN_KEY, JSON.stringify(metadata));
 
@@ -344,6 +372,12 @@ export async function createTokenDocFrame(
 
   onProgress?.('Token documentation generated!', 100);
   return rootFrame;
+  } catch (error) {
+    if (isDocumentationGenerationCancelledError(error) && !rootFrame.removed) {
+      rootFrame.remove();
+    }
+    throw error;
+  }
 }
 
 export async function createHeaderBar(title: string): Promise<SceneNode> {
@@ -650,8 +684,11 @@ export async function createSectionNode(
   section: TokenDocSection,
   modes: TokenDocMode[],
   collectionId?: string,
+  cancellation?: DocumentationGenerationCancellation,
 ): Promise<SceneNode> {
+  cancellation?.throwIfCancelled();
   const master = await findMasterComponent('1422:18185');
+  cancellation?.throwIfCancelled();
   if (master) {
     try {
       const instance = master.createInstance();
@@ -676,23 +713,26 @@ export async function createSectionNode(
           }
         }
 
-        const table = await createTable(section.tokens, modes, collectionId);
+        const table = await createTable(section.tokens, modes, collectionId, cancellation);
         slot.appendChild(table);
       }
       return instance;
-    } catch (_e) {
+    } catch (error) {
+      if (isDocumentationGenerationCancelledError(error)) throw error;
       // fallback
     }
   }
 
-  return await createProceduralSection(section, modes, collectionId);
+  return await createProceduralSection(section, modes, collectionId, cancellation);
 }
 
 async function createProceduralSection(
   section: TokenDocSection,
   modes: TokenDocMode[],
   collectionId?: string,
+  cancellation?: DocumentationGenerationCancellation,
 ): Promise<FrameNode> {
+  cancellation?.throwIfCancelled();
   const sectionNode = figma.createFrame();
   sectionNode.name = '.[Documentation] Section';
   sectionNode.resize(FRAME_WIDTH, 100);
@@ -735,7 +775,7 @@ async function createProceduralSection(
   slot.resize(1780, 100);
   slot.fills = [];
 
-  const table = await createTable(section.tokens, modes, collectionId);
+  const table = await createTable(section.tokens, modes, collectionId, cancellation);
   slot.appendChild(table);
   sectionNode.appendChild(slot);
 
@@ -758,7 +798,9 @@ export async function createTable(
   tokens: TokenDocItem[],
   modes: TokenDocMode[],
   collectionId?: string,
+  cancellation?: DocumentationGenerationCancellation,
 ): Promise<FrameNode> {
+  cancellation?.throwIfCancelled();
   const container = figma.createFrame();
   container.name = 'Table';
   container.layoutMode = 'HORIZONTAL';
@@ -771,12 +813,13 @@ export async function createTable(
   container.fills = [{ color: { r: 1, g: 1, b: 1 }, type: 'SOLID' }];
 
   // 1. Token Column
-  const tokenColumn = await createTokenColumn(tokens);
+  const tokenColumn = await createTokenColumn(tokens, cancellation);
   container.appendChild(tokenColumn);
 
   // 2. Value Columns (per mode)
   for (const mode of modes) {
-    const valueColumn = await createValueColumn(tokens, mode, collectionId);
+    await cancellation?.yieldToMain();
+    const valueColumn = await createValueColumn(tokens, mode, collectionId, cancellation);
     container.appendChild(valueColumn);
   }
 
@@ -804,7 +847,11 @@ export async function createTokenItemNode(name: string): Promise<SceneNode> {
   return createProceduralTokenItem(name, 480);
 }
 
-export async function createTokenColumn(tokens: TokenDocItem[]): Promise<FrameNode> {
+export async function createTokenColumn(
+  tokens: TokenDocItem[],
+  cancellation?: DocumentationGenerationCancellation,
+): Promise<FrameNode> {
+  cancellation?.throwIfCancelled();
   const column = figma.createFrame();
   column.name = 'Token';
   column.layoutMode = 'VERTICAL';
@@ -838,8 +885,11 @@ export async function createTokenColumn(tokens: TokenDocItem[]): Promise<FrameNo
   }
 
   // Token items
-  for (const token of tokens) {
+  for (let index = 0; index < tokens.length; index++) {
+    if (index % 16 === 0) await cancellation?.yieldToMain();
+    const token = tokens[index];
     const item = await createTokenItemNode(token.name);
+    cancellation?.throwIfCancelled();
     column.appendChild(item);
   }
 
@@ -1035,7 +1085,9 @@ export async function createValueColumn(
   tokens: TokenDocItem[],
   mode: TokenDocMode,
   collectionId?: string,
+  cancellation?: DocumentationGenerationCancellation,
 ): Promise<FrameNode> {
+  cancellation?.throwIfCancelled();
   const column = figma.createFrame();
   column.name = 'Value';
   column.resize(380, 100);
@@ -1071,9 +1123,12 @@ export async function createValueColumn(
   }
 
   // Value items
-  for (const token of tokens) {
+  for (let index = 0; index < tokens.length; index++) {
+    if (index % 16 === 0) await cancellation?.yieldToMain();
+    const token = tokens[index];
     const val = token.valuesByMode[mode.modeId];
     const item = await createValueItemNode(val, token.id);
+    cancellation?.throwIfCancelled();
     column.appendChild(item);
   }
 
@@ -1138,6 +1193,7 @@ function createProceduralValueItem(
 export async function createComponentDocFrame(
   doc: ComponentDocDocument,
   options: {
+    cancellation?: DocumentationGenerationCancellation;
     componentNode?: ComponentNode | ComponentSetNode;
     page?: PageNode;
     x?: number;
@@ -1145,8 +1201,11 @@ export async function createComponentDocFrame(
   } = {},
   onProgress?: (stage: string, percent: number) => void,
 ): Promise<FrameNode> {
+  const { cancellation } = options;
+  cancellation?.throwIfCancelled();
   onProgress?.('Loading typography…', 15);
   await loadRequiredFonts();
+  cancellation?.throwIfCancelled();
 
   onProgress?.('Setting up component variants showcase…', 30);
   const targetPage = options.page ?? figma.currentPage;
@@ -1171,6 +1230,7 @@ export async function createComponentDocFrame(
   // 1. Measure natural dimensions of each variant across the entire matrix
   const cellDimensions: Array<Array<{ h: number; w: number }>> = [];
   for (let r = 0; r < numRows; r++) {
+    await cancellation?.yieldToMain();
     const rowCells = matrix.rows[r].cells;
     const rowDims: Array<{ h: number; w: number }> = [];
     for (let c = 0; c < numColumns; c++) {
@@ -1186,6 +1246,7 @@ export async function createComponentDocFrame(
   // 2. Compute dynamic row heights (max variant height in row + 36 padding, min 72px)
   const rowHeights: number[] = [];
   for (let r = 0; r < numRows; r++) {
+    if (r % 16 === 0) await cancellation?.yieldToMain();
     let maxHInRow = 72;
     for (let c = 0; c < numColumns; c++) {
       const dim = cellDimensions[r][c];
@@ -1199,6 +1260,7 @@ export async function createComponentDocFrame(
   // 3. Compute dynamic column widths (max variant width in column + 48 padding, min 100px)
   const columnWidths: number[] = [];
   for (let c = 0; c < numColumns; c++) {
+    if (c % 8 === 0) await cancellation?.yieldToMain();
     let maxNeededForCol = 100;
     for (let r = 0; r < numRows; r++) {
       const dim = cellDimensions[r][c];
@@ -1224,6 +1286,7 @@ export async function createComponentDocFrame(
   }
 
   const rootFrame = figma.createFrame();
+  try {
   rootFrame.name = `<${doc.componentName} /> • Variants`;
   rootFrame.layoutMode = 'HORIZONTAL';
   rootFrame.primaryAxisSizingMode = 'AUTO';
@@ -1267,6 +1330,7 @@ export async function createComponentDocFrame(
 
   if (xTiers.length > 0) {
     for (let t = 0; t < xTiers.length; t++) {
+      await cancellation?.yieldToMain();
       const tier = xTiers[t];
       const tierRow = figma.createFrame();
       tierRow.name = `Tier ${t} — ${tier.propertyName}`;
@@ -1383,6 +1447,7 @@ export async function createComponentDocFrame(
 
   if (yTiers.length > 0) {
     for (let t = 0; t < yTiers.length; t++) {
+      await cancellation?.yieldToMain();
       const tier = yTiers[t];
       const tierCol = figma.createFrame();
       tierCol.name = `Tier ${t} — ${tier.propertyName}`;
@@ -1469,6 +1534,7 @@ export async function createComponentDocFrame(
   instancesFrame.fills = [];
 
   for (let r = 0; r < matrix.rows.length; r++) {
+    await cancellation?.yieldToMain();
     const row = matrix.rows[r];
     const rH = rowHeights[r] ?? 72;
     const rowFrame = figma.createFrame();
@@ -1530,6 +1596,7 @@ export async function createComponentDocFrame(
   rootFrame.appendChild(rightArea);
 
   targetPage.appendChild(rootFrame);
+  cancellation?.throwIfCancelled();
 
   // Stamp metadata
   const metadata: DocFrameMetadata = {
@@ -1548,6 +1615,12 @@ export async function createComponentDocFrame(
 
   onProgress?.('Component variants showcase generated!', 100);
   return rootFrame;
+  } catch (error) {
+    if (isDocumentationGenerationCancelledError(error) && !rootFrame.removed) {
+      rootFrame.remove();
+    }
+    throw error;
+  }
 }
 
 function createYAxisBracket(text: string, height: number): FrameNode {

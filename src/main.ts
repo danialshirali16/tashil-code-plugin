@@ -93,6 +93,7 @@ import {
   type SaveOutputPreferencesHandler,
   type SaveOutputPreferencesResultHandler,
   type DocFrameSelectedHandler,
+  type CancelDocGenerationHandler,
   type GenerateTokenDocsHandler,
   type GenerateTokenDocsResultHandler,
   type LoadDocSourcePreviewHandler,
@@ -127,6 +128,12 @@ import {
   updateComponentDocFrameInPlace,
   updateTokenDocFrameInPlace,
 } from './documentation/figma-canvas-updater';
+import type { TokenGroupingDepth } from './documentation/types';
+import {
+  createDocumentationGenerationCancellation,
+  isDocumentationGenerationCancelledError,
+  type DocumentationGenerationCancellation,
+} from './documentation/generation-cancellation';
 import { diffTokenSnapshots } from './sync-tokens/export-diff';
 import { createTokenSnapshot, serializeTokenCollection } from './sync-tokens/serialize-formats';
 import type {
@@ -163,6 +170,18 @@ type MutationTargetResult =
 let latestSelectionRefreshRequestId = 0;
 let latestComponentScanId: string | undefined;
 let latestTargetRequestId: string | undefined;
+let activeDocumentationGenerationId = 0;
+
+function beginDocumentationGeneration(): DocumentationGenerationCancellation {
+  const runId = ++activeDocumentationGenerationId;
+  return createDocumentationGenerationCancellation(
+    () => runId !== activeDocumentationGenerationId,
+  );
+}
+
+function cancelDocumentationGeneration(): void {
+  activeDocumentationGenerationId += 1;
+}
 const OUTPUT_PREFERENCES_KEY = 'tashil-output-preferences-v1';
 const MAX_MULTI_SELECTION = 50;
 
@@ -222,7 +241,15 @@ export default function (): void {
   });
 
   on<GenerateTokenDocsHandler>('GENERATE_TOKEN_DOCS', (payload) => {
-    void generateTokenDocs(payload.collectionId, payload.targetFormat);
+    void generateTokenDocs(
+      payload.collectionId,
+      payload.targetFormat,
+      payload.tokenGroupingDepth,
+    );
+  });
+
+  on<CancelDocGenerationHandler>('CANCEL_DOC_GENERATION', () => {
+    cancelDocumentationGeneration();
   });
 
   on<LoadDocSourcePreviewHandler>('LOAD_DOC_SOURCE_PREVIEW', (payload) => {
@@ -230,7 +257,7 @@ export default function (): void {
   });
 
   on<UpdateDocsInPlaceHandler>('UPDATE_DOCS_IN_PLACE', (payload) => {
-    void updateDocsInPlace(payload.frameNodeId);
+    void updateDocsInPlace(payload.frameNodeId, payload.tokenGroupingDepth);
   });
 
   on<GenerateComponentDocsHandler>('GENERATE_COMPONENT_DOCS', (payload) => {
@@ -2112,7 +2139,10 @@ async function sendSelectionState(
         if (docMetadata.docType === 'tokens') {
           const rawCol = await loadRawCollectionData(docMetadata.targetId);
           if (rawCol) {
-            const currentDoc = buildTokenDocDocument(rawCol);
+            const currentDoc = buildTokenDocDocument(
+              rawCol,
+              docMetadata.tokenGroupingDepth ?? 'all',
+            );
             drift = diffTokenDocument(docMetadata, currentDoc);
           }
         } else if (docMetadata.docType === 'component') {
@@ -2812,6 +2842,7 @@ async function loadDocSourcePreview(payload: {
   requestId: string;
   scope: 'components' | 'tokens';
   targetId: string;
+  tokenGroupingDepth?: TokenGroupingDepth;
 }): Promise<void> {
   try {
     if (payload.scope === 'tokens') {
@@ -2826,12 +2857,14 @@ async function loadDocSourcePreview(payload: {
       const tokenNames = variables
         .filter((variable) => collectionVariableIds.has(variable.id))
         .map((variable) => variable.name);
-      const summary = summarizeTokenDocGroups(tokenNames, collection.name);
+      const groupingDepth = payload.tokenGroupingDepth ?? 'all';
+      const summary = summarizeTokenDocGroups(tokenNames, collection.name, groupingDepth);
 
       emit<LoadDocSourcePreviewResultHandler>('LOAD_DOC_SOURCE_PREVIEW_RESULT', {
         ok: true,
         preview: {
           ...summary,
+          groupingDepth,
           groupNames: summary.groupNames.slice(0, 3),
           modeCount: collection.modes.length,
           scope: 'tokens',
@@ -2874,14 +2907,18 @@ async function loadDocSourcePreview(payload: {
 async function generateTokenDocs(
   collectionId: string,
   targetFormat: 'canvas' | 'markdown' = 'canvas',
+  tokenGroupingDepth: TokenGroupingDepth = 'all',
 ): Promise<void> {
+  const cancellation = beginDocumentationGeneration();
   const reportProgress = (message: string, percent: number) => {
+    cancellation.throwIfCancelled();
     emit<DocGenerationProgressHandler>('DOC_GENERATION_PROGRESS', { message, percent });
   };
 
   try {
     reportProgress('Reading token collection…', 5);
     const rawCollection = await loadRawCollectionData(collectionId);
+    cancellation.throwIfCancelled();
     if (!rawCollection) {
       emit<GenerateTokenDocsResultHandler>('GENERATE_TOKEN_DOCS_RESULT', {
         ok: false,
@@ -2891,10 +2928,11 @@ async function generateTokenDocs(
     }
 
     reportProgress('Building token models…', 10);
-    const doc = buildTokenDocDocument(rawCollection);
+    const doc = buildTokenDocDocument(rawCollection, tokenGroupingDepth);
     if (targetFormat === 'markdown') {
       reportProgress('Formatting Markdown documentation…', 70);
       const markdown = emitTokenDocMarkdown(doc);
+      cancellation.throwIfCancelled();
       reportProgress('Done!', 100);
       emit<GenerateTokenDocsResultHandler>('GENERATE_TOKEN_DOCS_RESULT', {
         ok: true,
@@ -2902,7 +2940,12 @@ async function generateTokenDocs(
         markdown,
       });
     } else {
-      const frame = await createTokenDocFrame(doc, undefined, reportProgress);
+      const frame = await createTokenDocFrame(
+        doc,
+        { cancellation },
+        reportProgress,
+      );
+      cancellation.throwIfCancelled();
       emit<GenerateTokenDocsResultHandler>('GENERATE_TOKEN_DOCS_RESULT', {
         ok: true,
         message: `Created documentation frame for "${doc.title}".`,
@@ -2910,6 +2953,9 @@ async function generateTokenDocs(
       });
     }
   } catch (error) {
+    if (isDocumentationGenerationCancelledError(error)) {
+      return;
+    }
     console.error('[Tashil Doc Generation Error]', error);
     emit<GenerateTokenDocsResultHandler>('GENERATE_TOKEN_DOCS_RESULT', {
       ok: false,
@@ -2918,14 +2964,20 @@ async function generateTokenDocs(
   }
 }
 
-async function updateDocsInPlace(frameNodeId: string): Promise<void> {
+async function updateDocsInPlace(
+  frameNodeId: string,
+  tokenGroupingDepth?: TokenGroupingDepth,
+): Promise<void> {
+  const cancellation = beginDocumentationGeneration();
   const reportProgress = (message: string, percent: number) => {
+    cancellation.throwIfCancelled();
     emit<DocGenerationProgressHandler>('DOC_GENERATION_PROGRESS', { message, percent });
   };
 
   try {
     reportProgress('Locating selected documentation frame…', 5);
     const node = await figma.getNodeByIdAsync(frameNodeId);
+    cancellation.throwIfCancelled();
     if (!node || node.type !== 'FRAME') {
       emit<UpdateDocsInPlaceResultHandler>('UPDATE_DOCS_IN_PLACE_RESULT', {
         ok: false,
@@ -2955,8 +3007,17 @@ async function updateDocsInPlace(frameNodeId: string): Promise<void> {
         return;
       }
 
-      const doc = buildTokenDocDocument(rawCollection);
-      const result = await updateTokenDocFrameInPlace(node, doc, reportProgress);
+      const doc = buildTokenDocDocument(
+        rawCollection,
+        tokenGroupingDepth ?? metadata.tokenGroupingDepth ?? 'all',
+      );
+      const result = await updateTokenDocFrameInPlace(
+        node,
+        doc,
+        reportProgress,
+        cancellation,
+      );
+      cancellation.throwIfCancelled();
       emit<UpdateDocsInPlaceResultHandler>('UPDATE_DOCS_IN_PLACE_RESULT', {
         ok: result.ok,
         message: result.message,
@@ -2991,7 +3052,14 @@ async function updateDocsInPlace(frameNodeId: string): Promise<void> {
       }
 
       const doc = buildComponentDocDocument(connectionMeta, sourceSnapshot, figmaSnapshot);
-      const result = await updateComponentDocFrameInPlace(node, doc, componentNode, reportProgress);
+      const result = await updateComponentDocFrameInPlace(
+        node,
+        doc,
+        componentNode,
+        reportProgress,
+        cancellation,
+      );
+      cancellation.throwIfCancelled();
       emit<UpdateDocsInPlaceResultHandler>('UPDATE_DOCS_IN_PLACE_RESULT', {
         ok: result.ok,
         message: result.message,
@@ -3004,6 +3072,9 @@ async function updateDocsInPlace(frameNodeId: string): Promise<void> {
       });
     }
   } catch (error) {
+    if (isDocumentationGenerationCancelledError(error)) {
+      return;
+    }
     console.error('[Tashil Doc Update Error]', error);
     emit<UpdateDocsInPlaceResultHandler>('UPDATE_DOCS_IN_PLACE_RESULT', {
       ok: false,
@@ -3016,13 +3087,16 @@ async function generateComponentDocs(
   targetToken: string,
   targetFormat: 'canvas' | 'markdown' = 'canvas',
 ): Promise<void> {
+  const cancellation = beginDocumentationGeneration();
   const reportProgress = (message: string, percent: number) => {
+    cancellation.throwIfCancelled();
     emit<DocGenerationProgressHandler>('DOC_GENERATION_PROGRESS', { message, percent });
   };
 
   try {
     reportProgress('Resolving target component…', 5);
     const targetResult = await resolveTargetById(targetToken);
+    cancellation.throwIfCancelled();
     if (!targetResult.ok) {
       emit<GenerateComponentDocsResultHandler>('GENERATE_COMPONENT_DOCS_RESULT', {
         ok: false,
@@ -3050,6 +3124,7 @@ async function generateComponentDocs(
     if (targetFormat === 'markdown') {
       reportProgress('Formatting Markdown specification…', 70);
       const markdown = emitComponentDocMarkdown(doc);
+      cancellation.throwIfCancelled();
       reportProgress('Done!', 100);
       emit<GenerateComponentDocsResultHandler>('GENERATE_COMPONENT_DOCS_RESULT', {
         ok: true,
@@ -3059,9 +3134,13 @@ async function generateComponentDocs(
     } else {
       const frame = await createComponentDocFrame(
         doc,
-        { componentNode: targetResult.selection.mainComponent },
+        {
+          cancellation,
+          componentNode: targetResult.selection.mainComponent,
+        },
         reportProgress,
       );
+      cancellation.throwIfCancelled();
       emit<GenerateComponentDocsResultHandler>('GENERATE_COMPONENT_DOCS_RESULT', {
         ok: true,
         message: `Generated variant matrix for <${doc.componentName} />.`,
@@ -3069,6 +3148,9 @@ async function generateComponentDocs(
       });
     }
   } catch (error) {
+    if (isDocumentationGenerationCancelledError(error)) {
+      return;
+    }
     emit<GenerateComponentDocsResultHandler>('GENERATE_COMPONENT_DOCS_RESULT', {
       ok: false,
       message: errorMessage(error, 'generate component documentation'),

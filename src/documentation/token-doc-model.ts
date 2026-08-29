@@ -13,6 +13,7 @@ import type {
   TokenDocMode,
   TokenDocSection,
   TokenDocValue,
+  TokenGroupingDepth,
 } from './types';
 
 export type RawVariableValue = {
@@ -39,12 +40,13 @@ export type RawCollectionData = {
 export function summarizeTokenDocGroups(
   tokenNames: readonly string[],
   collectionName: string,
+  groupingDepth: TokenGroupingDepth = 'all',
 ): { groupCount: number; groupNames: string[] } {
   const groups = new Map<string, string>();
 
   for (const tokenName of tokenNames) {
     const segments = tokenName.split('/').map((segment) => segment.trim()).filter(Boolean);
-    const { groupKey, groupTitle } = inferSectionGrouping(segments, collectionName);
+    const { groupKey, groupTitle } = inferSectionGrouping(segments, collectionName, groupingDepth);
     if (!groups.has(groupKey)) {
       groups.set(groupKey, formatDynamicHeadline(groupTitle));
     }
@@ -58,6 +60,7 @@ export function summarizeTokenDocGroups(
 
 export function buildTokenDocDocument(
   collection: RawCollectionData,
+  groupingDepth: TokenGroupingDepth = 'all',
 ): TokenDocDocument {
   const modes: TokenDocMode[] = collection.modes.map((mode) => ({
     modeId: mode.modeId,
@@ -68,7 +71,11 @@ export function buildTokenDocDocument(
 
   for (const token of collection.tokens) {
     const segments = token.name.split('/').map((s) => s.trim()).filter(Boolean);
-    const { groupKey, groupTitle } = inferSectionGrouping(segments, collection.collectionName);
+    const { groupKey, groupTitle } = inferSectionGrouping(
+      segments,
+      collection.collectionName,
+      groupingDepth,
+    );
 
     const valuesByMode: Record<string, TokenDocValue> = {};
     for (const mode of modes) {
@@ -122,9 +129,10 @@ export function buildTokenDocDocument(
   return {
     collectionId: collection.collectionId,
     collectionName: collection.collectionName,
-    contentHash: computeCollectionHash(collection),
+    contentHash: computeCollectionHash(collection, groupingDepth),
     description,
     heroBadgeGradient: inferCollectionGradient(collection.collectionName),
+    groupingDepth,
     modes,
     sections,
     title,
@@ -135,6 +143,7 @@ export function buildTokenDocDocument(
 function inferSectionGrouping(
   segments: string[],
   collectionName: string,
+  groupingDepth: TokenGroupingDepth,
 ): { groupKey: string; groupTitle: string } {
   if (segments.length === 0) {
     return { groupKey: 'general', groupTitle: 'General' };
@@ -160,8 +169,13 @@ function inferSectionGrouping(
     relevantSegments = segments.slice(1);
   }
 
-  // Group is all segments except the leaf token name (folder hierarchy in Figma)
-  const groupSegments = relevantSegments.slice(0, relevantSegments.length - 1);
+  // Group is the requested number of folder levels before the leaf token name.
+  // `all` preserves the historical behavior for existing documents.
+  const candidateGroupSegments = relevantSegments.slice(0, relevantSegments.length - 1);
+  const maxLevels = groupingDepth === 'all'
+    ? candidateGroupSegments.length
+    : Number(groupingDepth);
+  const groupSegments = candidateGroupSegments.slice(0, maxLevels);
   const groupTitle = groupSegments.join(' / ');
   const groupKey = groupSegments.map((s) => s.toLowerCase()).join('-');
 
@@ -386,8 +400,16 @@ function inferCollectionGradient(name: string): { from: string; to: string; via?
   return { from: '#2463EB', to: '#101828' };
 }
 
-export function computeCollectionHash(collection: RawCollectionData): string {
+export function computeCollectionHash(
+  collection: RawCollectionData,
+  groupingDepth: TokenGroupingDepth = 'all',
+): string {
   const parts: string[] = [collection.collectionName];
+  // Keep the legacy full-depth hash byte-for-byte compatible with documents
+  // generated before grouping depth was configurable.
+  if (groupingDepth !== 'all') {
+    parts.push(`grouping-depth:${groupingDepth}`);
+  }
   for (const mode of collection.modes) {
     parts.push(`mode:${mode.modeId}:${mode.name}`);
   }

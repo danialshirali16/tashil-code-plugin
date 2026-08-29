@@ -460,6 +460,7 @@ export type GenerateTokenDocsHandler = {
   name: 'GENERATE_TOKEN_DOCS';
   handler: (payload: {
     collectionId: string;
+    tokenGroupingDepth?: import('./documentation/types').TokenGroupingDepth;
     targetFormat?: 'canvas' | 'markdown';
   }) => void;
 };
@@ -474,12 +475,18 @@ export type GenerateTokenDocsResultHandler = {
   }) => void;
 };
 
+export type CancelDocGenerationHandler = {
+  name: 'CANCEL_DOC_GENERATION';
+  handler: () => void;
+};
+
 export type LoadDocSourcePreviewHandler = {
   name: 'LOAD_DOC_SOURCE_PREVIEW';
   handler: (payload: {
     requestId: string;
     scope: 'components' | 'tokens';
     targetId: string;
+    tokenGroupingDepth?: import('./documentation/types').TokenGroupingDepth;
   }) => void;
 };
 
@@ -497,6 +504,7 @@ export type UpdateDocsInPlaceHandler = {
   name: 'UPDATE_DOCS_IN_PLACE';
   handler: (payload: {
     frameNodeId: string;
+    tokenGroupingDepth?: import('./documentation/types').TokenGroupingDepth;
   }) => void;
 };
 
@@ -543,4 +551,3 @@ export type DocGenerationProgressHandler = {
     percent: number;
   }) => void;
 };
-

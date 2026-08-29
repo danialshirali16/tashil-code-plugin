@@ -13,6 +13,7 @@
  */
 
 import { createRecipeDraft } from '../../src/semantic/authoring';
+import type { TokenGroupingDepth } from '../../src/documentation/types';
 import { extractFigmaSemanticSnapshot } from '../../src/semantic/figma-extractor';
 import { extractSourceContract } from '../../src/semantic/source-contract';
 import { serializeTokenCollection } from '../../src/sync-tokens/serialize-formats';
@@ -419,6 +420,7 @@ function respond(name: string, payload: unknown): void {
         requestId?: string;
         scope?: 'components' | 'tokens';
         targetId?: string;
+        tokenGroupingDepth?: TokenGroupingDepth;
       };
       const collection = TOKEN_COLLECTIONS.find((item) => item.id === previewRequest.targetId);
       if (previewRequest.scope === 'tokens' && collection) {
@@ -429,11 +431,20 @@ function respond(name: string, payload: unknown): void {
           typography: ['Font Family', 'Font Size', 'Line Height'],
         };
         const groupNames = groupsByCollection[collection.id] ?? ['General'];
+        const groupingDepth = previewRequest.tokenGroupingDepth ?? 'all';
+        const depthMultiplier: Record<TokenGroupingDepth, number> = {
+          '1': 1,
+          '2': 2,
+          '3': 3,
+          '4': 4,
+          all: 5,
+        };
         send('LOAD_DOC_SOURCE_PREVIEW_RESULT', {
           ok: true,
           preview: {
-            groupCount: groupNames.length,
+            groupCount: groupNames.length * depthMultiplier[groupingDepth],
             groupNames: groupNames.slice(0, 3),
+            groupingDepth,
             modeCount: collection.modes.length,
             scope: 'tokens',
             sourceName: collection.name,

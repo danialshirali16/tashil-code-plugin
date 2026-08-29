@@ -9,6 +9,7 @@ import {
   DOC_FRAME_SCHEMA_VERSION,
   DOC_METADATA_PLUGIN_KEY,
   type ComponentDocDocument,
+  type ComponentDocMatrixTier,
   type DocFrameMetadata,
   type TokenDocDocument,
 } from './types';
@@ -28,6 +29,7 @@ import {
   hexToRgb,
   alignTierTopRight,
 } from './figma-canvas-writer';
+import type { DocumentationGenerationCancellation } from './generation-cancellation';
 
 export function readDocFrameMetadata(node: BaseNode): DocFrameMetadata | null {
   try {
@@ -40,13 +42,50 @@ export function readDocFrameMetadata(node: BaseNode): DocFrameMetadata | null {
   }
 }
 
+export async function updateTierLabels(
+  tierNodes: FrameNode[],
+  tiers: ComponentDocMatrixTier[] | undefined,
+  cancellation?: DocumentationGenerationCancellation,
+): Promise<void> {
+  if (!tiers) return;
+  for (let tierIndex = 0; tierIndex < tiers.length; tierIndex++) {
+    await cancellation?.yieldToMain();
+    const tierNode = tierNodes[tierIndex];
+    if (!tierNode) continue;
+    const tier = tiers[tierIndex];
+    tierNode.name = `Tier ${tierIndex} — ${tier.propertyName}`;
+    alignTierTopRight(tierNode);
+
+    const labelNodes = safeFindChildren<FrameNode>(
+      tierNode,
+      (node) => safeGetNodeName(node).startsWith('Label —'),
+    );
+    for (let groupIndex = 0; groupIndex < tier.groups.length; groupIndex++) {
+      const labelNode = labelNodes[groupIndex];
+      if (!labelNode) continue;
+      const label = tier.groups[groupIndex].label;
+      labelNode.name = `Label — ${label}`;
+      const textNode = safeFindTextNodes(labelNode)[0];
+      if (!textNode) continue;
+      if (textNode.fontName !== figma.mixed) {
+        await figma.loadFontAsync(textNode.fontName);
+        cancellation?.throwIfCancelled();
+      }
+      textNode.characters = label;
+    }
+  }
+}
+
 export async function updateTokenDocFrameInPlace(
   frame: FrameNode,
   doc: TokenDocDocument,
   onProgress?: (stage: string, percent: number) => void,
+  cancellation?: DocumentationGenerationCancellation,
 ): Promise<{ ok: boolean; message: string; updatedTokensCount: number }> {
+  cancellation?.throwIfCancelled();
   onProgress?.('Loading fonts for update…', 10);
   await loadRequiredFonts();
+  cancellation?.throwIfCancelled();
 
   frame.resize(FRAME_WIDTH, frame.height);
   frame.cornerRadius = 24;
@@ -141,6 +180,7 @@ export async function updateTokenDocFrameInPlace(
 
   const totalSections = doc.sections.length;
   for (let sIdx = 0; sIdx < totalSections; sIdx++) {
+    await cancellation?.yieldToMain();
     const section = doc.sections[sIdx];
     const sPct = Math.round(30 + ((sIdx + 1) / totalSections) * 60);
     onProgress?.(`Updating section ${sIdx + 1} of ${totalSections} (${section.headline})…`, sPct);
@@ -178,6 +218,7 @@ export async function updateTokenDocFrameInPlace(
           );
 
           for (let i = 0; i < section.tokens.length; i++) {
+            if (i % 16 === 0) await cancellation?.yieldToMain();
             const token = section.tokens[i];
             if (i < existingTokenItems.length) {
               const existingItem = existingTokenItems[i];
@@ -215,6 +256,7 @@ export async function updateTokenDocFrameInPlace(
         );
 
         for (let mIdx = 0; mIdx < doc.modes.length; mIdx++) {
+          await cancellation?.yieldToMain();
           const mode = doc.modes[mIdx];
           let valueColumn =
             existingValueColumns.find((col) => {
@@ -227,7 +269,12 @@ export async function updateTokenDocFrameInPlace(
             }) ?? (mIdx < existingValueColumns.length ? existingValueColumns[mIdx] : null);
 
           if (!valueColumn) {
-            valueColumn = await createValueColumn(section.tokens, mode, doc.collectionId);
+            valueColumn = await createValueColumn(
+              section.tokens,
+              mode,
+              doc.collectionId,
+              cancellation,
+            );
             table.appendChild(valueColumn);
             updatedTokensCount += section.tokens.length;
             continue;
@@ -258,6 +305,7 @@ export async function updateTokenDocFrameInPlace(
           );
 
           for (let i = 0; i < section.tokens.length; i++) {
+            if (i % 16 === 0) await cancellation?.yieldToMain();
             const token = section.tokens[i];
             const val = token.valuesByMode[mode.modeId];
             const displayText = val?.aliasTargetName ?? val?.rawValue ?? '-';
@@ -353,7 +401,12 @@ export async function updateTokenDocFrameInPlace(
       }
     } else {
       // Create new section node and append before footer
-      const newSectionNode = await createSectionNode(section, doc.modes, doc.collectionId);
+      const newSectionNode = await createSectionNode(
+        section,
+        doc.modes,
+        doc.collectionId,
+        cancellation,
+      );
       if (footer) {
         frame.insertChild(frame.children.indexOf(footer), newSectionNode);
       } else {
@@ -371,6 +424,7 @@ export async function updateTokenDocFrameInPlace(
   }
 
   // Update stamped metadata
+  cancellation?.throwIfCancelled();
   onProgress?.('Updating document metadata…', 95);
   const updatedMetadata: DocFrameMetadata = {
     contentHash: doc.contentHash,
@@ -380,6 +434,7 @@ export async function updateTokenDocFrameInPlace(
     schemaVersion: DOC_FRAME_SCHEMA_VERSION,
     targetId: doc.collectionId,
     targetName: doc.collectionName,
+    tokenGroupingDepth: doc.groupingDepth,
   };
   frame.setPluginData(DOC_METADATA_PLUGIN_KEY, JSON.stringify(updatedMetadata));
 
@@ -396,25 +451,48 @@ export async function updateComponentDocFrameInPlace(
   doc: ComponentDocDocument,
   _componentNode?: ComponentNode | ComponentSetNode,
   onProgress?: (stage: string, percent: number) => void,
+  cancellation?: DocumentationGenerationCancellation,
 ): Promise<{ ok: boolean; message: string; updatedPropsCount: number }> {
+  cancellation?.throwIfCancelled();
   onProgress?.('Loading fonts for update…', 10);
   await loadRequiredFonts();
+  cancellation?.throwIfCancelled();
 
   let updatedPropsCount = 0;
 
-  const tierNodes = safeFindAll<FrameNode>(
+  const yAxisArea = safeFindChild<FrameNode>(frame, (node) => safeGetNodeName(node) === 'Y-Axis Area');
+  const yTiersRow = safeFindChild<FrameNode>(yAxisArea, (node) => safeGetNodeName(node) === 'Y-Tiers Row');
+  const yTierNodes = safeFindChildren<FrameNode>(
+    yTiersRow,
+    (node) => safeGetNodeName(node).startsWith('Tier '),
+  );
+  const gridArea = safeFindChild<FrameNode>(frame, (node) => safeGetNodeName(node) === 'Grid Area');
+  const xHeadersArea = safeFindChild<FrameNode>(gridArea, (node) => safeGetNodeName(node) === 'X-Axis Headers');
+  const xTierNodes = safeFindChildren<FrameNode>(
+    xHeadersArea,
+    (node) => safeGetNodeName(node).startsWith('Tier '),
+  );
+
+  if (doc.matrix) {
+    await updateTierLabels(yTierNodes, doc.matrix.yTiers, cancellation);
+    await updateTierLabels(xTierNodes, doc.matrix.xTiers, cancellation);
+  }
+
+  const allTierNodes = safeFindAll<FrameNode>(
     frame,
     (node) => node.type === 'FRAME' && safeGetNodeName(node).startsWith('Tier '),
   );
-  for (const tierNode of tierNodes) {
+  for (const tierNode of allTierNodes) {
+    cancellation?.throwIfCancelled();
     alignTierTopRight(tierNode);
   }
 
   // Reconcile Y-Axis Labels
-  const yAxisCol = safeFindChild(frame, (c) => safeGetNodeName(c) === 'Y-Axis Labels');
+  const yAxisCol = safeFindChild(yTiersRow, (c) => safeGetNodeName(c) === 'Y-Axis Labels');
   if (yAxisCol && 'children' in yAxisCol && doc.matrix) {
     const yLabels = (yAxisCol as FrameNode).children.filter((c) => safeGetNodeName(c) === 'Label');
     for (let r = 0; r < doc.matrix.rows.length; r++) {
+      await cancellation?.yieldToMain();
       const row = doc.matrix.rows[r];
       if (r < yLabels.length) {
         const textNodes = safeFindTextNodes(yLabels[r]);
@@ -422,19 +500,22 @@ export async function updateComponentDocFrameInPlace(
           if (textNodes[0].fontName !== figma.mixed) {
             await figma.loadFontAsync(textNodes[0].fontName);
           }
-          textNodes[0].characters = `${row.rowHeader.propertyName.toLowerCase()}: ${row.rowHeader.value}`;
+          textNodes[0].characters = row.rowHeader.value;
         }
       }
     }
   }
 
   // Reconcile X-Axis Headers
-  const gridArea = safeFindChild(frame, (c) => safeGetNodeName(c) === 'Grid Area');
   if (gridArea && 'children' in gridArea && doc.matrix) {
-    const xHeadersRow = safeFindChild(gridArea, (c) => safeGetNodeName(c) === 'X-Axis Headers');
+    const xHeadersRow = safeFindChild<FrameNode>(
+      xHeadersArea,
+      (c) => safeGetNodeName(c) === 'X-Axis Headers',
+    ) ?? xHeadersArea;
     if (xHeadersRow && 'children' in xHeadersRow) {
       const xLabels = (xHeadersRow as FrameNode).children.filter((c) => safeGetNodeName(c) === 'Label');
       for (let c = 0; c < doc.matrix.columnHeaders.length; c++) {
+        cancellation?.throwIfCancelled();
         const colHeader = doc.matrix.columnHeaders[c];
         if (c < xLabels.length) {
           const textNodes = safeFindTextNodes(xLabels[c]);
@@ -442,7 +523,7 @@ export async function updateComponentDocFrameInPlace(
             if (textNodes[0].fontName !== figma.mixed) {
               await figma.loadFontAsync(textNodes[0].fontName);
             }
-            textNodes[0].characters = `${colHeader.propertyName.toLowerCase()}: ${colHeader.value}`;
+            textNodes[0].characters = colHeader.value;
           }
         }
       }
@@ -456,6 +537,7 @@ export async function updateComponentDocFrameInPlace(
       ) as FrameNode[];
 
       for (let r = 0; r < doc.matrix.rows.length; r++) {
+        await cancellation?.yieldToMain();
         const rowData = doc.matrix.rows[r];
         if (r < rowNodes.length) {
           const rowNode = rowNodes[r];
@@ -490,6 +572,7 @@ export async function updateComponentDocFrameInPlace(
   }
 
   // Update stamped metadata
+  cancellation?.throwIfCancelled();
   onProgress?.('Updating document metadata…', 95);
   const updatedMetadata: DocFrameMetadata = {
     contentHash: doc.contentHash,

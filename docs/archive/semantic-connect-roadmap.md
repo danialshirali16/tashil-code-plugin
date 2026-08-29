@@ -2,8 +2,7 @@
 
 Status: Archived  
 Last updated: 2026-07-23  
-Companion preview:
-[`semantic-connect-preview.html`](../../prototypes/connect-components-preview/semantic-connect-preview.html)
+The companion preview was removed with the retired prototype workspace.
 
 ## Objective
 

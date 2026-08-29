@@ -321,6 +321,41 @@ describe('Design mode plugin window', () => {
 
     expect(utilityMocks.showUI).toHaveBeenCalledWith({ height: 680, width: 560 });
   });
+
+  it('cancels the active documentation run without poisoning the next run', async () => {
+    const collection = {
+      defaultModeId: 'light',
+      id: 'colors',
+      modes: [{ modeId: 'light', name: 'Light' }],
+      name: 'Colors',
+      variableIds: [],
+    } as unknown as VariableCollection;
+    const deferredCollections = createDeferred<VariableCollection[]>();
+    await startPlugin({ variableCollections: [collection] });
+    vi.mocked(figma.variables.getLocalVariableCollectionsAsync)
+      .mockReturnValueOnce(deferredCollections.promise);
+
+    utilityMocks.handlers.get('GENERATE_TOKEN_DOCS')?.({
+      collectionId: 'colors',
+      targetFormat: 'markdown',
+      tokenGroupingDepth: '1',
+    });
+    utilityMocks.handlers.get('CANCEL_DOC_GENERATION')?.(undefined);
+    deferredCollections.resolve([collection]);
+    await flushPromises();
+
+    expect(emittedPayloads('GENERATE_TOKEN_DOCS_RESULT')).toHaveLength(0);
+
+    utilityMocks.handlers.get('GENERATE_TOKEN_DOCS')?.({
+      collectionId: 'colors',
+      targetFormat: 'markdown',
+      tokenGroupingDepth: '1',
+    });
+    await vi.waitFor(() => {
+      expect(emittedPayloads<{ ok: boolean }>('GENERATE_TOKEN_DOCS_RESULT')).toHaveLength(1);
+    });
+    expect(emittedPayloads<{ ok: boolean }>('GENERATE_TOKEN_DOCS_RESULT')[0]?.ok).toBe(true);
+  });
 });
 
 describe('output preference persistence', () => {

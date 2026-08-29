@@ -10,6 +10,11 @@ is the version of record.
 
 ### Added
 
+- Added an inline **Grouping depth** control to Docs token generation so users
+  can preview and generate sections through 1, 2, 3, or 4 token-path levels, or
+  keep the full path. The chosen depth is preserved for drift detection and
+  in-place updates, while older generated frames retain full-depth behavior.
+  See the [Documentation guide](docs/section-documentation.md).
 - Added multi-tiered layered Variant Matrix generation (`src/documentation/`) matching the Swiss-Army design system, featuring hierarchical multi-level column headers (`xTiers`) with span-calculated brackets, multi-level row labels (`yTiers`) with right-facing brackets, top-left `❖ ComponentName` badge alignment, 100% complete permutation coverage, and centered purple `None` placeholders for unsupported permutations. See [docs/section-documentation.md](docs/section-documentation.md).
 - Added Component Specification generation and in-place reconciliation on the Figma canvas, featuring the Swiss-Army 2D Variant Matrix (exemplified in node `1958:91236`) with dimension bracket annotations, live component instance cells with dashed purple bounding boxes (`#8a38f5`), props specification tables, and non-destructive 1-to-1 updating. See [docs/section-documentation.md](docs/section-documentation.md).
 - Added an Automated Documentation Generator and In-Place Reconciler (`src/documentation/`)
@@ -64,6 +69,10 @@ is the version of record.
 
 ### Changed
 
+- Renamed the Docs canvas action to **Generate Document** and moved live build
+  status, progress, percentage, and Cancel into the fixed bottom action bar so
+  generation feedback remains visible without adding a process card to the
+  scrolling content. See the [Documentation guide](docs/section-documentation.md).
 - Component sources in **Docs** are now sorted alphabetically, while dot-prefixed
   base/hidden components are hidden by default and can be revealed with a native
   **Show hidden components** checkbox. See the
@@ -108,6 +117,14 @@ is the version of record.
 
 ### Fixed
 
+- Fixed **Cancel** during documentation generation so it cancels the active
+  end-to-end job, stops remaining token sections or component-matrix rows,
+  suppresses late success results, and removes a partially generated root frame.
+  See the [Documentation guide](docs/section-documentation.md).
+- Preserved the original Figma casing of property names and option values in
+  generated component-matrix Tier labels, including when updating existing
+  documentation in place. See the
+  [Documentation guide](docs/section-documentation.md).
 - Stopped lightweight component scans from displaying missing instance counts
   as `0 instances`; zero now appears only when a coverage scan has calculated
   it explicitly. See the [Documentation guide](docs/section-documentation.md).

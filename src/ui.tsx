@@ -86,6 +86,7 @@ import type {
   DocDriftReport,
   DocFrameMetadata,
   DocSourcePreview,
+  TokenGroupingDepth,
 } from './documentation/types';
 import { formatCssBlock } from './inspect/css-partition';
 import { formatUsageSnippet } from './inspect/usage-snippet';
@@ -670,11 +671,22 @@ function DocumentationView(props: {
   inventoryState: ComponentInventoryState;
   onCancelDocGeneration: () => void;
   onGenerateComponentDocs: (targetToken: string, targetFormat?: 'canvas' | 'markdown') => void;
-  onGenerateTokenDocs: (collectionId: string, targetFormat?: 'canvas' | 'markdown') => void;
+  onGenerateTokenDocs: (
+    collectionId: string,
+    targetFormat?: 'canvas' | 'markdown',
+    tokenGroupingDepth?: TokenGroupingDepth,
+  ) => void;
   onRefreshComponents: () => void;
-  onLoadSourcePreview: (scope: 'components' | 'tokens', targetId: string) => void;
+  onLoadSourcePreview: (
+    scope: 'components' | 'tokens',
+    targetId: string,
+    tokenGroupingDepth?: TokenGroupingDepth,
+  ) => void;
   onLoadTokenCollections: () => void;
-  onUpdateDocsInPlace: (frameNodeId: string) => void;
+  onUpdateDocsInPlace: (
+    frameNodeId: string,
+    tokenGroupingDepth?: TokenGroupingDepth,
+  ) => void;
   selectedDocFrame: {
     frameNodeId?: string;
     metadata?: DocFrameMetadata;
@@ -709,6 +721,7 @@ function DocumentationView(props: {
   const [showHiddenComponents, setShowHiddenComponents] = useState(false);
   const [selectedCollectionId, setSelectedCollectionId] = useState<string | null>(null);
   const [selectedTargetToken, setSelectedTargetToken] = useState<string | null>(null);
+  const [tokenGroupingDepth, setTokenGroupingDepth] = useState<TokenGroupingDepth>('3');
 
   useEffect(() => {
     if (tokenCollections.length === 0 && tokenCollectionsStatus === 'idle') {
@@ -741,11 +754,21 @@ function DocumentationView(props: {
   }, [inventoryState, selectedTargetToken, showHiddenComponents]);
 
   useEffect(() => {
+    if (selectedDocFrame?.metadata?.docType === 'tokens') {
+      setTokenGroupingDepth(selectedDocFrame.metadata.tokenGroupingDepth ?? 'all');
+    }
+  }, [selectedDocFrame?.frameNodeId]);
+
+  useEffect(() => {
     const targetId = scope === 'tokens' ? selectedCollectionId : selectedTargetToken;
     if (targetId) {
-      onLoadSourcePreview(scope, targetId);
+      onLoadSourcePreview(
+        scope,
+        targetId,
+        scope === 'tokens' ? tokenGroupingDepth : undefined,
+      );
     }
-  }, [scope, selectedCollectionId, selectedTargetToken]);
+  }, [scope, selectedCollectionId, selectedTargetToken, tokenGroupingDepth]);
 
   const filteredCollections = tokenCollections.filter((c) => {
     const q = tokenSearchQuery.trim().toLowerCase();
@@ -843,7 +866,11 @@ function DocumentationView(props: {
                 {selectedDocFrame.metadata.docType === 'tokens' ? (
                   <Button
                     disabled={isRunning}
-                    onClick={() => onGenerateTokenDocs(selectedDocFrame.metadata!.targetId, 'markdown')}
+                    onClick={() => onGenerateTokenDocs(
+                      selectedDocFrame.metadata!.targetId,
+                      'markdown',
+                      tokenGroupingDepth,
+                    )}
                     secondary
                   >
                     Export Markdown
@@ -851,7 +878,12 @@ function DocumentationView(props: {
                 ) : null}
                 <Button
                   disabled={isRunning}
-                  onClick={() => onUpdateDocsInPlace(selectedDocFrame.frameNodeId!)}
+                  onClick={() => onUpdateDocsInPlace(
+                    selectedDocFrame.frameNodeId!,
+                    selectedDocFrame.metadata?.docType === 'tokens'
+                      ? tokenGroupingDepth
+                      : undefined,
+                  )}
                 >
                   Update in place
                 </Button>
@@ -924,6 +956,29 @@ function DocumentationView(props: {
           )}
         </section>
 
+        {scope === 'tokens' ? (
+          <section aria-labelledby="docs-grouping-depth-heading" class="docs-library-grouping-depth">
+            <div class="docs-library-grouping-depth-heading">
+              <div>
+                <h2 id="docs-grouping-depth-heading">Grouping depth</h2>
+                <p>How many token path levels should create documentation groups?</p>
+              </div>
+              <span>Recommended: 3</span>
+            </div>
+            <SegmentedControl
+              onValueChange={(value) => setTokenGroupingDepth(value as TokenGroupingDepth)}
+              options={[
+                { children: '1', value: '1' },
+                { children: '2', value: '2' },
+                { children: '3', value: '3' },
+                { children: '4+', value: '4' },
+                { children: 'Full', value: 'all' },
+              ]}
+              value={tokenGroupingDepth}
+            />
+          </section>
+        ) : null}
+
         {docSourcePreviewStatus !== 'idle' || docSourcePreview ? (
           <section
             aria-label="Documentation preview"
@@ -940,15 +995,23 @@ function DocumentationView(props: {
             ) : docSourcePreviewStatus === 'error' ? (
               <p class="docs-library-preview-error">{docSourcePreviewError}</p>
             ) : docSourcePreview?.scope === 'tokens' ? (
-              <div class="docs-library-preview-content">
-                <strong>{docSourcePreview.groupCount} group{docSourcePreview.groupCount === 1 ? '' : 's'} will be generated</strong>
-                <span>
-                  {docSourcePreview.groupNames.join(' · ')}
-                  {docSourcePreview.groupCount > docSourcePreview.groupNames.length
-                    ? ` · +${docSourcePreview.groupCount - docSourcePreview.groupNames.length} more`
-                    : ''}
-                </span>
-                <small>{docSourcePreview.tokenCount} tokens · {docSourcePreview.modeCount} modes</small>
+              <div class="docs-library-preview-summary">
+                <div class="docs-library-preview-content">
+                  <strong>{docSourcePreview.groupCount} group{docSourcePreview.groupCount === 1 ? '' : 's'} will be generated</strong>
+                  <span>
+                    {docSourcePreview.groupNames.join(' · ')}
+                    {docSourcePreview.groupCount > docSourcePreview.groupNames.length
+                      ? ` · +${docSourcePreview.groupCount - docSourcePreview.groupNames.length} more`
+                      : ''}
+                  </span>
+                  <small>
+                    {docSourcePreview.groupingDepth === 'all'
+                      ? 'Full token path'
+                      : `Through ${docSourcePreview.groupingDepth} level${docSourcePreview.groupingDepth === '1' ? '' : 's'}`}
+                    {' · '}{docSourcePreview.tokenCount} tokens · {docSourcePreview.modeCount} modes
+                  </small>
+                </div>
+                <span class="docs-library-preview-count">{docSourcePreview.groupCount}</span>
               </div>
             ) : docSourcePreview?.scope === 'components' ? (
               <div class="docs-library-preview-content">
@@ -960,17 +1023,7 @@ function DocumentationView(props: {
           </section>
         ) : null}
 
-        {isRunning || docProgress ? (
-          <div aria-live="polite" class="docs-library-progress">
-            <LoadingIndicator />
-            <div class="docs-library-progress-copy">
-              <strong>{docProgress?.message || docGenerationMessage || 'Processing…'}</strong>
-              <progress aria-label="Documentation generation progress" max={100} value={docProgress?.percent ?? 0} />
-            </div>
-            <span>{docProgress?.percent ?? 0}%</span>
-            <Button onClick={onCancelDocGeneration} secondary>Cancel</Button>
-          </div>
-        ) : docGenerationMessage ? (
+        {!isRunning && docGenerationMessage ? (
           <div aria-live="polite" class="docs-library-result">
             <Banner
               icon={docGenerationStatus === 'error' ? <IconWarningSmall24 /> : <IconApprovedCheckmark24 />}
@@ -983,20 +1036,35 @@ function DocumentationView(props: {
       </div>
 
       <footer class="sync-tokens-footer">
-        <div class="spacer" />
+        {isRunning || docProgress ? (
+          <div aria-live="polite" class="docs-library-footer-progress">
+            <LoadingIndicator />
+            <div class="docs-library-progress-copy">
+              <strong>{docProgress?.message || docGenerationMessage || 'Processing…'}</strong>
+              <progress aria-label="Documentation generation progress" max={100} value={docProgress?.percent ?? 0} />
+            </div>
+            <span class="docs-library-progress-percent">{docProgress?.percent ?? 0}%</span>
+          </div>
+        ) : (
+          <div class="spacer" />
+        )}
         <div class="primary-actions">
-          <Button
-            disabled={!hasSelectedSource || isRunning}
-            onClick={() => {
-              if (scope === 'tokens' && selectedCollectionId) {
-                onGenerateTokenDocs(selectedCollectionId, 'canvas');
-              } else if (scope === 'components' && selectedTargetToken) {
-                onGenerateComponentDocs(selectedTargetToken, 'canvas');
-              }
-            }}
-          >
-            {scope === 'tokens' ? 'Generate page' : 'Generate variants'}
-          </Button>
+          {isRunning || docProgress ? (
+            <Button onClick={onCancelDocGeneration} secondary>Cancel</Button>
+          ) : (
+            <Button
+              disabled={!hasSelectedSource}
+              onClick={() => {
+                if (scope === 'tokens' && selectedCollectionId) {
+                  onGenerateTokenDocs(selectedCollectionId, 'canvas', tokenGroupingDepth);
+                } else if (scope === 'components' && selectedTargetToken) {
+                  onGenerateComponentDocs(selectedTargetToken, 'canvas');
+                }
+              }}
+            >
+              Generate Document
+            </Button>
+          )}
         </div>
       </footer>
     </main>

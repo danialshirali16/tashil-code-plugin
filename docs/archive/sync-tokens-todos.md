@@ -3,7 +3,7 @@
 > Archived — all remediation and verification tasks are complete. Retained for
 > implementation and QA history.
 
-Source: [Sync Tokens audit](../../output/sync-tokens-audit/audit-report.md), 2026-07-26.
+Source: Sync Tokens audit, 2026-07-26 (retired output artifact).
 
 ## P1 — Export correctness
 

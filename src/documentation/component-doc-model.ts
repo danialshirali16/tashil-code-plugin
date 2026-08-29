@@ -165,7 +165,7 @@ export function buildVariantMatrix(
     return {
       columnHeaders: prop.options.map((v) => ({
         propertyName: prop.name,
-        value: `${prop.name.toLowerCase()}: ${v}`,
+        value: `${prop.name}: ${v}`,
       })),
       primaryXAxis: xAxis,
       primaryYAxis: yAxis,
@@ -249,7 +249,7 @@ export function buildVariantMatrix(
 
   const columnHeaders = xCombinations.map((combo) => {
     const formatted = Object.entries(combo)
-      .map(([k, v]) => `${k.toLowerCase()}: ${v}`)
+      .map(([k, v]) => `${k}: ${v}`)
       .join(' • ');
     return {
       propertyName: xProps.map((p) => p.name).join(', '),
@@ -259,7 +259,7 @@ export function buildVariantMatrix(
 
   const rows = yCombinations.map((yCombo) => {
     const rowTitle = Object.entries(yCombo)
-      .map(([k, v]) => `${k.toLowerCase()}: ${v}`)
+      .map(([k, v]) => `${k}: ${v}`)
       .join(' • ');
     const cells = xCombinations.map((xCombo) => {
       const fullCombo = { ...yCombo, ...xCombo };
@@ -340,7 +340,7 @@ export function buildTiers(
         } else if (isLeaf && !isVertical && props.length > 1) {
           label = opt;
         } else {
-          label = `${prop.name.toLowerCase()}: ${opt}`;
+          label = `${prop.name}: ${opt}`;
         }
 
         groups.push({

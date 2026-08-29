@@ -60,6 +60,31 @@ describe('buildTokenDocDocument', () => {
     });
   });
 
+  it('caps slash-based groups at the selected depth without expanding token values', () => {
+    const tokenNames = [
+      'color/surface/brand/default/hover',
+      'color/surface/neutral/pressed/value',
+      'color/text/interactive/default/hover',
+    ];
+
+    expect(tokenDocModel.summarizeTokenDocGroups(tokenNames, 'Colors', '1')).toEqual({
+      groupCount: 2,
+      groupNames: ['Surface', 'Text'],
+    });
+    expect(tokenDocModel.summarizeTokenDocGroups(tokenNames, 'Colors', '2')).toEqual({
+      groupCount: 3,
+      groupNames: ['Surface / Brand', 'Surface / Neutral', 'Text / Interactive'],
+    });
+    expect(tokenDocModel.summarizeTokenDocGroups(tokenNames, 'Colors', '3')).toEqual({
+      groupCount: 3,
+      groupNames: [
+        'Surface / Brand / Default',
+        'Surface / Neutral / Pressed',
+        'Text / Interactive / Default',
+      ],
+    });
+  });
+
   it('groups tokens into logical semantic sections', () => {
     const doc = buildTokenDocDocument(sampleCollection);
 
@@ -109,6 +134,16 @@ describe('buildTokenDocDocument', () => {
     expect(hash1).toBe(hash2);
     expect(typeof hash1).toBe('string');
     expect(hash1.length).toBeGreaterThan(0);
+  });
+
+  it('stores grouping depth and includes non-full depth in the document hash', () => {
+    const fullDepthDoc = buildTokenDocDocument(sampleCollection);
+    const limitedDepthDoc = buildTokenDocDocument(sampleCollection, '3');
+
+    expect(fullDepthDoc.groupingDepth).toBe('all');
+    expect(limitedDepthDoc.groupingDepth).toBe('3');
+    expect(limitedDepthDoc.contentHash).not.toBe(fullDepthDoc.contentHash);
+    expect(fullDepthDoc.contentHash).toBe(computeCollectionHash(sampleCollection));
   });
 
   it('resolves color hex values and aliases per mode', () => {

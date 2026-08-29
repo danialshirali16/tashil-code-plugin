@@ -429,7 +429,7 @@ describe('Plugin rendered interactions', () => {
     const docsFooter = document.querySelector('.docs-library-view > .sync-tokens-footer');
     expect(docsFooter).toBeTruthy();
     expect(within(docsFooter as HTMLElement).queryByRole('button', { name: 'Export Markdown' })).toBeNull();
-    expect(within(docsFooter as HTMLElement).getByRole('button', { name: 'Generate page' })).toBeTruthy();
+    expect(within(docsFooter as HTMLElement).getByRole('button', { name: 'Generate Document' })).toBeTruthy();
 
     fireEvent.input(tokenSearch, { target: { value: 'col' } });
     const scanRequestCount = emittedPayloads('SCAN_COMPONENTS').length;
@@ -537,6 +537,7 @@ describe('Plugin rendered interactions', () => {
     expect(requests[0]).toEqual(expect.objectContaining({
       scope: 'tokens',
       targetId: 'colors',
+      tokenGroupingDepth: '3',
     }));
     if (!requests[0]) return;
 
@@ -545,6 +546,7 @@ describe('Plugin rendered interactions', () => {
       preview: {
         groupCount: 3,
         groupNames: ['Text', 'Background', 'Border'],
+        groupingDepth: '3',
         modeCount: 2,
         scope: 'tokens',
         targetId: 'colors',
@@ -556,7 +558,38 @@ describe('Plugin rendered interactions', () => {
     const preview = screen.getByRole('region', { name: 'Documentation preview' });
     expect(within(preview).getByText('3 groups will be generated')).toBeTruthy();
     expect(within(preview).getByText('Text · Background · Border')).toBeTruthy();
-    expect(within(preview).getByText('92 tokens · 2 modes')).toBeTruthy();
+    expect(within(preview).getByText('Through 3 levels · 92 tokens · 2 modes')).toBeTruthy();
+
+    fireEvent.click(screen.getByRole('radio', { name: '2' }));
+    const updatedRequests = emittedPayloads<{
+      requestId: string;
+      scope: 'tokens' | 'components';
+      targetId: string;
+      tokenGroupingDepth?: string;
+    }>('LOAD_DOC_SOURCE_PREVIEW');
+    expect(updatedRequests).toHaveLength(2);
+    expect(updatedRequests[1]).toEqual(expect.objectContaining({
+      targetId: 'colors',
+      tokenGroupingDepth: '2',
+    }));
+
+    const docsFooter = document.querySelector('.docs-library-view > .sync-tokens-footer') as HTMLElement;
+    fireEvent.click(screen.getByRole('button', { name: 'Generate Document' }));
+    expect(emittedPayloads('GENERATE_TOKEN_DOCS')).toContainEqual({
+      collectionId: 'colors',
+      targetFormat: 'canvas',
+      tokenGroupingDepth: '2',
+    });
+    receive('DOC_GENERATION_PROGRESS', {
+      message: 'Building section 2 of 4…',
+      percent: 50,
+    });
+    const progress = screen.getByRole('progressbar', { name: 'Documentation generation progress' });
+    expect(docsFooter.contains(progress)).toBe(true);
+    expect(within(docsFooter).getByText('Building section 2 of 4…')).toBeTruthy();
+    expect(document.querySelector('.docs-library-scroll .docs-library-footer-progress')).toBeNull();
+    fireEvent.click(within(docsFooter).getByRole('button', { name: 'Cancel' }));
+    expect(emittedPayloads('CANCEL_DOC_GENERATION')).toHaveLength(1);
   });
 
   it('loads and saves per-user output settings', () => {

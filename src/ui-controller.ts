@@ -110,6 +110,7 @@ import {
   type ScaffoldPropMappingsHandler,
   type ScaffoldResultHandler,
   type CanvasTargetStateHandler,
+  type CancelDocGenerationHandler,
   type SourcePropValue,
   type UiTargetState,
   type DocFrameSelectedHandler,
@@ -127,6 +128,7 @@ import type {
   DocDriftReport,
   DocFrameMetadata,
   DocSourcePreview,
+  TokenGroupingDepth,
 } from './documentation/types';
 import type {
   ExportFile,
@@ -240,9 +242,17 @@ export type ConnectionController = {
   docSourcePreviewError: string;
   docSourcePreviewStatus: 'error' | 'idle' | 'loading';
   cancelDocGeneration: () => void;
-  loadDocSourcePreview: (scope: 'components' | 'tokens', targetId: string) => void;
-  generateTokenDocs: (collectionId: string, targetFormat?: 'canvas' | 'markdown') => void;
-  updateDocsInPlace: (frameNodeId: string) => void;
+  loadDocSourcePreview: (
+    scope: 'components' | 'tokens',
+    targetId: string,
+    tokenGroupingDepth?: TokenGroupingDepth,
+  ) => void;
+  generateTokenDocs: (
+    collectionId: string,
+    targetFormat?: 'canvas' | 'markdown',
+    tokenGroupingDepth?: TokenGroupingDepth,
+  ) => void;
+  updateDocsInPlace: (frameNodeId: string, tokenGroupingDepth?: TokenGroupingDepth) => void;
   generateComponentDocs: (targetToken: string, targetFormat?: 'canvas' | 'markdown') => void;
 };
 
@@ -1611,16 +1621,22 @@ export function useConnectionController(): ConnectionController {
   const generateTokenDocs = (
     collectionId: string,
     targetFormat: 'canvas' | 'markdown' = 'canvas',
+    tokenGroupingDepth: TokenGroupingDepth = 'all',
   ): void => {
     setDocGenerationStatus('running');
     setDocProgress({ message: 'Generating token documentation…', percent: 0 });
     setDocGenerationMessage('Generating token documentation...');
-    emit<GenerateTokenDocsHandler>('GENERATE_TOKEN_DOCS', { collectionId, targetFormat });
+    emit<GenerateTokenDocsHandler>('GENERATE_TOKEN_DOCS', {
+      collectionId,
+      targetFormat,
+      tokenGroupingDepth,
+    });
   };
 
   const loadDocSourcePreview = (
     scope: 'components' | 'tokens',
     targetId: string,
+    tokenGroupingDepth?: TokenGroupingDepth,
   ): void => {
     const requestId = `doc-preview-${++docSourcePreviewSequenceRef.current}`;
     latestDocSourcePreviewIdRef.current = requestId;
@@ -1631,14 +1647,21 @@ export function useConnectionController(): ConnectionController {
       requestId,
       scope,
       targetId,
+      tokenGroupingDepth,
     });
   };
 
-  const updateDocsInPlace = (frameNodeId: string): void => {
+  const updateDocsInPlace = (
+    frameNodeId: string,
+    tokenGroupingDepth?: TokenGroupingDepth,
+  ): void => {
     setDocGenerationStatus('running');
     setDocProgress({ message: 'Updating documentation in place…', percent: 0 });
     setDocGenerationMessage('Updating documentation in place...');
-    emit<UpdateDocsInPlaceHandler>('UPDATE_DOCS_IN_PLACE', { frameNodeId });
+    emit<UpdateDocsInPlaceHandler>('UPDATE_DOCS_IN_PLACE', {
+      frameNodeId,
+      tokenGroupingDepth,
+    });
   };
 
   const generateComponentDocs = (
@@ -1652,6 +1675,7 @@ export function useConnectionController(): ConnectionController {
   };
 
   const cancelDocGeneration = (): void => {
+    emit<CancelDocGenerationHandler>('CANCEL_DOC_GENERATION');
     setDocGenerationStatus('idle');
     setDocProgress(null);
     setDocGenerationMessage('');
