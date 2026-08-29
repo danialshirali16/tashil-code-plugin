@@ -69,6 +69,7 @@ declare const styles: {
   readonly "docs-library-change-list": string;
   readonly "docs-library-empty": string;
   readonly "docs-library-header": string;
+  readonly "docs-library-hidden-filter": string;
   readonly "docs-library-list": string;
   readonly "docs-library-preview": string;
   readonly "docs-library-preview-content": string;
@@ -83,9 +84,7 @@ declare const styles: {
   readonly "docs-library-scroll": string;
   readonly "docs-library-selected-meta": string;
   readonly "docs-library-source-copy": string;
-  readonly "docs-library-source-row": string;
-  readonly "docs-library-source-row-selected": string;
-  readonly "docs-library-source-select": string;
+  readonly "docs-library-source-options": string;
   readonly "docs-library-toolbar": string;
   readonly "docs-library-view": string;
   readonly "dot-status": string;

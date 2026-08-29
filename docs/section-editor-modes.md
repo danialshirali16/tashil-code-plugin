@@ -31,7 +31,7 @@ src/main.ts
 │
 └── export default function () {             ← the UI/message layer
         if (figma.mode !== 'default') return;   ← HARD GATE (main.ts:117)
-        showUI({ width: 880, height: 680 });
+        showUI({ width: 560, height: 680 });
         on<SaveConnectionHandler>(…)
         on<ClearConnectionHandler>(…)
         on<RefreshSelectionHandler>(…)
@@ -54,7 +54,8 @@ src/main.ts
 - In **Design mode**, `figma.mode === 'default'`, so the UI layer boots: the
   "Connect component" menu opens the plugin window, all the `on<…Handler>`
   message pairs register, and `selectionchange` drives the live selection
-  state.
+  state. The window opens at a compact default size of 560×680px and may still
+  be resized later through the existing `RESIZE_WINDOW` message contract.
 
 **This gate is load-bearing.** An agent that adds a message handler *outside*
 the default export, or moves codegen logic *inside* it, will silently break one
@@ -148,6 +149,9 @@ If you add a codegen-preference read, mirror the existing guard — never assume
    defensively; they are absent in Design mode.
 4. **Dev Mode never mutates.** Connection authoring/persistence is a
    Design-mode concern. Dev Mode only reads and generates.
+5. **Keep the Design-mode opening size compact.** The default plugin window is
+   560×680px. User-initiated resizing continues through `RESIZE_WINDOW`; do not
+   use the opening dimensions as a fixed size constraint.
 
 ## Related docs
 

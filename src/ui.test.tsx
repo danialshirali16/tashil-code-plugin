@@ -266,6 +266,7 @@ describe('Plugin rendered interactions', () => {
     expect(screen.getByText('Button')).toBeTruthy();
     expect(screen.getByText('Needs attention')).toBeTruthy();
     expect(screen.queryByText('.InternalButton')).toBeNull();
+    expect(screen.queryByText('0 instances')).toBeNull();
 
     const dotFilter = screen.getByRole('button', {
       name: /Hide names starting with \./,
@@ -417,9 +418,9 @@ describe('Plugin rendered interactions', () => {
     expect(within(docsHeader as HTMLElement).getByRole('button', { name: 'Refresh' })).toBeTruthy();
     expect(within(docsHeader as HTMLElement).queryByRole('button', { name: 'Refresh collections' })).toBeNull();
     expect(within(docsToolbar as HTMLElement).queryByRole('button', { name: 'Refresh' })).toBeNull();
-    const sourceList = screen.getByRole('list', { name: 'Documentation sources' });
-    expect(within(sourceList).getAllByRole('listitem')).toHaveLength(2);
-    expect(within(sourceList).getByRole('checkbox', { name: /Colors/ })).toBeTruthy();
+    const sourceList = screen.getByRole('radiogroup', { name: 'Documentation sources' });
+    expect(within(sourceList).getAllByRole('radio')).toHaveLength(2);
+    expect((within(sourceList).getByRole('radio', { name: /Colors/ }) as HTMLInputElement).checked).toBe(true);
     expect(within(sourceList).getByText('92 tokens · 2 modes')).toBeTruthy();
     expect(screen.queryByRole('table', { name: 'Documentation sources' })).toBeNull();
     expect(screen.getByText('Selected document “Colors” has 2 source changes.')).toBeTruthy();
@@ -432,9 +433,64 @@ describe('Plugin rendered interactions', () => {
 
     fireEvent.input(tokenSearch, { target: { value: 'col' } });
     const scanRequestCount = emittedPayloads('SCAN_COMPONENTS').length;
+    const activeScan = emittedPayloads<{ scanId: string }>('SCAN_COMPONENTS')[scanRequestCount - 1];
+    receive('COMPONENT_INVENTORY_STATE', {
+      scanId: activeScan.scanId,
+      state: {
+        items: [
+          {
+            componentName: 'Zebra',
+            nodeType: 'COMPONENT',
+            pageName: 'Components',
+            status: 'not-connected',
+            targetToken: 'zebra',
+          },
+          {
+            componentName: '.BaseButton',
+            nodeType: 'COMPONENT',
+            pageName: 'Components',
+            status: 'connected',
+            targetToken: 'base-button',
+          },
+          {
+            componentName: 'Button',
+            nodeType: 'COMPONENT_SET',
+            pageName: 'Components',
+            status: 'connected',
+            targetToken: 'button',
+          },
+          {
+            componentName: 'Alert',
+            nodeType: 'COMPONENT',
+            pageName: 'Components',
+            status: 'not-connected',
+            targetToken: 'alert',
+          },
+        ],
+        scannedPages: 1,
+        status: 'ready',
+        totalPages: 1,
+      },
+    });
     fireEvent.click(componentScope);
     const componentSearch = screen.getByRole('textbox', { name: 'Search components' }) as HTMLInputElement;
     expect(componentSearch.value).toBe('');
+    const componentSourceList = screen.getByRole('radiogroup', { name: 'Documentation sources' });
+    expect(within(componentSourceList).getAllByText('Components')).toHaveLength(3);
+    expect(within(componentSourceList).queryByText(/0 instances/)).toBeNull();
+    expect(within(componentSourceList).queryByText('.BaseButton')).toBeNull();
+    const visibleComponentRows = within(componentSourceList).getAllByRole('radio');
+    expect(visibleComponentRows.map((radio) => radio.closest('label')?.textContent))
+      .toEqual(['AlertComponents', 'ButtonComponents', 'ZebraComponents']);
+    const hiddenComponentFilter = screen.getByRole('checkbox', { name: 'Show hidden components' });
+    expect((hiddenComponentFilter as HTMLInputElement).checked).toBe(false);
+    fireEvent.click(hiddenComponentFilter);
+    expect(within(componentSourceList).getByText('.BaseButton')).toBeTruthy();
+    fireEvent.click(within(componentSourceList).getByRole('radio', { name: /^\.BaseButton/ }));
+    fireEvent.click(hiddenComponentFilter);
+    expect(within(componentSourceList).queryByText('.BaseButton')).toBeNull();
+    expect((within(componentSourceList).getByRole('radio', { name: /^Button/ }) as HTMLInputElement).checked)
+      .toBe(true);
     const componentRefresh = within(docsHeader as HTMLElement).getByRole('button', { name: 'Refresh' });
     fireEvent.click(componentRefresh);
     const scanRequests = emittedPayloads<{ includeCoverage?: boolean }>('SCAN_COMPONENTS');

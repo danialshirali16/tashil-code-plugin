@@ -41,7 +41,8 @@ The component inventory includes three design-system maintenance tools:
 - **Scan coverage** explicitly scans instances in bounded chunks, then shows
   connected-instance percentage, components sorted by instance count, and
   broken instance layer paths. The heavier coverage traversal does not run on
-  selection changes.
+  selection changes. Before a coverage scan, instance counts are omitted rather
+  than displayed as zero.
 - After opening a saved connection, **Generate stories** creates a CSF 3
   `<Component>.stories.tsx` file using the saved imports and prop mappings.
   Copy or download the result. Component sets over 32 combinations require you

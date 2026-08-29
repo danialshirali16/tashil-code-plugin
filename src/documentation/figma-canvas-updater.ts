@@ -26,6 +26,7 @@ import {
   safeFindTextNodes,
   safeFindAll,
   hexToRgb,
+  alignTierTopRight,
 } from './figma-canvas-writer';
 
 export function readDocFrameMetadata(node: BaseNode): DocFrameMetadata | null {
@@ -401,6 +402,14 @@ export async function updateComponentDocFrameInPlace(
 
   let updatedPropsCount = 0;
 
+  const tierNodes = safeFindAll<FrameNode>(
+    frame,
+    (node) => node.type === 'FRAME' && safeGetNodeName(node).startsWith('Tier '),
+  );
+  for (const tierNode of tierNodes) {
+    alignTierTopRight(tierNode);
+  }
+
   // Reconcile Y-Axis Labels
   const yAxisCol = safeFindChild(frame, (c) => safeGetNodeName(c) === 'Y-Axis Labels');
   if (yAxisCol && 'children' in yAxisCol && doc.matrix) {
@@ -459,6 +468,12 @@ export async function updateComponentDocFrameInPlace(
             if (c < cellNodes.length) {
               const cellNode = cellNodes[c];
               const instanceNode = safeFindChild(cellNode, (n) => n.type === 'INSTANCE');
+              const isUnsupportedCell = !instanceNode && safeFindTextNodes(cellNode).some(
+                (textNode) => textNode.characters === 'None',
+              );
+              if (isUnsupportedCell) {
+                cellNode.fills = [];
+              }
               if (instanceNode && 'setProperties' in instanceNode) {
                 try {
                   (instanceNode as InstanceNode).setProperties(cellData.combination);

@@ -216,6 +216,17 @@ export function safeFindAll<T extends SceneNode>(
   return results;
 }
 
+export function alignTierTopRight(tier: FrameNode): void {
+  if (tier.layoutMode === 'HORIZONTAL') {
+    tier.primaryAxisAlignItems = 'MAX';
+    tier.counterAxisAlignItems = 'MIN';
+    return;
+  }
+
+  tier.primaryAxisAlignItems = 'MIN';
+  tier.counterAxisAlignItems = 'MAX';
+}
+
 export async function createTokenDocFrame(
   doc: TokenDocDocument,
   options: { page?: PageNode; x?: number; y?: number } = {},
@@ -1264,6 +1275,7 @@ export async function createComponentDocFrame(
       tierRow.counterAxisSizingMode = 'AUTO';
       tierRow.itemSpacing = 0;
       tierRow.fills = [];
+      alignTierTopRight(tierRow);
 
       const isLeafTier = t === xTiers.length - 1;
 
@@ -1379,6 +1391,7 @@ export async function createComponentDocFrame(
       tierCol.counterAxisSizingMode = 'AUTO';
       tierCol.itemSpacing = 0;
       tierCol.fills = [];
+      alignTierTopRight(tierCol);
 
       const isLeafTier = t === yTiers.length - 1;
 
@@ -1494,6 +1507,7 @@ export async function createComponentDocFrame(
       }
 
       if (cellFrame.children.length === 0) {
+        cellFrame.fills = [];
         const noneText = createTextNode('None', 14, FONT_MEDIUM, {
           r: 0.58,
           g: 0.2,

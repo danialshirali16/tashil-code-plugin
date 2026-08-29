@@ -18,6 +18,7 @@ import {
   IconTimeSmall24,
   IconWarningSmall24,
   LoadingIndicator,
+  RadioButtons,
   render,
   SearchTextbox,
   SegmentedControl,
@@ -705,6 +706,7 @@ function DocumentationView(props: {
   const [scope, setScope] = useState<'tokens' | 'components'>('tokens');
   const [tokenSearchQuery, setTokenSearchQuery] = useState('');
   const [componentSearchQuery, setComponentSearchQuery] = useState('');
+  const [showHiddenComponents, setShowHiddenComponents] = useState(false);
   const [selectedCollectionId, setSelectedCollectionId] = useState<string | null>(null);
   const [selectedTargetToken, setSelectedTargetToken] = useState<string | null>(null);
 
@@ -725,15 +727,18 @@ function DocumentationView(props: {
   }, [tokenCollections, selectedCollectionId]);
 
   useEffect(() => {
-    if (inventoryState.status === 'ready' && inventoryState.items.length > 0) {
-      if (!selectedTargetToken || !inventoryState.items.some((i) => i.targetToken === selectedTargetToken)) {
-        const connected = inventoryState.items.find((i) => i.status === 'connected');
-        setSelectedTargetToken(connected ? connected.targetToken : inventoryState.items[0].targetToken);
+    const selectableComponents = inventoryState.status === 'ready'
+      ? inventoryState.items.filter((item) => showHiddenComponents || !item.componentName.startsWith('.'))
+      : [];
+    if (selectableComponents.length > 0) {
+      if (!selectedTargetToken || !selectableComponents.some((i) => i.targetToken === selectedTargetToken)) {
+        const connected = selectableComponents.find((i) => i.status === 'connected');
+        setSelectedTargetToken(connected ? connected.targetToken : selectableComponents[0].targetToken);
       }
     } else {
       setSelectedTargetToken(null);
     }
-  }, [inventoryState, selectedTargetToken]);
+  }, [inventoryState, selectedTargetToken, showHiddenComponents]);
 
   useEffect(() => {
     const targetId = scope === 'tokens' ? selectedCollectionId : selectedTargetToken;
@@ -749,11 +754,18 @@ function DocumentationView(props: {
   });
 
   const filteredComponents = inventoryState.status === 'ready'
-    ? inventoryState.items.filter((item) => {
-        const q = componentSearchQuery.trim().toLowerCase();
-        if (!q) return true;
-        return item.componentName.toLowerCase().includes(q);
-      })
+    ? inventoryState.items
+      .filter((item) => showHiddenComponents || !item.componentName.startsWith('.'))
+      .filter((item) => {
+          const q = componentSearchQuery.trim().toLowerCase();
+          if (!q) return true;
+          return item.componentName.toLowerCase().includes(q);
+        })
+      .sort((a, b) => a.componentName.localeCompare(
+        b.componentName,
+        undefined,
+        { numeric: true, sensitivity: 'base' },
+      ))
     : [];
 
   const isRunning = docGenerationStatus === 'running';
@@ -796,13 +808,23 @@ function DocumentationView(props: {
               value={tokenSearchQuery}
             />
           ) : (
-            <Textbox
-              aria-label="Search components"
-              icon={<IconSearchSmall24 />}
-              onValueInput={setComponentSearchQuery}
-              placeholder={inventoryState.status === 'scanning' ? 'Scanning components…' : 'Search components…'}
-              value={componentSearchQuery}
-            />
+            <Fragment>
+              <Textbox
+                aria-label="Search components"
+                icon={<IconSearchSmall24 />}
+                onValueInput={setComponentSearchQuery}
+                placeholder={inventoryState.status === 'scanning' ? 'Scanning components…' : 'Search components…'}
+                value={componentSearchQuery}
+              />
+              <div class="docs-library-hidden-filter">
+                <Checkbox
+                  onValueChange={setShowHiddenComponents}
+                  value={showHiddenComponents}
+                >
+                  Show hidden components
+                </Checkbox>
+              </div>
+            </Fragment>
           )}
         </div>
 
@@ -853,57 +875,51 @@ function DocumentationView(props: {
           </section>
         ) : null}
 
-        <section aria-label="Documentation sources" class="docs-library-list" role="list">
+        <section aria-label="Documentation sources" class="docs-library-list" role="radiogroup">
           {scope === 'tokens' ? (
-            filteredCollections.length > 0 ? filteredCollections.map((collection) => {
-              const isSelected = collection.id === selectedCollectionId;
-              return (
-                <div
-                  class={`docs-library-source-row ${isSelected ? 'docs-library-source-row-selected' : ''}`}
-                  key={collection.id}
-                  role="listitem"
-                >
-                  <div class="docs-library-source-select">
-                    <Checkbox
-                      aria-label={`Select ${collection.name}`}
-                      onValueChange={() => setSelectedCollectionId(collection.id)}
-                      value={isSelected}
-                    >
+            filteredCollections.length > 0 ? (
+              <div class="docs-library-source-options">
+                <RadioButtons
+                  onValueChange={setSelectedCollectionId}
+                  options={filteredCollections.map((collection) => ({
+                    children: (
                       <span class="docs-library-source-copy">
                         <strong>{collection.name}</strong>
                         <span>{collection.tokenCount} tokens · {collection.modes.length} modes</span>
                       </span>
-                    </Checkbox>
-                  </div>
-                </div>
-              );
-            }) : (
+                    ),
+                    value: collection.id,
+                  }))}
+                  value={selectedCollectionId}
+                />
+              </div>
+            ) : (
               <div class="docs-library-empty">{tokenCollectionsStatus === 'loading' ? 'Loading token collections…' : 'No token collections found.'}</div>
             )
-          ) : filteredComponents.length > 0 ? filteredComponents.map((item) => {
-            const isSelected = item.targetToken === selectedTargetToken;
-            const instanceCount = item.instanceCount ?? 0;
-            return (
-              <div
-                class={`docs-library-source-row ${isSelected ? 'docs-library-source-row-selected' : ''}`}
-                key={item.targetToken}
-                role="listitem"
-              >
-                <div class="docs-library-source-select">
-                  <Checkbox
-                    aria-label={`Select ${item.componentName}`}
-                    onValueChange={() => setSelectedTargetToken(item.targetToken)}
-                    value={isSelected}
-                  >
-                    <span class="docs-library-source-copy">
-                      <strong>{item.componentName}</strong>
-                      <span>{instanceCount} instance{instanceCount === 1 ? '' : 's'} · {item.pageName}</span>
-                    </span>
-                  </Checkbox>
-                </div>
-              </div>
-            );
-          }) : (
+          ) : filteredComponents.length > 0 ? (
+            <div class="docs-library-source-options">
+              <RadioButtons
+                onValueChange={setSelectedTargetToken}
+                options={filteredComponents.map((item) => {
+                  const instanceCount = item.instanceCount;
+                  return {
+                    children: (
+                      <span class="docs-library-source-copy">
+                        <strong>{item.componentName}</strong>
+                        <span>
+                          {instanceCount === undefined
+                            ? item.pageName
+                            : `${instanceCount} instance${instanceCount === 1 ? '' : 's'} · ${item.pageName}`}
+                        </span>
+                      </span>
+                    ),
+                    value: item.targetToken,
+                  };
+                })}
+                value={selectedTargetToken}
+              />
+            </div>
+          ) : (
             <div class="docs-library-empty">{inventoryState.status === 'scanning' ? 'Scanning components…' : 'No matching components in inventory.'}</div>
           )}
         </section>
@@ -1257,9 +1273,11 @@ function ComponentInventoryView(props: {
                       <span class="inventory-row-copy">
                         <span class="inventory-component-name">{item.componentName}</span>
                         <span class="inventory-page-name">{item.pageName}</span>
-                        <span class="inventory-instance-count">
-                          {`${item.instanceCount ?? 0} instance${item.instanceCount === 1 ? '' : 's'}`}
-                        </span>
+                        {item.instanceCount === undefined ? null : (
+                          <span class="inventory-instance-count">
+                            {`${item.instanceCount} instance${item.instanceCount === 1 ? '' : 's'}`}
+                          </span>
+                        )}
                       </span>
                       {item.status === 'needs-attention' ? (
                         <span class="inventory-warning-badge">Needs attention</span>

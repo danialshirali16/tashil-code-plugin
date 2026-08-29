@@ -3304,6 +3304,14 @@ body {
   width: 100%;
 }
 
+.docs-library-hidden-filter {
+  min-width: 0;
+}
+
+.docs-library-hidden-filter > div {
+  margin: 0;
+}
+
 .docs-library-scope > div {
   width: 100%;
 }
@@ -3362,23 +3370,17 @@ body {
   background: var(--figma-color-bg);
   border: 1px solid var(--figma-color-border);
   border-radius: 6px;
+  flex: 0 0 auto;
   overflow: hidden;
 }
 
-.docs-library-source-row {
-  border-bottom: 1px solid var(--figma-color-border);
+.docs-library-source-options > div > div > div {
+  margin-top: 0 !important;
 }
 
-.docs-library-source-row:last-child {
-  border-bottom: 0;
-}
-
-.docs-library-source-row-selected {
-  background: var(--figma-color-bg-selected-secondary, var(--figma-color-bg-brand-tertiary));
-}
-
-.docs-library-source-select > label {
+.docs-library-source-options label {
   align-items: center;
+  border-bottom: 1px solid var(--figma-color-border);
   box-sizing: border-box;
   flex-direction: row-reverse;
   min-height: 52px;
@@ -3386,11 +3388,19 @@ body {
   width: 100%;
 }
 
-.docs-library-source-select > label:hover {
+.docs-library-source-options > div > div > div:last-child > label {
+  border-bottom: 0;
+}
+
+.docs-library-source-options label:has(input:checked) {
+  background: var(--figma-color-bg-selected-secondary, var(--figma-color-bg-brand-tertiary));
+}
+
+.docs-library-source-options label:hover {
   background: var(--figma-color-bg-hover);
 }
 
-.docs-library-source-select > label > div:last-child {
+.docs-library-source-options label > div:last-child {
   min-width: 0;
   padding-top: 0;
 }

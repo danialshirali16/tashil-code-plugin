@@ -175,7 +175,7 @@ export default function (): void {
     return;
   }
 
-  showUI({ width: 880, height: 680 });
+  showUI({ width: 560, height: 680 });
 
   on<ExportConnectionsHandler>('EXPORT_CONNECTIONS', () => { void exportConnections(); });
   on<PreviewConnectionImportHandler>('PREVIEW_CONNECTION_IMPORT', ({ raw }) => { void previewConnectionImport(raw); });

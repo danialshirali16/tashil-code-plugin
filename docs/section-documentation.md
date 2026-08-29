@@ -20,16 +20,22 @@ frames **in place** without resetting layouts, positions, or component structure
 The plugin presents these capabilities as a searchable **Documentation
 library** in `src/ui.tsx`. A native `@create-figma-plugin/ui`
 `SegmentedControl` separates design tokens from components. Each scope keeps
-its own native `Textbox` search, and native `Checkbox` controls select simple
-title-and-caption source rows. A lazy selected-source preview reports the
+its own native `Textbox` search, and a native `RadioButtons` group selects one
+title-and-caption source row at a time. Component sources are sorted
+alphabetically and hide dot-prefixed base/hidden components by default; a native
+`Checkbox` filter can reveal them without changing the inventory scan. A lazy selected-source preview reports the
 number of generated token groups (with up to three sample names) or component
 variant combinations without constructing the full document or variant
-matrix. A scope-aware refresh action sits opposite the library heading and
+matrix. Component captions omit instance counts after the lightweight inventory
+scan; a numeric zero is shown only when coverage was actually calculated. A
+scope-aware refresh action sits opposite the library heading and
 reloads token collections or rescans the component inventory as appropriate,
 while the shared bottom action-bar pattern used by Sync Tokens exposes only the
 primary canvas-generation action. Selecting a generated token-documentation frame
 reveals its drift report, Markdown export, and in-place update actions in a
-native banner.
+native banner. Source lists keep their natural content height inside the single
+Docs content scroller, so long token and component inventories scroll with the
+rest of the page while the bottom action bar remains fixed.
 
 This view is presentation-only: new interface work must continue to use the
 existing documentation handlers and message contracts rather than duplicating
@@ -61,7 +67,7 @@ The documentation builder binds to master components or component sets from the 
 | `.[Documentation] Hero` | `1422:17985` | Hero banner with dynamic title, subtitle, stats chips, and badge gradient |
 | `.[Documentation] Separator` | `1422:18167` | Section divider rule with collection title badge |
 | `.[Documentation] Section` | `1422:18185` | Section container holding headline, description, and `Slot` frame |
-| `Variant Matrix Grid` | `1958:91236` | Multi-tier 2D Variant matrix showcase with layered column headers (`xTiers`), layered row headers (`yTiers`), right-facing & downward dimension bracket indicators, and dashed instance bounding boxes (`#8a38f5`) with purple `None` placeholders for unsupported permutations |
+| `Variant Matrix Grid` | `1958:91236` | Multi-tier 2D Variant matrix showcase with layered column headers (`xTiers`), layered row headers (`yTiers`), right-facing & downward dimension bracket indicators, and dashed instance bounding boxes (`#8a38f5`) with transparent purple `None` placeholders for unsupported permutations |
 | `.[Table] Header` | `1929:52306` | Column header bar across Token and Value columns |
 | `.[Table] Token Item` | `1929:52305` | Row cell representing token name and indicator |
 | `.[Table] Value Item` | `1929:52304` | Component set with variants (`Type=Color`, `Type=Number`, `Type=Boolean`, `Type=String`). For `Color`, the `Color Icon` layer fill is bound to the Figma Variable |
@@ -76,14 +82,16 @@ When master components are unavailable (e.g. running in an isolated test documen
 The component documentation generator renders a layered 2D variant matrix matching the Swiss-Army design standard:
 
 - **Multi-Level Column Headers (`xTiers`)**:
+  - Tier containers use explicit Top-Right Auto Layout alignment.
   - **Tier 0 (Column Main)**: Top-level property group (e.g. `style: solid`, `style: tonal`) spanning all child columns with downward-facing brackets.
   - **Tier 1 (Column Secondary)**: Sub-level property group (e.g. `size: sm`, `size: md`) spanning sub-columns with secondary brackets.
   - **Tier 2 (Column Tertiary / Leaf)**: Leaf-level properties (e.g. `-` for false/default, `isOnlyIcon` for true) aligned directly above each column.
 - **Multi-Level Row Labels (`yTiers`)**:
+  - Tier containers use explicit Top-Right Auto Layout alignment.
   - **Tier 0 (Row Main)**: High-level property group (e.g. `intent: primary`, `intent: neutral`) with right-facing spanning brackets (`x = 0` spine, arms pointing right).
   - **Tier 1 (Row Secondary / Leaf)**: Sub-level states (e.g. `state: enabled`, `state: hovered`, `state: pressed`, `state: loading`, `state: disabled`) aligned with each instance row.
 - **Intersection Badge**: `❖ ComponentName` tag placed at the top-left intersection aligned with header heights.
-- **Complete Coverage & Fallbacks**: $100\%$ of all permutations are evaluated; valid Figma variants are instantiated, and unsupported combinations display a centered purple `None` placeholder.
+- **Complete Coverage & Fallbacks**: $100\%$ of all permutations are evaluated; valid Figma variants are instantiated, and unsupported combinations display a centered purple `None` placeholder without a cell background fill.
 
 ---
 
@@ -108,3 +116,15 @@ The component documentation generator renders a layered 2D variant matrix matchi
    - New documentation frames are placed side-by-side to the right of existing frames with 100px margins and automatically focused in the viewport.
 9. **Lazy Source Previews**:
    - Preview only the selected source. Token previews must derive group identities from variable names without resolving values; component previews must multiply variant-option counts without constructing the matrix. Ignore superseded preview responses in the UI.
+10. **One Docs Scroll Surface**:
+   - Source lists must retain their natural content height and must not introduce an internal scrollbar. Keep the shared action bar outside the Docs content scroller so it remains fixed while the complete page scrolls.
+11. **Single-Selection Source Semantics**:
+   - Token collections and components are mutually exclusive selections within their scope. Use the native Figma `RadioButtons` component—not checkboxes—so the control communicates and exposes that single-selection behavior correctly.
+12. **Unsupported Variant Cells Stay Transparent**:
+   - During generation and in-place updates, keep the dashed matrix boundary and centered purple `None` label for unsupported combinations, but leave the cell `fills` array empty so missing variants are visually distinct from generated component instances.
+13. **Tier Alignment Is Top-Right**:
+   - Set every generated and in-place-updated `Tier …` frame to Top-Right. For horizontal X-axis tiers use primary `MAX` / counter `MIN`; for vertical Y-axis tiers use primary `MIN` / counter `MAX`.
+14. **Unknown Instance Counts Are Not Zero**:
+   - `ComponentInventoryItem.instanceCount` is optional because lightweight scans skip instance traversal. Omit the count when it is undefined; display `0 instances` only after a coverage scan has produced an explicit zero.
+15. **Deterministic Component Discovery**:
+   - Sort Docs component sources alphabetically by their displayed component name. Hide names beginning with `.` by default and expose them through the native **Show hidden components** checkbox. If filtering hides the active source, select the first available visible source instead.

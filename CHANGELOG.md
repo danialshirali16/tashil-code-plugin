@@ -64,10 +64,17 @@ is the version of record.
 
 ### Changed
 
+- Component sources in **Docs** are now sorted alphabetically, while dot-prefixed
+  base/hidden components are hidden by default and can be revealed with a native
+  **Show hidden components** checkbox. See the
+  [Documentation guide](docs/section-documentation.md).
+- Reduced the plugin window's default opening width from 880px to 560px while
+  preserving the existing 680px height and resize behavior. See
+  [Figma Editor Modes](docs/section-editor-modes.md).
 - Redesigned the **Docs** tab as a compact documentation library built from
   native Figma UI primitives (`@create-figma-plugin/ui`). Design-token and
   component sources now use separate searches beneath a Figma segmented control,
-  selectable title-and-caption rows with native checkboxes, a header-level
+  single-select title-and-caption rows with native radio buttons, a header-level
   scope-aware refresh action, a single primary canvas action in the footer,
   lazy selected-source previews for token groups and component variant
   combinations, an in-place update banner, and cancellable generation progress
@@ -101,6 +108,22 @@ is the version of record.
 
 ### Fixed
 
+- Stopped lightweight component scans from displaying missing instance counts
+  as `0 instances`; zero now appears only when a coverage scan has calculated
+  it explicitly. See the [Documentation guide](docs/section-documentation.md).
+- Changed generated and in-place-updated component matrix `Tier …` layers from
+  the default Top-Left Auto Layout alignment to explicit Top-Right alignment.
+  See the [Documentation guide](docs/section-documentation.md).
+- Removed the background fill from `None` cells in generated and in-place-updated
+  component variant matrices so unsupported combinations are visually distinct
+  from real component instances. See the
+  [Documentation guide](docs/section-documentation.md).
+- Corrected Docs source selection to use native Figma radio buttons, making it
+  clear that only one token collection or component can be active at a time.
+  See the [Documentation guide](docs/section-documentation.md).
+- Fixed long Design Tokens and Components lists in Docs so the complete page
+  scrolls while the shared bottom action bar stays fixed. See the
+  [Documentation guide](docs/section-documentation.md).
 - Dynamic section headlines and descriptions in token documentation, automatically derived from folder paths, token scopes, and data types.
 - Native Figma variable binding on `Color Icon` swatch fills in `.[Table] Value Item` components.
 - Automatic column appearance and variable mode assignment (`applyColumnMode`) on generated documentation tables.

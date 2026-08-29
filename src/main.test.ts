@@ -315,6 +315,14 @@ beforeEach(() => {
   utilityMocks.showUI.mockClear();
 });
 
+describe('Design mode plugin window', () => {
+  it('opens at the compact default width', async () => {
+    await startPlugin();
+
+    expect(utilityMocks.showUI).toHaveBeenCalledWith({ height: 680, width: 560 });
+  });
+});
+
 describe('output preference persistence', () => {
   it('round-trips user settings through clientStorage', async () => {
     const { clientStorage } = await startPlugin();
