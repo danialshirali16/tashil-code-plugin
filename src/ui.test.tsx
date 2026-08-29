@@ -437,8 +437,9 @@ describe('Plugin rendered interactions', () => {
     expect(componentSearch.value).toBe('');
     const componentRefresh = within(docsHeader as HTMLElement).getByRole('button', { name: 'Refresh' });
     fireEvent.click(componentRefresh);
-    expect(emittedPayloads<{ includeCoverage?: boolean }>('SCAN_COMPONENTS')).toHaveLength(scanRequestCount + 1);
-    expect(emittedPayloads<{ includeCoverage?: boolean }>('SCAN_COMPONENTS').at(-1)?.includeCoverage).toBe(false);
+    const scanRequests = emittedPayloads<{ includeCoverage?: boolean }>('SCAN_COMPONENTS');
+    expect(scanRequests).toHaveLength(scanRequestCount + 1);
+    expect(scanRequests[scanRequests.length - 1]?.includeCoverage).toBe(false);
     fireEvent.input(componentSearch, { target: { value: 'button' } });
     fireEvent.click(tokenScope);
     expect((screen.getByRole('textbox', { name: 'Search token collections' }) as HTMLInputElement).value).toBe('col');
