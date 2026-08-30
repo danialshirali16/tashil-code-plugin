@@ -1,11 +1,12 @@
 # Section Guide — Documentation (`src/documentation/`)
 
 Status: Active
-Last updated: 2026-08-29
+Last updated: 2026-08-30
 
 The **Documentation** section provides automated documentation generation and
 in-place reconciliation for design system foundations (Figma Variable Collections
-such as Colors, Spacing, and Radius) and connected Components.
+such as Colors, Spacing, and Radius), connected Components, and local Typography
+and Effect Styles.
 
 It creates pixel-accurate, presentation-ready specification pages directly on
 the Figma canvas matching the Swiss-Army design system standard (exemplified
@@ -16,8 +17,8 @@ Token-documentation frames size themselves to their collection: 1100px for one
 mode, 1500px for two, 1900px for three, 2300px for four, and 3000px for five or
 more modes. Their primary content hierarchy fills the available Auto Layout
 width at every supported size.
-Tokens without a slash-delimited group are collected into a leading `General`
-section. That section uses the same `.[Documentation] Section` component as
+Tokens without a slash-delimited group are collected into a `General` section
+at their source position in the collection. That section uses the same `.[Documentation] Section` component as
 other groups, but its Boolean `Title` property is disabled so the table begins
 without a redundant General heading.
 Generated root frames use stable source-facing names: exactly the Variable
@@ -31,31 +32,38 @@ convention.
 
 The plugin presents these capabilities as a searchable **Documentation
 library** in `src/ui.tsx`. A native `@create-figma-plugin/ui`
-`SegmentedControl` separates design tokens from components. Each scope keeps
+`SegmentedControl` separates **Design Tokens** (`IconVariable16`), **Styles** (`IconLibrary16`),
+and **Components** (`IconComponent16`). The Styles scope exposes Typography and Effects as
+collection-sized sources, loaded through the async local Style APIs. Each scope keeps
 its own native `Textbox` search, and a native `RadioButtons` group selects one
 title-and-caption source row at a time. Component sources are sorted
 alphabetically and hide dot-prefixed base/hidden components by default; a native
-`Checkbox` filter can reveal them without changing the inventory scan. A lazy selected-source preview reports the
-number of generated token groups (with up to three sample names) or component
-variant combinations without constructing the full document or variant
-matrix. For design-token sources, an inline native `SegmentedControl` between
-the source list and preview limits generated groups to 1, 2, 3, or 4 path levels,
-or preserves the full token path. New sessions recommend and default to 3
-levels; generated token-frame metadata stores the chosen depth so drift checks
-and in-place updates keep the same structure. Older frames without this field
-continue to use full-depth grouping. Component captions omit instance counts after the lightweight inventory
-scan; a numeric zero is shown only when coverage was actually calculated. A
-scope-aware refresh action sits opposite the library heading and
-reloads token collections or rescans the component inventory as appropriate,
-while the shared bottom action-bar pattern used by Sync Tokens exposes only the
-primary **Generate Document** canvas action. While a document is building, that
-fixed bar replaces the action with Cancel and contains the live stage message,
-progress bar, and percentage; the scrolling content does not render a separate
-process card. Selecting a generated token-documentation frame
-reveals its drift report, Markdown export, and in-place update actions in a
-native banner. Source lists keep their natural content height inside the single
-Docs content scroller, so long token and component inventories scroll with the
-rest of the page while the bottom action bar remains fixed.
+`Checkbox` filter can reveal them without changing the inventory scan.
+
+A lazy selected-source preview card reports the source title with a compact badge count,
+and three linear rows with theme-aware Figma icons displaying capacity & depth specs,
+estimated canvas frame width and layout properties, and sample section names with
+a subtle `+N more` indicator. For design-token and style sources, an inline native
+`SegmentedControl` between the source list and preview limits generated groups to 1, 2, 3,
+or 4 path levels, or preserves the full token/style path. New sessions recommend and
+default to 3 levels; generated token/style-frame metadata stores the chosen depth so
+drift checks and in-place updates keep the same structure. Older frames without this
+field continue to use full-depth grouping. Component captions omit instance counts after
+the lightweight inventory scan; a numeric zero is shown only when coverage was actually
+calculated. A scope-aware refresh action sits opposite the library heading and reloads
+token collections or rescans the component inventory as appropriate, while the shared
+bottom action-bar pattern used by Sync Tokens exposes only the primary **Generate Document**
+canvas action. Successful generation notifies the user via native `figma.notify` toasts
+while keeping the plugin surface uncluttered.
+
+While a document is building, that fixed bar replaces the action with Cancel and contains
+the live stage message, progress bar, and percentage; the scrolling content does not
+render a separate process card. Selecting a generated documentation frame reveals a
+structured reconcile card featuring a full-width status banner at the top, a clean drift
+summary, and a footer row with document metadata on the left and action buttons on the right.
+Source lists keep their natural content height inside the single Docs content scroller, so
+long token and component inventories scroll with the rest of the page while the bottom
+action bar remains fixed.
 
 This view is presentation-only: new interface work must continue to use the
 existing documentation handlers and message contracts rather than duplicating
@@ -91,7 +99,7 @@ The documentation builder binds to master components or component sets from the 
 | `Variant Matrix Grid` | `1958:91236` | Multi-tier 2D Variant matrix showcase with layered column headers (`xTiers`), layered row headers (`yTiers`), right-facing & downward dimension bracket indicators, and dashed instance bounding boxes (`#8a38f5`) with transparent purple `None` placeholders for unsupported permutations |
 | `.[Table] Header` | `1929:52306` | Column header bar across Token and Value columns |
 | `.[Table] Token Item` | `1929:52305` | Row cell representing token name and indicator |
-| `.[Table] Value Item` | `1929:52304` | Component set with variants (`Type=Color`, `Type=Number`, `Type=Boolean`, `Type=String`). For `Color`, the `Color Icon` layer fill is bound to the Figma Variable |
+| `.[Table] Value Item` | `1929:52304` | Component set with variants (`Type=Color`, `Type=Number`, `Type=Boolean`, `Type=String`, `Type=Texts`, `Type=Effects`). For `Color`, the `Color Icon` layer fill is bound to the Figma Variable |
 | `Table` | `1929:52307` | Horizontal auto-layout container grouping one Token Column and multiple Value Columns |
 
 When master components are unavailable (e.g. running in an isolated test document), procedural fallback builders reconstruct identical auto-layout frames with exact typography, fills, and padding.
@@ -127,18 +135,18 @@ The component documentation generator renders a layered 2D variant matrix matchi
 3. **Explicit Mode Assignment on Value Columns**:
    - Value columns must set their explicit variable mode using `applyColumnMode` via `node.setExplicitVariableModeForCollection(collection, mode.modeId)` so bound tokens resolve to the respective mode accurately.
 4. **Dynamic Headlines & Context-Aware Descriptions**:
-   - Headlines are derived from Figma folder paths (`formatDynamicHeadline`).
+   - Headlines are derived from Figma folder paths (`formatDynamicHeadline`) while preserving exact token segment casing, dashes, underscores, and sub-groupings without forced title-casing.
    - Descriptions are generated dynamically based on token data types, scopes, and keywords (`generateDynamicSectionDescription`) without hardcoded static tables.
 5. **Metadata Tagging on Generated Frames**:
    - Generated canvas documentation frames must always be stamped via `setPluginData('tashil_doc_meta', ...)` with `DOC_FRAME_SCHEMA_VERSION = 1`, `docType`, `targetId`, `targetName`, `contentHash`, and `modeIds`.
 6. **In-Place 1-to-1 Reconciliation**:
-   - When an existing frame is updated, reconcile sections, rows, and mode columns 1-to-1 in place so canvas position, layer IDs, links, and comments remain intact without layout degradation.
+   - When an existing frame is updated, reconcile sections, rows, and mode columns 1-to-1 in place so canvas position, layer IDs, links, and comments remain intact. In-place updates must preserve the user's custom frame width and content layout sizing rather than forcibly resizing or resetting them.
 7. **Font Loading Before Text Mutation**:
    - Every async text mutation on the canvas must be preceded by `await figma.loadFontAsync(textNode.fontName)`.
 8. **Side-by-Side Canvas Placement**:
    - New documentation frames are placed side-by-side to the right of existing frames with 100px margins and automatically focused in the viewport.
 9. **Lazy Source Previews**:
-   - Preview only the selected source. Token previews must derive group identities from variable names without resolving values; component previews must multiply variant-option counts without constructing the matrix. Ignore superseded preview responses in the UI.
+   - Preview only the selected source. Render a clean linear card with badge counter, capacity specs, layout width estimates, and sample section highlights. Token previews must derive group identities from variable names without resolving values; component previews must multiply variant-option counts without constructing the matrix. Ignore superseded preview responses in the UI.
 10. **One Docs Scroll Surface**:
    - Source lists must retain their natural content height and must not introduce an internal scrollbar. Keep the shared action bar outside the Docs content scroller so it remains fixed while the complete page scrolls.
 11. **Single-Selection Source Semantics**:
@@ -153,15 +161,17 @@ The component documentation generator renders a layered 2D variant matrix matchi
    - Sort Docs component sources alphabetically by their displayed component name. Hide names beginning with `.` by default and expose them through the native **Show hidden components** checkbox. If filtering hides the active source, select the first available visible source instead.
 16. **Variant Label Casing Comes From Figma**:
    - Preserve the exact casing of component property names and variant option values in generated Tier labels and legacy axis labels. In-place updates must also repair older lowercase labels without altering the underlying component variants.
-17. **Token Grouping Depth Is End-to-End**:
-   - Treat `TokenGroupingDepth` as generation input, not presentation-only state. Pass it through lazy previews, canvas/Markdown generation, and token in-place updates; stamp it in token-frame metadata and use the stamped value for drift checks. The `all` value must preserve the legacy content hash so older full-depth documents do not report false drift.
+17. **Token and Style Grouping Depth Is End-to-End**:
+    - Treat `TokenGroupingDepth` as generation input, not presentation-only state. Pass it through lazy previews, canvas/Markdown generation, and token/style in-place updates; stamp it in documentation frame metadata and use the stamped value for drift checks. The `all` value must preserve the legacy content hash so older full-depth documents do not report false drift.
 18. **Cancel Stops the Active Documentation Job**:
    - The Docs Cancel action must emit `CANCEL_DOC_GENERATION`, invalidate the active main-thread run, and check the shared cancellation guard between sections, table batches, matrix rows, and async Figma operations. Cancelled runs must not emit a late success/error result; newly generated partial root frames must be removed. A later generation starts with a fresh guard and must remain usable.
 19. **Generation Progress Belongs to the Fixed Action Bar**:
    - Keep the live stage message, progress bar, percentage, and Cancel action inside the fixed Docs footer. Do not add a duplicate progress card to the scrolling content.
-20. **Token Document Width Follows Mode Count**:
-   - Generated and in-place-updated token documents must use 1100px for one mode, 1500px for two, 1900px for three, 2300px for four, and 3000px for five or more. Keep the root's Header, Hero, Separator, Sections, Footer, section Title/Slot, tables, columns, and rows set to Fill Container so content uses the complete available width.
-21. **Root-Level Tokens Lead Without a Title**:
-   - Keep the `general` section first while preserving the source order of every other group. Disable the Section component's Boolean `Title` property for General and restore it for all named groups during both generation and in-place updates; procedural fallbacks must mirror this through Title-layer visibility.
+20. **Token Document Initial Width Follows Mode Count**:
+    - Newly generated token documents initialize width to 1100px for one mode, 1500px for two, 1900px for three, 2300px for four, and 3000px for five or more, with Header, Hero, Separator, Sections, Footer, section Title/Slot, tables, columns, and rows set to Fill Container. In-place updates preserve the user's customized frame width and layout without resetting or resizing them.
+21. **Token Documents Preserve Figma Source Order**:
+    - Build sections from their first appearance in `VariableCollection.variableIds`, and preserve that same source order for every variable row within its section. Do not alphabetize groups or rows and do not force `general` to another position. Disable the Section component's Boolean `Title` property for General and restore it for all named groups during both generation and in-place updates; procedural fallbacks must mirror this through Title-layer visibility.
 22. **Root Frame Names Are Source-Facing**:
-   - Name token-document roots exactly after `collectionName`, with no numeric prefix. Name component-document roots `<ComponentName> Guideline`. Apply the same convention during in-place updates so legacy names are repaired without replacing their frames.
+    - Name token-document roots exactly after `collectionName`, with no numeric prefix. Name component-document roots `<ComponentName> Guideline`. Apply the same convention during in-place updates so legacy names are repaired without replacing their frames.
+23. **Style Documentation Uses Local Async Style APIs**:
+    - Load Typography with `getLocalTextStylesAsync()` and Effects with `getLocalEffectStylesAsync()`. Resolve bound Figma variable tokens (`boundVariables` on font family, weight, size, line height, letter spacing, and effect properties) to their connected token names. Format effect styles as standard CSS declarations (`box-shadow: ...;`, `filter: blur(...)`, `backdrop-filter: blur(...)`). Generate one source document per style kind, preserve slash-delimited names as section paths, label table rows as `STYLE`, and keep cancellation, metadata, selection drift, and in-place update behavior aligned with token documents.

@@ -116,6 +116,10 @@ import {
   type DocFrameSelectedHandler,
   type GenerateTokenDocsHandler,
   type GenerateTokenDocsResultHandler,
+  type GenerateStyleDocsHandler,
+  type GenerateStyleDocsResultHandler,
+  type LoadDocStyleSourcesHandler,
+  type LoadDocStyleSourcesResultHandler,
   type LoadDocSourcePreviewHandler,
   type LoadDocSourcePreviewResultHandler,
   type UpdateDocsInPlaceHandler,
@@ -128,6 +132,8 @@ import type {
   DocDriftReport,
   DocFrameMetadata,
   DocSourcePreview,
+  DocStyleKind,
+  DocStyleSourceSummary,
   TokenGroupingDepth,
 } from './documentation/types';
 import type {
@@ -205,6 +211,8 @@ export type ConnectionController = {
   tokenCollections: readonly TokenCollectionSummary[];
   tokenCollectionsStatus: 'idle' | 'loading' | 'error';
   tokenCollectionsError: string;
+  docStyleSources: readonly DocStyleSourceSummary[];
+  docStyleSourcesStatus: 'error' | 'idle' | 'loading';
   tokensExportStatus: 'idle' | 'exporting' | 'error';
   tokensExportError: string;
   tokensExportSuccess: string;
@@ -212,6 +220,7 @@ export type ConnectionController = {
   tokensPreviewError: string;
   tokensPreviewFiles: readonly ExportFile[];
   loadTokenCollections: () => void;
+  loadDocStyleSources: () => void;
   exportTokens: (collectionIds: readonly string[], options: ExportOptions) => void;
   previewTokens: (collectionIds: readonly string[], options: ExportOptions) => void;
   connectionImportEntries: readonly ConnectionImportPlanEntry[];
@@ -243,7 +252,7 @@ export type ConnectionController = {
   docSourcePreviewStatus: 'error' | 'idle' | 'loading';
   cancelDocGeneration: () => void;
   loadDocSourcePreview: (
-    scope: 'components' | 'tokens',
+    scope: 'components' | 'styles' | 'tokens',
     targetId: string,
     tokenGroupingDepth?: TokenGroupingDepth,
   ) => void;
@@ -254,6 +263,7 @@ export type ConnectionController = {
   ) => void;
   updateDocsInPlace: (frameNodeId: string, tokenGroupingDepth?: TokenGroupingDepth) => void;
   generateComponentDocs: (targetToken: string, targetFormat?: 'canvas' | 'markdown') => void;
+  generateStyleDocs: (styleKind: DocStyleKind, tokenGroupingDepth?: TokenGroupingDepth) => void;
 };
 
 export function useConnectionController(): ConnectionController {
@@ -304,6 +314,9 @@ export function useConnectionController(): ConnectionController {
   const [tokenCollectionsStatus, setTokenCollectionsStatus] =
     useState<'idle' | 'loading' | 'error'>('idle');
   const [tokenCollectionsError, setTokenCollectionsError] = useState('');
+  const [docStyleSources, setDocStyleSources] = useState<readonly DocStyleSourceSummary[]>([]);
+  const [docStyleSourcesStatus, setDocStyleSourcesStatus] =
+    useState<'error' | 'idle' | 'loading'>('idle');
   const [tokensExportStatus, setTokensExportStatus] = useState<'idle' | 'exporting' | 'error'>('idle');
   const [tokensExportError, setTokensExportError] = useState('');
   const [tokensExportSuccess, setTokensExportSuccess] = useState('');
@@ -471,6 +484,16 @@ export function useConnectionController(): ConnectionController {
       }
     });
 
+    const offDocStyleSources = on<LoadDocStyleSourcesResultHandler>('LOAD_DOC_STYLE_SOURCES_RESULT', (result) => {
+      if (result.ok) {
+        setDocStyleSources(result.sources ?? []);
+        setDocStyleSourcesStatus('idle');
+      } else {
+        setDocStyleSources([]);
+        setDocStyleSourcesStatus('error');
+      }
+    });
+
     const offTokensExport = on<ExportTokensResultHandler>('EXPORT_TOKENS_RESULT', (result) => {
       if (result.operationId !== latestTokensExportIdRef.current) {
         return; // superseded
@@ -541,6 +564,12 @@ export function useConnectionController(): ConnectionController {
       setDocProgress(null);
     });
 
+    const offStyleDocsResult = on<GenerateStyleDocsResultHandler>('GENERATE_STYLE_DOCS_RESULT', (result) => {
+      setDocGenerationStatus(result.ok ? 'success' : 'error');
+      setDocGenerationMessage(result.message);
+      setDocProgress(null);
+    });
+
     rescanComponents(false);
     emit<RefreshSelectionHandler>('REFRESH_SELECTION');
     emit<LoadOutputPreferencesHandler>('LOAD_OUTPUT_PREFERENCES');
@@ -560,6 +589,7 @@ export function useConnectionController(): ConnectionController {
       offInspectCodeState();
       offScaffoldResult();
       offTokenCollections();
+      offDocStyleSources();
       offTokensExport();
       offTokensPreview();
       offDocFrameSelected();
@@ -568,6 +598,7 @@ export function useConnectionController(): ConnectionController {
       offTokenDocsResult();
       offUpdateDocsResult();
       offComponentDocsResult();
+      offStyleDocsResult();
     };
   }, []);
 
@@ -1547,6 +1578,11 @@ export function useConnectionController(): ConnectionController {
     emit<LoadTokenCollectionsHandler>('LOAD_TOKEN_COLLECTIONS');
   }
 
+  function loadDocStyleSources(): void {
+    setDocStyleSourcesStatus('loading');
+    emit<LoadDocStyleSourcesHandler>('LOAD_DOC_STYLE_SOURCES');
+  }
+
   function exportTokensAction(
     collectionIds: readonly string[],
     options: ExportOptions,
@@ -1634,7 +1670,7 @@ export function useConnectionController(): ConnectionController {
   };
 
   const loadDocSourcePreview = (
-    scope: 'components' | 'tokens',
+    scope: 'components' | 'styles' | 'tokens',
     targetId: string,
     tokenGroupingDepth?: TokenGroupingDepth,
   ): void => {
@@ -1672,6 +1708,16 @@ export function useConnectionController(): ConnectionController {
     setDocProgress({ message: 'Generating component specification…', percent: 0 });
     setDocGenerationMessage('Generating component specification...');
     emit<GenerateComponentDocsHandler>('GENERATE_COMPONENT_DOCS', { targetToken, targetFormat });
+  };
+
+  const generateStyleDocs = (
+    styleKind: DocStyleKind,
+    tokenGroupingDepth: TokenGroupingDepth = 'all',
+  ): void => {
+    setDocGenerationStatus('running');
+    setDocProgress({ message: 'Generating style documentation…', percent: 0 });
+    setDocGenerationMessage('Generating style documentation...');
+    emit<GenerateStyleDocsHandler>('GENERATE_STYLE_DOCS', { styleKind, tokenGroupingDepth });
   };
 
   const cancelDocGeneration = (): void => {
@@ -1729,6 +1775,8 @@ export function useConnectionController(): ConnectionController {
     tokenCollections,
     tokenCollectionsStatus,
     tokenCollectionsError,
+    docStyleSources,
+    docStyleSourcesStatus,
     tokensExportStatus,
     tokensExportError,
     tokensExportSuccess,
@@ -1736,6 +1784,7 @@ export function useConnectionController(): ConnectionController {
     tokensPreviewError,
     tokensPreviewFiles,
     loadTokenCollections,
+    loadDocStyleSources,
     exportTokens: exportTokensAction,
     previewTokens: previewTokensAction,
     connectionImportEntries,
@@ -1760,5 +1809,6 @@ export function useConnectionController(): ConnectionController {
     generateTokenDocs,
     updateDocsInPlace,
     generateComponentDocs,
+    generateStyleDocs,
   };
 }

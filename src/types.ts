@@ -475,6 +475,37 @@ export type GenerateTokenDocsResultHandler = {
   }) => void;
 };
 
+export type LoadDocStyleSourcesHandler = {
+  name: 'LOAD_DOC_STYLE_SOURCES';
+  handler: () => void;
+};
+
+export type LoadDocStyleSourcesResultHandler = {
+  name: 'LOAD_DOC_STYLE_SOURCES_RESULT';
+  handler: (result: {
+    message?: string;
+    ok: boolean;
+    sources?: ReadonlyArray<import('./documentation/types').DocStyleSourceSummary>;
+  }) => void;
+};
+
+export type GenerateStyleDocsHandler = {
+  name: 'GENERATE_STYLE_DOCS';
+  handler: (payload: {
+    styleKind: import('./documentation/types').DocStyleKind;
+    tokenGroupingDepth?: import('./documentation/types').TokenGroupingDepth;
+  }) => void;
+};
+
+export type GenerateStyleDocsResultHandler = {
+  name: 'GENERATE_STYLE_DOCS_RESULT';
+  handler: (result: {
+    frameNodeId?: string;
+    message: string;
+    ok: boolean;
+  }) => void;
+};
+
 export type CancelDocGenerationHandler = {
   name: 'CANCEL_DOC_GENERATION';
   handler: () => void;
@@ -484,7 +515,7 @@ export type LoadDocSourcePreviewHandler = {
   name: 'LOAD_DOC_SOURCE_PREVIEW';
   handler: (payload: {
     requestId: string;
-    scope: 'components' | 'tokens';
+    scope: 'components' | 'styles' | 'tokens';
     targetId: string;
     tokenGroupingDepth?: import('./documentation/types').TokenGroupingDepth;
   }) => void;

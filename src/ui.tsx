@@ -9,13 +9,18 @@ import {
   IconCheck24,
   IconButton,
   IconCodeSnippet24,
+  IconComponent16,
   IconCopySmall24,
   IconFolder24,
+  IconFrame16,
   IconHelp16,
+  IconLibrary16,
   IconNewTab24,
   IconRefresh16,
   IconSearchSmall24,
   IconTimeSmall24,
+  IconVariable16,
+  IconVisible16,
   IconWarningSmall24,
   LoadingIndicator,
   RadioButtons,
@@ -85,6 +90,8 @@ import type {
   DocDriftReport,
   DocFrameMetadata,
   DocSourcePreview,
+  DocStyleKind,
+  DocStyleSourceSummary,
   TokenGroupingDepth,
 } from './documentation/types';
 import { formatCssBlock } from './inspect/css-partition';
@@ -181,6 +188,8 @@ export function Plugin(): h.JSX.Element {
     tokenCollections,
     tokenCollectionsStatus,
     tokenCollectionsError,
+    docStyleSources,
+    docStyleSourcesStatus,
     tokensExportStatus,
     tokensExportError,
     tokensExportSuccess,
@@ -188,6 +197,7 @@ export function Plugin(): h.JSX.Element {
     tokensPreviewError,
     tokensPreviewFiles,
     loadTokenCollections,
+    loadDocStyleSources,
     exportTokens,
     previewTokens,
     selectedDocFrame,
@@ -202,6 +212,7 @@ export function Plugin(): h.JSX.Element {
     generateTokenDocs,
     updateDocsInPlace,
     generateComponentDocs,
+    generateStyleDocs,
   } = useConnectionController();
 
   function handleOpenInventoryTarget(targetToken: string): void {
@@ -564,11 +575,15 @@ export function Plugin(): h.JSX.Element {
             docSourcePreviewError={docSourcePreviewError}
             docSourcePreviewStatus={docSourcePreviewStatus}
             inventoryState={inventoryState}
+            styleSources={docStyleSources}
+            styleSourcesStatus={docStyleSourcesStatus}
             onCancelDocGeneration={cancelDocGeneration}
             onGenerateComponentDocs={generateComponentDocs}
             onGenerateTokenDocs={generateTokenDocs}
+            onGenerateStyleDocs={generateStyleDocs}
             onRefreshComponents={() => rescanComponents(false)}
             onLoadTokenCollections={loadTokenCollections}
+            onLoadStyleSources={loadDocStyleSources}
             onLoadSourcePreview={loadDocSourcePreview}
             onUpdateDocsInPlace={updateDocsInPlace}
             selectedDocFrame={selectedDocFrame}
@@ -660,6 +675,14 @@ function StorybookGenerator(props: {
   );
 }
 
+function getEstimatedDocFrameWidth(modeCount: number): number {
+  if (modeCount <= 1) return 1100;
+  if (modeCount === 2) return 1500;
+  if (modeCount === 3) return 1900;
+  if (modeCount === 4) return 2300;
+  return 3000;
+}
+
 function DocumentationView(props: {
   docGenerationMessage: string;
   docGenerationStatus: 'error' | 'idle' | 'running' | 'success';
@@ -668,6 +691,8 @@ function DocumentationView(props: {
   docSourcePreviewError: string;
   docSourcePreviewStatus: 'error' | 'idle' | 'loading';
   inventoryState: ComponentInventoryState;
+  styleSources: readonly DocStyleSourceSummary[];
+  styleSourcesStatus: 'error' | 'idle' | 'loading';
   onCancelDocGeneration: () => void;
   onGenerateComponentDocs: (targetToken: string, targetFormat?: 'canvas' | 'markdown') => void;
   onGenerateTokenDocs: (
@@ -675,13 +700,18 @@ function DocumentationView(props: {
     targetFormat?: 'canvas' | 'markdown',
     tokenGroupingDepth?: TokenGroupingDepth,
   ) => void;
+  onGenerateStyleDocs: (
+    styleKind: DocStyleKind,
+    tokenGroupingDepth?: TokenGroupingDepth,
+  ) => void;
   onRefreshComponents: () => void;
   onLoadSourcePreview: (
-    scope: 'components' | 'tokens',
+    scope: 'components' | 'styles' | 'tokens',
     targetId: string,
     tokenGroupingDepth?: TokenGroupingDepth,
   ) => void;
   onLoadTokenCollections: () => void;
+  onLoadStyleSources: () => void;
   onUpdateDocsInPlace: (
     frameNodeId: string,
     tokenGroupingDepth?: TokenGroupingDepth,
@@ -702,24 +732,30 @@ function DocumentationView(props: {
     docSourcePreviewError,
     docSourcePreviewStatus,
     inventoryState,
+    styleSources,
+    styleSourcesStatus,
     onCancelDocGeneration,
     onGenerateComponentDocs,
     onGenerateTokenDocs,
-    onRefreshComponents,
+    onGenerateStyleDocs,
     onLoadSourcePreview,
     onLoadTokenCollections,
+    onLoadStyleSources,
+    onRefreshComponents,
     onUpdateDocsInPlace,
     selectedDocFrame,
     tokenCollections,
     tokenCollectionsStatus,
   } = props;
 
-  const [scope, setScope] = useState<'tokens' | 'components'>('tokens');
+  const [scope, setScope] = useState<'tokens' | 'components' | 'styles'>('tokens');
   const [tokenSearchQuery, setTokenSearchQuery] = useState('');
   const [componentSearchQuery, setComponentSearchQuery] = useState('');
+  const [styleSearchQuery, setStyleSearchQuery] = useState('');
   const [showHiddenComponents, setShowHiddenComponents] = useState(false);
   const [selectedCollectionId, setSelectedCollectionId] = useState<string | null>(null);
   const [selectedTargetToken, setSelectedTargetToken] = useState<string | null>(null);
+  const [selectedStyleKind, setSelectedStyleKind] = useState<DocStyleKind | null>(null);
   const [tokenGroupingDepth, setTokenGroupingDepth] = useState<TokenGroupingDepth>('3');
 
   useEffect(() => {
@@ -727,6 +763,12 @@ function DocumentationView(props: {
       onLoadTokenCollections();
     }
   }, []);
+
+  useEffect(() => {
+    if (scope === 'styles' && styleSources.length === 0 && styleSourcesStatus === 'idle') {
+      onLoadStyleSources();
+    }
+  }, [scope, styleSources.length, styleSourcesStatus]);
 
   useEffect(() => {
     if (tokenCollections.length > 0) {
@@ -753,21 +795,35 @@ function DocumentationView(props: {
   }, [inventoryState, selectedTargetToken, showHiddenComponents]);
 
   useEffect(() => {
-    if (selectedDocFrame?.metadata?.docType === 'tokens') {
+    if (styleSources.length > 0) {
+      if (!selectedStyleKind || !styleSources.some((source) => source.id === selectedStyleKind)) {
+        setSelectedStyleKind(styleSources[0].id);
+      }
+    } else {
+      setSelectedStyleKind(null);
+    }
+  }, [styleSources, selectedStyleKind]);
+
+  useEffect(() => {
+    if (selectedDocFrame?.metadata?.docType === 'tokens' || selectedDocFrame?.metadata?.docType === 'styles') {
       setTokenGroupingDepth(selectedDocFrame.metadata.tokenGroupingDepth ?? 'all');
     }
   }, [selectedDocFrame?.frameNodeId]);
 
   useEffect(() => {
-    const targetId = scope === 'tokens' ? selectedCollectionId : selectedTargetToken;
+    const targetId = scope === 'tokens'
+      ? selectedCollectionId
+      : scope === 'components'
+        ? selectedTargetToken
+        : selectedStyleKind;
     if (targetId) {
       onLoadSourcePreview(
         scope,
         targetId,
-        scope === 'tokens' ? tokenGroupingDepth : undefined,
+        scope === 'tokens' || scope === 'styles' ? tokenGroupingDepth : undefined,
       );
     }
-  }, [scope, selectedCollectionId, selectedTargetToken, tokenGroupingDepth]);
+  }, [scope, selectedCollectionId, selectedTargetToken, selectedStyleKind, tokenGroupingDepth]);
 
   const filteredCollections = tokenCollections.filter((c) => {
     const q = tokenSearchQuery.trim().toLowerCase();
@@ -790,8 +846,17 @@ function DocumentationView(props: {
       ))
     : [];
 
+  const filteredStyleSources = styleSources.filter((source) => {
+    const query = styleSearchQuery.trim().toLowerCase();
+    return !query || source.name.toLowerCase().includes(query);
+  });
+
   const isRunning = docGenerationStatus === 'running';
-  const hasSelectedSource = scope === 'tokens' ? Boolean(selectedCollectionId) : Boolean(selectedTargetToken);
+  const hasSelectedSource = scope === 'tokens'
+    ? Boolean(selectedCollectionId)
+    : scope === 'components'
+      ? Boolean(selectedTargetToken)
+      : Boolean(selectedStyleKind);
   const selectedDocChangeCount = selectedDocFrame?.drift?.changes?.length ?? 0;
 
   return (
@@ -803,7 +868,11 @@ function DocumentationView(props: {
             <p>Publish and maintain design-system specifications.</p>
           </div>
           <Button
-            onClick={scope === 'tokens' ? onLoadTokenCollections : onRefreshComponents}
+            onClick={scope === 'tokens'
+              ? onLoadTokenCollections
+              : scope === 'components'
+                ? onRefreshComponents
+                : onLoadStyleSources}
             secondary
           >
             <span class="button-content"><IconRefresh16 />Refresh</span>
@@ -812,10 +881,35 @@ function DocumentationView(props: {
 
         <div class="docs-library-scope">
           <SegmentedControl
-            onValueChange={(value) => setScope(value as 'tokens' | 'components')}
+            onValueChange={(value) => setScope(value as 'tokens' | 'components' | 'styles')}
             options={[
-              { children: 'Design tokens', value: 'tokens' },
-              { children: 'Components', value: 'components' },
+              {
+                children: (
+                  <span class="docs-library-scope-option">
+                    <IconVariable16 />
+                    <span>Design Tokens</span>
+                  </span>
+                ),
+                value: 'tokens',
+              },
+              {
+                children: (
+                  <span class="docs-library-scope-option">
+                    <IconLibrary16 />
+                    <span>Styles</span>
+                  </span>
+                ),
+                value: 'styles',
+              },
+              {
+                children: (
+                  <span class="docs-library-scope-option">
+                    <IconComponent16 />
+                    <span>Components</span>
+                  </span>
+                ),
+                value: 'components',
+              },
             ]}
             value={scope}
           />
@@ -829,7 +923,7 @@ function DocumentationView(props: {
               placeholder={tokenCollectionsStatus === 'loading' ? 'Loading collections…' : 'Search token collections…'}
               value={tokenSearchQuery}
             />
-          ) : (
+          ) : scope === 'components' ? (
             <Fragment>
               <Textbox
                 aria-label="Search components"
@@ -847,20 +941,45 @@ function DocumentationView(props: {
                 </Checkbox>
               </div>
             </Fragment>
+          ) : (
+            <Textbox
+              aria-label="Search styles"
+              icon={<IconSearchSmall24 />}
+              onValueInput={setStyleSearchQuery}
+              placeholder={styleSourcesStatus === 'loading' ? 'Loading styles…' : 'Search styles…'}
+              value={styleSearchQuery}
+            />
           )}
         </div>
 
         {selectedDocFrame?.metadata && selectedDocFrame.frameNodeId ? (
           <section class="docs-library-reconcile" aria-label="Selected documentation status">
-            <div class="docs-library-banner-row">
-              <Banner
-                icon={selectedDocFrame.drift?.hasDrift ? <IconWarningSmall24 /> : <IconApprovedCheckmark24 />}
-                variant={selectedDocFrame.drift?.hasDrift ? 'warning' : 'success'}
-              >
-                {selectedDocFrame.drift?.hasDrift
-                  ? `Selected document “${selectedDocFrame.metadata.targetName}” has ${selectedDocChangeCount || 1} source change${selectedDocChangeCount === 1 ? '' : 's'}.`
-                  : `Selected document “${selectedDocFrame.metadata.targetName}” is up to date.`}
-              </Banner>
+            <Banner
+              icon={selectedDocFrame.drift?.hasDrift ? <IconWarningSmall24 /> : <IconApprovedCheckmark24 />}
+              variant={selectedDocFrame.drift?.hasDrift ? 'warning' : 'success'}
+            >
+              {selectedDocFrame.drift?.hasDrift
+                ? `Selected document “${selectedDocFrame.metadata.targetName}” has ${selectedDocChangeCount || 1} source change${selectedDocChangeCount === 1 ? '' : 's'}.`
+                : `Selected document “${selectedDocFrame.metadata.targetName}” is up to date.`}
+            </Banner>
+
+            {selectedDocFrame.drift?.hasDrift && selectedDocFrame.drift.changes?.length ? (
+              <ul class="docs-library-change-list">
+                {selectedDocFrame.drift.changes.slice(0, 4).map((change, index) => (
+                  <li key={index}>{change.message}{change.details ? ` (${change.details})` : ''}</li>
+                ))}
+                {selectedDocFrame.drift.changes.length > 4 ? (
+                  <li>…and {selectedDocFrame.drift.changes.length - 4} more</li>
+                ) : null}
+              </ul>
+            ) : null}
+
+            <div class="docs-library-reconcile-footer">
+              <span class="docs-library-selected-meta">
+                Generated {selectedDocFrame.metadata.generatedAt
+                  ? new Date(selectedDocFrame.metadata.generatedAt).toLocaleDateString()
+                  : 'on an unknown date'} · {selectedDocFrame.metadata.docType}
+              </span>
               <div class="docs-library-row-actions">
                 {selectedDocFrame.metadata.docType === 'tokens' ? (
                   <Button
@@ -879,30 +998,16 @@ function DocumentationView(props: {
                   disabled={isRunning}
                   onClick={() => onUpdateDocsInPlace(
                     selectedDocFrame.frameNodeId!,
-                    selectedDocFrame.metadata?.docType === 'tokens'
+                    selectedDocFrame.metadata?.docType === 'tokens' || selectedDocFrame.metadata?.docType === 'styles'
                       ? tokenGroupingDepth
                       : undefined,
                   )}
+                  secondary={!selectedDocFrame.drift?.hasDrift}
                 >
                   Update in place
                 </Button>
               </div>
             </div>
-            <p class="docs-library-selected-meta">
-              Generated {selectedDocFrame.metadata.generatedAt
-                ? new Date(selectedDocFrame.metadata.generatedAt).toLocaleDateString()
-                : 'on an unknown date'} · {selectedDocFrame.metadata.docType}
-            </p>
-            {selectedDocFrame.drift?.hasDrift && selectedDocFrame.drift.changes?.length ? (
-              <ul class="docs-library-change-list">
-                {selectedDocFrame.drift.changes.slice(0, 4).map((change, index) => (
-                  <li key={index}>{change.message}{change.details ? ` (${change.details})` : ''}</li>
-                ))}
-                {selectedDocFrame.drift.changes.length > 4 ? (
-                  <li>…and {selectedDocFrame.drift.changes.length - 4} more</li>
-                ) : null}
-              </ul>
-            ) : null}
           </section>
         ) : null}
 
@@ -927,7 +1032,7 @@ function DocumentationView(props: {
             ) : (
               <div class="docs-library-empty">{tokenCollectionsStatus === 'loading' ? 'Loading token collections…' : 'No token collections found.'}</div>
             )
-          ) : filteredComponents.length > 0 ? (
+          ) : scope === 'components' ? (filteredComponents.length > 0 ? (
             <div class="docs-library-source-options">
               <RadioButtons
                 onValueChange={setSelectedTargetToken}
@@ -952,15 +1057,37 @@ function DocumentationView(props: {
             </div>
           ) : (
             <div class="docs-library-empty">{inventoryState.status === 'scanning' ? 'Scanning components…' : 'No matching components in inventory.'}</div>
+          )) : filteredStyleSources.length > 0 ? (
+            <div class="docs-library-source-options">
+              <RadioButtons
+                onValueChange={(value) => setSelectedStyleKind(value as DocStyleKind)}
+                options={filteredStyleSources.map((source) => ({
+                  children: (
+                    <span class="docs-library-source-copy">
+                      <strong>{source.name}</strong>
+                      <span>{source.styleCount} local style{source.styleCount === 1 ? '' : 's'}</span>
+                    </span>
+                  ),
+                  value: source.id,
+                }))}
+                value={selectedStyleKind}
+              />
+            </div>
+          ) : (
+            <div class="docs-library-empty">{styleSourcesStatus === 'loading' ? 'Loading local styles…' : 'No matching local styles.'}</div>
           )}
         </section>
 
-        {scope === 'tokens' ? (
+        {scope === 'tokens' || scope === 'styles' ? (
           <section aria-labelledby="docs-grouping-depth-heading" class="docs-library-grouping-depth">
             <div class="docs-library-grouping-depth-heading">
               <div>
                 <h2 id="docs-grouping-depth-heading">Grouping depth</h2>
-                <p>How many token path levels should create documentation groups?</p>
+                <p>
+                  {scope === 'styles'
+                    ? 'How many style path levels should create documentation groups?'
+                    : 'How many token path levels should create documentation groups?'}
+                </p>
               </div>
               <span>Recommended: 3</span>
             </div>
@@ -985,7 +1112,6 @@ function DocumentationView(props: {
             class="docs-library-preview"
             role="region"
           >
-            <h2>Documentation preview</h2>
             {docSourcePreviewStatus === 'loading' ? (
               <div class="docs-library-preview-loading">
                 <LoadingIndicator />
@@ -994,39 +1120,125 @@ function DocumentationView(props: {
             ) : docSourcePreviewStatus === 'error' ? (
               <p class="docs-library-preview-error">{docSourcePreviewError}</p>
             ) : docSourcePreview?.scope === 'tokens' ? (
-              <div class="docs-library-preview-summary">
-                <div class="docs-library-preview-content">
-                  <strong>{docSourcePreview.groupCount} group{docSourcePreview.groupCount === 1 ? '' : 's'} will be generated</strong>
-                  <span>
-                    {docSourcePreview.groupNames.join(' · ')}
-                    {docSourcePreview.groupCount > docSourcePreview.groupNames.length
-                      ? ` · +${docSourcePreview.groupCount - docSourcePreview.groupNames.length} more`
-                      : ''}
-                  </span>
-                  <small>
-                    {docSourcePreview.groupingDepth === 'all'
-                      ? 'Full token path'
-                      : `Through ${docSourcePreview.groupingDepth} level${docSourcePreview.groupingDepth === '1' ? '' : 's'}`}
-                    {' · '}{docSourcePreview.tokenCount} tokens · {docSourcePreview.modeCount} modes
-                  </small>
+              <div class="docs-library-preview-card">
+                <div class="docs-library-preview-header">
+                  <h3>
+                    {docSourcePreview.sourceName
+                      ? `${docSourcePreview.sourceName} will generate ${docSourcePreview.groupCount} section${docSourcePreview.groupCount === 1 ? '' : 's'}`
+                      : `${docSourcePreview.groupCount} group${docSourcePreview.groupCount === 1 ? '' : 's'} will be generated`}
+                  </h3>
+                  <span class="docs-library-preview-badge">{docSourcePreview.tokenCount} tokens</span>
                 </div>
-                <span class="docs-library-preview-count">{docSourcePreview.groupCount}</span>
+                <div class="docs-library-preview-rows">
+                  <div class="docs-library-preview-row">
+                    <span class="docs-library-preview-icon docs-icon-tokens"><IconVariable16 /></span>
+                    <span>
+                      <strong>{docSourcePreview.tokenCount} Tokens</strong> across <strong>{docSourcePreview.modeCount} Mode{docSourcePreview.modeCount === 1 ? '' : 's'}</strong> · Depth: <strong>{docSourcePreview.groupingDepth === 'all' ? 'Full path' : `${docSourcePreview.groupingDepth} level${docSourcePreview.groupingDepth === '1' ? '' : 's'}`}</strong>
+                    </span>
+                  </div>
+                  <div class="docs-library-preview-row">
+                    <span class="docs-library-preview-icon docs-icon-layout"><IconFrame16 /></span>
+                    <span>
+                      Frame Width: <strong>{getEstimatedDocFrameWidth(docSourcePreview.modeCount)}px</strong> (Auto Fill Container) · Preserves custom edits
+                    </span>
+                  </div>
+                  <div class="docs-library-preview-row">
+                    <span class="docs-library-preview-icon docs-icon-sections"><IconVisible16 /></span>
+                    <span>
+                      Sections: {docSourcePreview.groupNames.map((name, i) => (
+                        <Fragment key={i}>
+                          {i > 0 ? ', ' : ''}
+                          <strong>{name}</strong>
+                        </Fragment>
+                      ))}
+                      {docSourcePreview.groupCount > docSourcePreview.groupNames.length ? (
+                        <Fragment>
+                          {docSourcePreview.groupNames.length > 0 ? ', and ' : ''}
+                          <span class="docs-library-preview-more">+{docSourcePreview.groupCount - docSourcePreview.groupNames.length} more</span>
+                        </Fragment>
+                      ) : null}
+                    </span>
+                  </div>
+                </div>
+              </div>
+            ) : docSourcePreview?.scope === 'styles' ? (
+              <div class="docs-library-preview-card">
+                <div class="docs-library-preview-header">
+                  <h3>
+                    {docSourcePreview.sourceName
+                      ? `${docSourcePreview.sourceName} will document ${docSourcePreview.styleCount} style${docSourcePreview.styleCount === 1 ? '' : 's'}`
+                      : `${docSourcePreview.styleCount} style${docSourcePreview.styleCount === 1 ? '' : 's'} will be documented`}
+                  </h3>
+                  <span class="docs-library-preview-badge">{docSourcePreview.styleCount} styles</span>
+                </div>
+                <div class="docs-library-preview-rows">
+                  <div class="docs-library-preview-row">
+                    <span class="docs-library-preview-icon docs-icon-styles"><IconLibrary16 /></span>
+                    <span>
+                      <strong>{docSourcePreview.styleCount} {docSourcePreview.styleKind === 'typography' ? 'Text' : 'Effect'} Styles</strong> in <strong>{docSourcePreview.groupCount} Section{docSourcePreview.groupCount === 1 ? '' : 's'}</strong> · Depth: <strong>{docSourcePreview.groupingDepth === 'all' ? 'Full path' : `${docSourcePreview.groupingDepth} level${docSourcePreview.groupingDepth === '1' ? '' : 's'}`}</strong>
+                    </span>
+                  </div>
+                  <div class="docs-library-preview-row">
+                    <span class="docs-library-preview-icon docs-icon-layout"><IconFrame16 /></span>
+                    <span>
+                      Frame Width: <strong>1100px</strong> · Standard CSS format · Preserves custom edits
+                    </span>
+                  </div>
+                  <div class="docs-library-preview-row">
+                    <span class="docs-library-preview-icon docs-icon-sections"><IconVisible16 /></span>
+                    <span>
+                      Sections: {docSourcePreview.groupNames.map((name, i) => (
+                        <Fragment key={i}>
+                          {i > 0 ? ', ' : ''}
+                          <strong>{name}</strong>
+                        </Fragment>
+                      ))}
+                      {docSourcePreview.groupCount > docSourcePreview.groupNames.length ? (
+                        <Fragment>
+                          {docSourcePreview.groupNames.length > 0 ? ', and ' : ''}
+                          <span class="docs-library-preview-more">+{docSourcePreview.groupCount - docSourcePreview.groupNames.length} more</span>
+                        </Fragment>
+                      ) : null}
+                    </span>
+                  </div>
+                </div>
               </div>
             ) : docSourcePreview?.scope === 'components' ? (
-              <div class="docs-library-preview-content">
-                <strong>{docSourcePreview.combinationCount.toLocaleString()} variant combination{docSourcePreview.combinationCount === 1 ? '' : 's'} will be generated</strong>
-                <span>{docSourcePreview.propertyCount} variant propert{docSourcePreview.propertyCount === 1 ? 'y' : 'ies'}</span>
-                <small>{docSourcePreview.sourceName}</small>
+              <div class="docs-library-preview-card">
+                <div class="docs-library-preview-header">
+                  <h3>{docSourcePreview.sourceName} will generate {docSourcePreview.combinationCount.toLocaleString()} variant combination{docSourcePreview.combinationCount === 1 ? '' : 's'}</h3>
+                  <span class="docs-library-preview-badge">{docSourcePreview.combinationCount} variants</span>
+                </div>
+                <div class="docs-library-preview-rows">
+                  <div class="docs-library-preview-row">
+                    <span class="docs-library-preview-icon docs-icon-components"><IconComponent16 /></span>
+                    <span>
+                      <strong>{docSourcePreview.propertyCount} Variant Propert{docSourcePreview.propertyCount === 1 ? 'y' : 'ies'}</strong> · <strong>{docSourcePreview.combinationCount.toLocaleString()} Combinations</strong>
+                    </span>
+                  </div>
+                  <div class="docs-library-preview-row">
+                    <span class="docs-library-preview-icon docs-icon-layout"><IconFrame16 /></span>
+                    <span>
+                      Matrix Alignment: <strong>Top-Right Tiers</strong> · Transparent None cells
+                    </span>
+                  </div>
+                  <div class="docs-library-preview-row">
+                    <span class="docs-library-preview-icon docs-icon-sections"><IconVisible16 /></span>
+                    <span>
+                      Target Component: <strong>{docSourcePreview.sourceName}</strong> · Auto Layout Matrix
+                    </span>
+                  </div>
+                </div>
               </div>
             ) : null}
           </section>
         ) : null}
 
-        {!isRunning && docGenerationMessage ? (
+        {!isRunning && docGenerationMessage && docGenerationStatus === 'error' ? (
           <div aria-live="polite" class="docs-library-result">
             <Banner
-              icon={docGenerationStatus === 'error' ? <IconWarningSmall24 /> : <IconApprovedCheckmark24 />}
-              variant={docGenerationStatus === 'error' ? 'warning' : 'success'}
+              icon={<IconWarningSmall24 />}
+              variant="warning"
             >
               {docGenerationMessage}
             </Banner>
@@ -1058,6 +1270,8 @@ function DocumentationView(props: {
                   onGenerateTokenDocs(selectedCollectionId, 'canvas', tokenGroupingDepth);
                 } else if (scope === 'components' && selectedTargetToken) {
                   onGenerateComponentDocs(selectedTargetToken, 'canvas');
+                } else if (scope === 'styles' && selectedStyleKind) {
+                  onGenerateStyleDocs(selectedStyleKind, tokenGroupingDepth);
                 }
               }}
             >

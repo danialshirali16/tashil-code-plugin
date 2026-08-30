@@ -207,6 +207,8 @@ async function flushPromises(): Promise<void> {
 }
 
 type StartPluginOptions = {
+  effectStyles?: EffectStyle[];
+  textStyles?: TextStyle[];
   variableCollections?: VariableCollection[];
   variables?: Variable[];
 };
@@ -232,6 +234,8 @@ async function startPlugin(options: StartPluginOptions = {}): Promise<{
   const pages: PageNode[] = [];
   const variableCollections = options.variableCollections ?? [];
   const variables = options.variables ?? [];
+  const textStyles = options.textStyles ?? [];
+  const effectStyles = options.effectStyles ?? [];
   const variableCollectionsById = new Map(
     variableCollections.map((collection) => [collection.id, collection]),
   );
@@ -273,6 +277,8 @@ async function startPlugin(options: StartPluginOptions = {}): Promise<{
     currentPage: { selection },
     fileKey: 'file-key',
     getNodeByIdAsync: vi.fn((id: string) => Promise.resolve(nodesById.get(id) ?? null)),
+    getLocalEffectStylesAsync: vi.fn(() => Promise.resolve(effectStyles)),
+    getLocalTextStylesAsync: vi.fn(() => Promise.resolve(textStyles)),
     mode: 'default',
     notify,
     openExternal,
@@ -320,6 +326,203 @@ describe('Design mode plugin window', () => {
     await startPlugin();
 
     expect(utilityMocks.showUI).toHaveBeenCalledWith({ height: 680, width: 560 });
+  });
+
+  it('loads local Typography and Effects sources with a lightweight style preview', async () => {
+    const textStyle = {
+      description: 'Primary body copy',
+      fontName: { family: 'Inter', style: 'Regular' },
+      fontSize: 16,
+      id: 'text-style-1',
+      letterSpacing: { unit: 'PIXELS', value: 0 },
+      lineHeight: { unit: 'PIXELS', value: 24 },
+      name: 'Body/Medium',
+      type: 'TEXT',
+    } as unknown as TextStyle;
+    const effectStyle = {
+      description: 'Card elevation',
+      effects: [{
+        blendMode: 'NORMAL',
+        color: { a: 0.16, b: 0, g: 0, r: 0 },
+        offset: { x: 0, y: 4 },
+        radius: 12,
+        spread: 0,
+        type: 'DROP_SHADOW',
+        visible: true,
+      }],
+      id: 'effect-style-1',
+      name: 'Elevation/Card',
+      type: 'EFFECT',
+    } as unknown as EffectStyle;
+    await startPlugin({ effectStyles: [effectStyle], textStyles: [textStyle] });
+
+    utilityMocks.handlers.get('LOAD_DOC_STYLE_SOURCES')?.(undefined);
+    await flushPromises();
+    expect(emittedPayloads<{ sources: Array<{ id: string; styleCount: number }> }>(
+      'LOAD_DOC_STYLE_SOURCES_RESULT',
+    )[0]?.sources).toEqual([
+      expect.objectContaining({ id: 'typography', styleCount: 1 }),
+      expect.objectContaining({ id: 'effects', styleCount: 1 }),
+    ]);
+
+    utilityMocks.handlers.get('LOAD_DOC_SOURCE_PREVIEW')?.({
+      requestId: 'style-preview',
+      scope: 'styles',
+      targetId: 'typography',
+    });
+    await vi.waitFor(() => {
+      expect(emittedPayloads('LOAD_DOC_SOURCE_PREVIEW_RESULT')).toHaveLength(1);
+    });
+    expect(emittedPayloads<{ preview: { groupNames: string[]; styleCount: number } }>(
+      'LOAD_DOC_SOURCE_PREVIEW_RESULT',
+    )[0]?.preview).toEqual(expect.objectContaining({
+      groupNames: ['Body'],
+      styleCount: 1,
+    }));
+  });
+
+  it('resolves bound variable tokens when loading style documentation', async () => {
+    const fontSizeVar = {
+      id: 'var-font-size',
+      name: 'font-size/32',
+      resolvedType: 'FLOAT',
+    } as unknown as Variable;
+    const lineHeightVar = {
+      id: 'var-line-height',
+      name: 'line-height/48',
+      resolvedType: 'FLOAT',
+    } as unknown as Variable;
+    const fontFamilyVar = {
+      id: 'var-font-family',
+      name: 'font-family/yekan-bakh',
+      resolvedType: 'STRING',
+    } as unknown as Variable;
+    const colorVar = {
+      id: 'var-color-shadow',
+      name: 'color/shadow/card',
+      resolvedType: 'COLOR',
+    } as unknown as Variable;
+
+    const textStyle = {
+      boundVariables: {
+        fontFamily: { id: 'var-font-family', type: 'VARIABLE_ALIAS' },
+        fontSize: { id: 'var-font-size', type: 'VARIABLE_ALIAS' },
+        lineHeight: { id: 'var-line-height', type: 'VARIABLE_ALIAS' },
+      },
+      description: 'Heading style with bound tokens',
+      fontName: { family: 'Yekan Bakh', style: 'Heavy' },
+      fontSize: 32,
+      id: 'text-style-bound',
+      letterSpacing: { unit: 'PIXELS', value: 0 },
+      lineHeight: { unit: 'PIXELS', value: 48 },
+      name: 'Heading/H1',
+      type: 'TEXT',
+    } as unknown as TextStyle;
+
+    const effectStyle = {
+      description: 'Shadow with bound color token',
+      effects: [{
+        blendMode: 'NORMAL',
+        boundVariables: {
+          color: { id: 'var-color-shadow', type: 'VARIABLE_ALIAS' },
+        },
+        color: { a: 0.16, b: 0, g: 0, r: 0 },
+        offset: { x: 0, y: 4 },
+        radius: 12,
+        spread: 0,
+        type: 'DROP_SHADOW',
+        visible: true,
+      }],
+      id: 'effect-style-bound',
+      name: 'Elevation/Card',
+      type: 'EFFECT',
+    } as unknown as EffectStyle;
+
+    await startPlugin({
+      effectStyles: [effectStyle],
+      textStyles: [textStyle],
+      variables: [fontSizeVar, lineHeightVar, fontFamilyVar, colorVar],
+    });
+
+    utilityMocks.handlers.get('LOAD_DOC_SOURCE_PREVIEW')?.({
+      requestId: 'bound-style-preview',
+      scope: 'styles',
+      targetId: 'typography',
+    });
+    await vi.waitFor(() => {
+      expect(emittedPayloads('LOAD_DOC_SOURCE_PREVIEW_RESULT')).toHaveLength(1);
+    });
+
+    expect(emittedPayloads<{ preview: { groupNames: string[]; styleCount: number } }>(
+      'LOAD_DOC_SOURCE_PREVIEW_RESULT',
+    )[0]?.preview).toEqual(expect.objectContaining({
+      groupNames: ['Heading'],
+      styleCount: 1,
+    }));
+  });
+
+  it('formats effect styles into standard CSS syntax', async () => {
+    const multiShadowStyle = {
+      description: 'Multi-layer elevation',
+      effects: [
+        {
+          blendMode: 'NORMAL',
+          color: { a: 0.1, b: 0, g: 0, r: 0 },
+          offset: { x: 0, y: 1 },
+          radius: 3,
+          spread: 0,
+          type: 'DROP_SHADOW',
+          visible: true,
+        },
+        {
+          blendMode: 'NORMAL',
+          color: { a: 0.1, b: 0, g: 0, r: 0 },
+          offset: { x: 0, y: 1 },
+          radius: 2,
+          spread: -1,
+          type: 'DROP_SHADOW',
+          visible: true,
+        },
+      ],
+      id: 'effect-multi-shadow',
+      name: 'Elevation/Small',
+      type: 'EFFECT',
+    } as unknown as EffectStyle;
+
+    const blurStyle = {
+      description: 'Backdrop blur for glass navbar',
+      effects: [
+        {
+          radius: 16,
+          type: 'BACKGROUND_BLUR',
+          visible: true,
+        },
+      ],
+      id: 'effect-blur',
+      name: 'Blur/Glass',
+      type: 'EFFECT',
+    } as unknown as EffectStyle;
+
+    await startPlugin({ effectStyles: [multiShadowStyle, blurStyle] });
+
+    utilityMocks.handlers.get('LOAD_DOC_SOURCE_PREVIEW')?.({
+      requestId: 'effects-css-preview',
+      scope: 'styles',
+      targetId: 'effects',
+    });
+    await vi.waitFor(() => {
+      expect(emittedPayloads('LOAD_DOC_SOURCE_PREVIEW_RESULT')).toHaveLength(1);
+    });
+
+    const result = emittedPayloads<{
+      ok: boolean;
+      preview: { groupNames: string[]; styleCount: number };
+    }>('LOAD_DOC_SOURCE_PREVIEW_RESULT')[0];
+    expect(result?.ok).toBe(true);
+    expect(result?.preview).toEqual(expect.objectContaining({
+      groupNames: ['Elevation', 'Blur'],
+      styleCount: 2,
+    }));
   });
 
   it('cancels the active documentation run without poisoning the next run', async () => {

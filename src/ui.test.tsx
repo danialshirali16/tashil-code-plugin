@@ -410,7 +410,7 @@ describe('Plugin rendered interactions', () => {
 
     expect(screen.getByRole('heading', { name: 'Documentation library' })).toBeTruthy();
     const tokenSearch = screen.getByRole('textbox', { name: 'Search token collections' });
-    const tokenScope = screen.getByRole('radio', { name: 'Design tokens' });
+    const tokenScope = screen.getByRole('radio', { name: 'Design Tokens' });
     const componentScope = screen.getByRole('radio', { name: 'Components' });
     expect(tokenScope.compareDocumentPosition(tokenSearch) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     const docsHeader = document.querySelector('.docs-library-header');
@@ -559,8 +559,10 @@ describe('Plugin rendered interactions', () => {
 
     const preview = screen.getByRole('region', { name: 'Documentation preview' });
     expect(within(preview).getByText('3 groups will be generated')).toBeTruthy();
-    expect(within(preview).getByText('Text · Background · Border')).toBeTruthy();
-    expect(within(preview).getByText('Through 3 levels · 92 tokens · 2 modes')).toBeTruthy();
+    expect(within(preview).getByText('92 Tokens')).toBeTruthy();
+    expect(within(preview).getByText('Text')).toBeTruthy();
+    expect(within(preview).getByText('Background')).toBeTruthy();
+    expect(within(preview).getByText('Border')).toBeTruthy();
 
     fireEvent.click(screen.getByRole('radio', { name: '2' }));
     const updatedRequests = emittedPayloads<{
@@ -592,6 +594,62 @@ describe('Plugin rendered interactions', () => {
     expect(document.querySelector('.docs-library-scroll .docs-library-footer-progress')).toBeNull();
     fireEvent.click(within(docsFooter).getByRole('button', { name: 'Cancel' }));
     expect(emittedPayloads('CANCEL_DOC_GENERATION')).toHaveLength(1);
+  });
+
+  it('loads Typography and Effects sources and generates style documentation', () => {
+    renderPlugin();
+    fireEvent.click(screen.getByRole('tab', { name: 'Docs' }));
+    fireEvent.click(screen.getByRole('radio', { name: 'Styles' }));
+
+    expect(emittedPayloads('LOAD_DOC_STYLE_SOURCES')).toHaveLength(1);
+    receive('LOAD_DOC_STYLE_SOURCES_RESULT', {
+      ok: true,
+      sources: [
+        { id: 'typography', name: 'Typography', styleCount: 12 },
+        { id: 'effects', name: 'Effects', styleCount: 5 },
+      ],
+    });
+
+    const sourceList = screen.getByRole('radiogroup', { name: 'Documentation sources' });
+    expect(within(sourceList).getByText('12 local styles')).toBeTruthy();
+    expect(within(sourceList).getByText('5 local styles')).toBeTruthy();
+    const previewRequests = emittedPayloads<{
+      requestId: string;
+      scope: string;
+      targetId: string;
+      tokenGroupingDepth?: string;
+    }>('LOAD_DOC_SOURCE_PREVIEW');
+    const typographyRequest = previewRequests[previewRequests.length - 1];
+    expect(typographyRequest).toEqual(expect.objectContaining({
+      scope: 'styles',
+      targetId: 'typography',
+      tokenGroupingDepth: '3',
+    }));
+    if (!typographyRequest) return;
+
+    receive('LOAD_DOC_SOURCE_PREVIEW_RESULT', {
+      ok: true,
+      preview: {
+        groupCount: 3,
+        groupNames: ['Heading', 'Body', 'Label'],
+        groupingDepth: '3',
+        scope: 'styles',
+        sourceName: 'Typography',
+        styleCount: 12,
+        styleKind: 'typography',
+        targetId: 'typography',
+      },
+      requestId: typographyRequest.requestId,
+    });
+    expect(screen.getByText('Typography will document 12 styles')).toBeTruthy();
+    expect(screen.getByText('12 Text Styles')).toBeTruthy();
+
+    fireEvent.click(within(sourceList).getByRole('radio', { name: /^Effects/ }));
+    fireEvent.click(screen.getByRole('button', { name: 'Generate Document' }));
+    expect(emittedPayloads('GENERATE_STYLE_DOCS')).toContainEqual({
+      styleKind: 'effects',
+      tokenGroupingDepth: '3',
+    });
   });
 
   it('loads and saves per-user output settings', () => {

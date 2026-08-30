@@ -5,8 +5,23 @@ import {
   formatComponentDocFrameName,
   formatTokenDocFrameName,
   getTokenDocFrameWidth,
+  resolveValueItemVariantType,
   setTokenSectionTitleVisibility,
 } from './figma-canvas-writer';
+
+describe('resolveValueItemVariantType', () => {
+  it('maps style collections to Texts and Effects variants', () => {
+    expect(resolveValueItemVariantType(undefined, 'typography')).toBe('Texts');
+    expect(resolveValueItemVariantType(undefined, 'effects')).toBe('Effects');
+  });
+
+  it('maps token values to Color, Number, Boolean, and String variants', () => {
+    expect(resolveValueItemVariantType({ hexColor: '#123456', rawValue: '#123456' })).toBe('Color');
+    expect(resolveValueItemVariantType({ rawValue: 16, resolvedType: 'FLOAT' })).toBe('Number');
+    expect(resolveValueItemVariantType({ rawValue: true, resolvedType: 'BOOLEAN' })).toBe('Boolean');
+    expect(resolveValueItemVariantType({ rawValue: '8px', resolvedType: 'STRING' })).toBe('String');
+  });
+});
 
 describe('documentation frame names', () => {
   it('uses the collection name without a numeric prefix for token documents', () => {

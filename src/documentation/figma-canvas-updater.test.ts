@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { updateTierLabels } from './figma-canvas-updater';
+import { updateTierLabels, updateTokenDocFrameInPlace } from './figma-canvas-updater';
+import type { TokenDocDocument } from './types';
 
 describe('updateTierLabels', () => {
   afterEach(() => {
@@ -55,5 +56,47 @@ describe('updateTierLabels', () => {
     expect(labelNode.name).toBe('Label — VisualStyle: SolidFill');
     expect(textNode.characters).toBe('VisualStyle: SolidFill');
     expect(loadFontAsync).toHaveBeenCalledWith({ family: 'Inter', style: 'Medium' });
+  });
+
+  it('preserves existing custom frame width and does not resize during in-place update', async () => {
+    const resizeFn = vi.fn();
+    const loadFontAsync = vi.fn().mockResolvedValue(undefined);
+    const setPluginData = vi.fn();
+
+    Object.assign(globalThis, {
+      figma: {
+        loadFontAsync,
+        mixed: Symbol('mixed'),
+      },
+    });
+
+    const frame = {
+      children: [],
+      clipsContent: true,
+      cornerRadius: 24,
+      height: 1200,
+      name: 'Colors',
+      resize: resizeFn,
+      setPluginData,
+      width: 1750,
+    } as unknown as FrameNode;
+
+    const doc: TokenDocDocument = {
+      collectionId: 'colors',
+      collectionName: 'Colors',
+      contentHash: 'hash-123',
+      description: 'Colors palette',
+      groupingDepth: '3',
+      modes: [{ modeId: 'm1', name: 'Light' }],
+      sections: [],
+      title: 'Colors',
+      totalTokens: 0,
+    };
+
+    const result = await updateTokenDocFrameInPlace(frame, doc);
+
+    expect(result.ok).toBe(true);
+    expect(resizeFn).not.toHaveBeenCalled();
+    expect(setPluginData).toHaveBeenCalled();
   });
 });

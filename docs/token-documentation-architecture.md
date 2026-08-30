@@ -58,7 +58,7 @@ The canvas documentation generator connects to master components from the **Swis
 | `.[Documentation] Section` | `1422:18185` | Section container with headline text, description text, and a `Slot` frame |
 | `.[Table] Header` | `1929:52306` | Header bar for `Token` and `Value` columns |
 | `.[Table] Token Item` | `1929:52305` | Row item showing token name and type indicator |
-| `.[Table] Value Item` | `1929:52304` | Component set (`Type=Color`, `Type=Number`, `Type=Boolean`, `Type=String`). For `Color`, `Color Icon` is bound to the token variable |
+| `.[Table] Value Item` | `1929:52304` | Component set (`Type=Color`, `Type=Number`, `Type=Boolean`, `Type=String`, `Type=Texts`, `Type=Effects`). For `Color`, `Color Icon` is bound to the token variable |
 | `Table` | `1929:52307` | Horizontal container housing one Token Column and $N$ Mode Value Columns |
 
 When running in external files where master components cannot be loaded, procedural fallback functions (`createProceduralSection`, `createProceduralValueItem`, etc.) build equivalent auto-layout frames with exact typography, padding, and strokes.
@@ -124,7 +124,7 @@ Rather than using rigid, hardcoded category dictionaries, the IR model dynamical
    - Parses slash `/` segments in variable names (e.g. `Surface/Brand/Primary` $\rightarrow$ group `Surface / Brand`).
    - Automatically strips redundant top-level collection names if prefixed (e.g. `Colors/Surface/Default` in collection `Colors` groups under `Surface`).
 2. **Dynamic Headline Formatting (`formatDynamicHeadline`)**:
-   - Preserves TitleCase, handles snake_case/kebab-case, and retains multi-level folder sub-groupings (`Button / Primary`).
+   - Preserves exact Figma token casing, dashes, underscores, and multi-level folder sub-groupings (`button-bg / primary`, `Headline / LG`).
 3. **Context-Aware Dynamic Descriptions (`generateDynamicSectionDescription`)**:
    - Evaluates token types (`COLOR`, `FLOAT`, `BOOLEAN`, `STRING`), scopes, and semantic naming patterns.
    - Generates natural, role-specific descriptions for surfaces, borders, typography, icons, accents, spacing scales, corner radii, elevation/shadows, and component-specific variables.

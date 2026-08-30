@@ -291,6 +291,11 @@ const TOKEN_COLLECTIONS = [
   },
 ] as const;
 
+const DOC_STYLE_SOURCES = [
+  { id: 'typography', name: 'Typography', styleCount: 18 },
+  { id: 'effects', name: 'Effects', styleCount: 9 },
+] as const;
+
 function tokenFileSlug(name: string): string {
   return name
     .trim()
@@ -415,10 +420,16 @@ function respond(name: string, payload: unknown): void {
         collections: TOKEN_COLLECTIONS,
       });
       break;
+    case 'LOAD_DOC_STYLE_SOURCES':
+      send('LOAD_DOC_STYLE_SOURCES_RESULT', {
+        ok: true,
+        sources: DOC_STYLE_SOURCES,
+      });
+      break;
     case 'LOAD_DOC_SOURCE_PREVIEW': {
       const previewRequest = (payload ?? {}) as {
         requestId?: string;
-        scope?: 'components' | 'tokens';
+        scope?: 'components' | 'styles' | 'tokens';
         targetId?: string;
         tokenGroupingDepth?: TokenGroupingDepth;
       };
@@ -453,6 +464,33 @@ function respond(name: string, payload: unknown): void {
           },
           requestId: previewRequest.requestId,
         });
+      } else if (previewRequest.scope === 'styles') {
+        const styleSource = DOC_STYLE_SOURCES.find((item) => item.id === previewRequest.targetId);
+        const groupNames = previewRequest.targetId === 'typography'
+          ? ['Display', 'Heading', 'Body', 'Label']
+          : ['Elevation', 'Blur', 'Glass'];
+        const groupingDepth = previewRequest.tokenGroupingDepth ?? 'all';
+        const depthMultiplier: Record<TokenGroupingDepth, number> = {
+          '1': 1,
+          '2': 2,
+          '3': 3,
+          '4': 4,
+          all: 5,
+        };
+        send('LOAD_DOC_SOURCE_PREVIEW_RESULT', {
+          ok: Boolean(styleSource),
+          preview: styleSource ? {
+            groupCount: groupNames.length * depthMultiplier[groupingDepth],
+            groupNames: groupNames.slice(0, 3),
+            groupingDepth,
+            scope: 'styles',
+            sourceName: styleSource.name,
+            styleCount: styleSource.styleCount,
+            styleKind: styleSource.id,
+            targetId: styleSource.id,
+          } : undefined,
+          requestId: previewRequest.requestId,
+        });
       } else {
         const item = INVENTORY.status === 'ready'
           ? INVENTORY.items.find((candidate) => candidate.targetToken === previewRequest.targetId)
@@ -471,6 +509,12 @@ function respond(name: string, payload: unknown): void {
       }
       break;
     }
+    case 'GENERATE_STYLE_DOCS':
+      send('GENERATE_STYLE_DOCS_RESULT', {
+        message: 'Style documentation generated in the harness.',
+        ok: true,
+      });
+      break;
     case 'PREVIEW_TOKENS': {
       const previewRequest = (payload ?? {}) as {
         collectionIds?: readonly string[];

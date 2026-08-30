@@ -54,13 +54,7 @@ export function summarizeTokenDocGroups(
 
   return {
     groupCount: groups.size,
-    groupNames: [...groups.entries()]
-      .sort(([leftKey], [rightKey]) => {
-        if (leftKey === 'general') return -1;
-        if (rightKey === 'general') return 1;
-        return 0;
-      })
-      .map(([, name]) => name),
+    groupNames: [...groups.values()],
   };
 }
 
@@ -112,11 +106,7 @@ export function buildTokenDocDocument(
     }
   }
 
-  const sectionEntries = [...sectionsMap.entries()].sort(([leftKey], [rightKey]) => {
-    if (leftKey === 'general') return -1;
-    if (rightKey === 'general') return 1;
-    return 0;
-  });
+  const sectionEntries = [...sectionsMap.entries()];
   const sections: TokenDocSection[] = [];
   for (const [key, sectionData] of sectionEntries) {
     const headline = formatDynamicHeadline(sectionData.groupTitle);
@@ -201,19 +191,8 @@ export function formatDynamicHeadline(groupTitle: string): string {
     return 'General';
   }
 
-  // Split by slashes if subgrouped (e.g. "Button / Primary" or "Surface")
-  const parts = groupTitle.split('/').map((part) => {
-    const trimmed = part.trim();
-    // If it's all lowercase or separated by dashes/underscores, title-case it
-    if (trimmed.includes('-') || trimmed.includes('_') || trimmed === trimmed.toLowerCase()) {
-      return trimmed
-        .split(/[-_]/)
-        .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
-        .join(' ');
-    }
-    return trimmed;
-  });
-
+  // Preserve the exact Figma token path segments and casing, separating path levels with " / "
+  const parts = groupTitle.split('/').map((part) => part.trim()).filter(Boolean);
   return parts.join(' / ');
 }
 

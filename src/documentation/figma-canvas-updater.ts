@@ -14,10 +14,8 @@ import {
   type TokenDocDocument,
 } from './types';
 import {
-  applyTokenDocFullWidthLayout,
   formatComponentDocFrameName,
   formatTokenDocFrameName,
-  getTokenDocFrameWidth,
   loadRequiredFonts,
   createSectionNode,
   createValueColumn,
@@ -85,6 +83,7 @@ export async function updateTokenDocFrameInPlace(
   doc: TokenDocDocument,
   onProgress?: (stage: string, percent: number) => void,
   cancellation?: DocumentationGenerationCancellation,
+  options: { docType?: 'styles' | 'tokens'; itemLabel?: string } = {},
 ): Promise<{ ok: boolean; message: string; updatedTokensCount: number }> {
   cancellation?.throwIfCancelled();
   onProgress?.('Loading fonts for update…', 10);
@@ -92,7 +91,6 @@ export async function updateTokenDocFrameInPlace(
   cancellation?.throwIfCancelled();
 
   frame.name = formatTokenDocFrameName(doc.collectionName);
-  frame.resize(getTokenDocFrameWidth(doc.modes.length), frame.height);
   frame.cornerRadius = 24;
   frame.clipsContent = true;
 
@@ -287,7 +285,9 @@ export async function updateTokenDocFrameInPlace(
           }
 
           // Apply appearance mode to column
-          await applyColumnMode(valueColumn, mode, doc.collectionId);
+          if (options.docType !== 'styles') {
+            await applyColumnMode(valueColumn, mode, doc.collectionId);
+          }
 
           // Update header
           const colHeader = safeFindChild<FrameNode>(
@@ -376,7 +376,7 @@ export async function updateTokenDocFrameInPlace(
               }
               updatedTokensCount += 1;
             } else {
-              const newItem = await createValueItemNode(val, token.id);
+              const newItem = await createValueItemNode(val, token.id, doc.collectionId);
               valueColumn.appendChild(newItem);
               updatedTokensCount += 1;
             }
@@ -412,6 +412,7 @@ export async function updateTokenDocFrameInPlace(
         doc.modes,
         doc.collectionId,
         cancellation,
+        options.itemLabel,
       );
       if (footer) {
         frame.insertChild(frame.children.indexOf(footer), newSectionNode);
@@ -429,14 +430,12 @@ export async function updateTokenDocFrameInPlace(
     }
   }
 
-  applyTokenDocFullWidthLayout(frame);
-
   // Update stamped metadata
   cancellation?.throwIfCancelled();
   onProgress?.('Updating document metadata…', 95);
   const updatedMetadata: DocFrameMetadata = {
     contentHash: doc.contentHash,
-    docType: 'tokens',
+    docType: options.docType ?? 'tokens',
     generatedAt: new Date().toISOString(),
     modeIds: doc.modes.map((m) => m.modeId),
     schemaVersion: DOC_FRAME_SCHEMA_VERSION,
@@ -448,7 +447,7 @@ export async function updateTokenDocFrameInPlace(
 
   onProgress?.('Update complete!', 100);
   return {
-    message: `Updated ${updatedTokensCount} token cells in place.`,
+    message: `Updated ${updatedTokensCount} ${options.docType === 'styles' ? 'style' : 'token'} cells in place.`,
     ok: true,
     updatedTokensCount,
   };

@@ -332,6 +332,8 @@ export async function createTokenDocFrame(
   doc: TokenDocDocument,
   options: {
     cancellation?: DocumentationGenerationCancellation;
+    docType?: 'styles' | 'tokens';
+    itemLabel?: string;
     page?: PageNode;
     x?: number;
     y?: number;
@@ -415,6 +417,7 @@ export async function createTokenDocFrame(
       doc.modes,
       doc.collectionId,
       cancellation,
+      options.itemLabel,
     );
     cancellation?.throwIfCancelled();
     rootFrame.appendChild(sectionNode);
@@ -430,25 +433,27 @@ export async function createTokenDocFrame(
 
   targetPage.appendChild(rootFrame);
 
-  // Apply explicit column variable modes after attaching to document
-  for (const sectionNode of rootFrame.children) {
-    await cancellation?.yieldToMain();
-    const slot = safeFindChild<FrameNode>(sectionNode, (n) => safeGetNodeName(n) === 'Slot');
-    const table = slot
-      ? safeFindChild<FrameNode>(slot, (n) => safeGetNodeName(n) === 'Table' || safeGetNodeName(n) === 'Container')
-      : safeFindChild<FrameNode>(sectionNode, (n) => safeGetNodeName(n) === 'Table' || safeGetNodeName(n) === 'Container');
+  // Apply explicit Variable modes only to Variable-backed token documents.
+  if (options.docType !== 'styles') {
+    for (const sectionNode of rootFrame.children) {
+      await cancellation?.yieldToMain();
+      const slot = safeFindChild<FrameNode>(sectionNode, (n) => safeGetNodeName(n) === 'Slot');
+      const table = slot
+        ? safeFindChild<FrameNode>(slot, (n) => safeGetNodeName(n) === 'Table' || safeGetNodeName(n) === 'Container')
+        : safeFindChild<FrameNode>(sectionNode, (n) => safeGetNodeName(n) === 'Table' || safeGetNodeName(n) === 'Container');
 
-    if (table && 'children' in table) {
-      const valCols = safeFindChildren<FrameNode>(
-        table,
-        (c) => safeGetNodeName(c) === 'Value' || safeGetNodeName(c).startsWith('Value'),
-      );
-      for (let mIdx = 0; mIdx < doc.modes.length; mIdx++) {
-        cancellation?.throwIfCancelled();
-        const col = valCols[mIdx];
-        if (col) {
-          await applyColumnMode(col, doc.modes[mIdx], doc.collectionId);
+      if (table && 'children' in table) {
+        const valCols = safeFindChildren<FrameNode>(
+          table,
+          (c) => safeGetNodeName(c) === 'Value' || safeGetNodeName(c).startsWith('Value'),
+        );
+        for (let mIdx = 0; mIdx < doc.modes.length; mIdx++) {
           cancellation?.throwIfCancelled();
+          const col = valCols[mIdx];
+          if (col) {
+            await applyColumnMode(col, doc.modes[mIdx], doc.collectionId);
+            cancellation?.throwIfCancelled();
+          }
         }
       }
     }
@@ -457,7 +462,7 @@ export async function createTokenDocFrame(
   // Stamp metadata
   const metadata: DocFrameMetadata = {
     contentHash: doc.contentHash,
-    docType: 'tokens',
+    docType: options.docType ?? 'tokens',
     generatedAt: new Date().toISOString(),
     modeIds: doc.modes.map((m) => m.modeId),
     schemaVersion: DOC_FRAME_SCHEMA_VERSION,
@@ -470,7 +475,7 @@ export async function createTokenDocFrame(
   figma.currentPage.selection = [rootFrame];
   figma.viewport.scrollAndZoomIntoView([rootFrame]);
 
-  onProgress?.('Token documentation generated!', 100);
+  onProgress?.(`${options.docType === 'styles' ? 'Style' : 'Token'} documentation generated!`, 100);
   return rootFrame;
   } catch (error) {
     if (isDocumentationGenerationCancelledError(error) && !rootFrame.removed) {
@@ -788,6 +793,7 @@ export async function createSectionNode(
   modes: TokenDocMode[],
   collectionId?: string,
   cancellation?: DocumentationGenerationCancellation,
+  itemLabel = 'TOKEN',
 ): Promise<SceneNode> {
   cancellation?.throwIfCancelled();
   const frameWidth = getTokenDocFrameWidth(modes.length);
@@ -818,7 +824,7 @@ export async function createSectionNode(
           }
         }
 
-        const table = await createTable(section.tokens, modes, collectionId, cancellation);
+        const table = await createTable(section.tokens, modes, collectionId, cancellation, itemLabel);
         slot.appendChild(table);
       }
       return instance;
@@ -828,7 +834,7 @@ export async function createSectionNode(
     }
   }
 
-  return await createProceduralSection(section, modes, collectionId, cancellation);
+  return await createProceduralSection(section, modes, collectionId, cancellation, itemLabel);
 }
 
 async function createProceduralSection(
@@ -836,6 +842,7 @@ async function createProceduralSection(
   modes: TokenDocMode[],
   collectionId?: string,
   cancellation?: DocumentationGenerationCancellation,
+  itemLabel = 'TOKEN',
 ): Promise<FrameNode> {
   cancellation?.throwIfCancelled();
   const sectionNode = figma.createFrame();
@@ -884,7 +891,7 @@ async function createProceduralSection(
   slot.resize(contentWidth, 100);
   slot.fills = [];
 
-  const table = await createTable(section.tokens, modes, collectionId, cancellation);
+  const table = await createTable(section.tokens, modes, collectionId, cancellation, itemLabel);
   slot.appendChild(table);
   setHorizontalFill(table);
   sectionNode.appendChild(slot);
@@ -910,6 +917,7 @@ export async function createTable(
   modes: TokenDocMode[],
   collectionId?: string,
   cancellation?: DocumentationGenerationCancellation,
+  itemLabel = 'TOKEN',
 ): Promise<FrameNode> {
   cancellation?.throwIfCancelled();
   const container = figma.createFrame();
@@ -926,7 +934,7 @@ export async function createTable(
   container.fills = [{ color: { r: 1, g: 1, b: 1 }, type: 'SOLID' }];
 
   // 1. Token Column
-  const tokenColumn = await createTokenColumn(tokens, cancellation);
+  const tokenColumn = await createTokenColumn(tokens, cancellation, itemLabel);
   container.appendChild(tokenColumn);
   setHorizontalFill(tokenColumn);
 
@@ -965,6 +973,7 @@ export async function createTokenItemNode(name: string): Promise<SceneNode> {
 export async function createTokenColumn(
   tokens: TokenDocItem[],
   cancellation?: DocumentationGenerationCancellation,
+  itemLabel = 'TOKEN',
 ): Promise<FrameNode> {
   cancellation?.throwIfCancelled();
   const column = figma.createFrame();
@@ -989,17 +998,17 @@ export async function createTokenColumn(
         if (textNodes[0].fontName !== figma.mixed) {
           await figma.loadFontAsync(textNodes[0].fontName);
         }
-        textNodes[0].characters = 'TOKEN';
+        textNodes[0].characters = itemLabel;
       }
       column.appendChild(headerInst);
       setHorizontalFill(headerInst);
     } catch (_e) {
-      const header = createProceduralTokenHeader(480, 'TOKEN');
+      const header = createProceduralTokenHeader(480, itemLabel);
       column.appendChild(header);
       setHorizontalFill(header);
     }
   } else {
-    const header = createProceduralTokenHeader(480, 'TOKEN');
+    const header = createProceduralTokenHeader(480, itemLabel);
     column.appendChild(header);
     setHorizontalFill(header);
   }
@@ -1068,6 +1077,35 @@ function createProceduralTokenItem(name: string, width: number): FrameNode {
   return item;
 }
 
+export function resolveValueItemVariantType(
+  val:
+    | {
+        aliasTargetName?: string;
+        hexColor?: string;
+        rawValue: string | number | boolean;
+        resolvedType?: 'BOOLEAN' | 'COLOR' | 'FLOAT' | 'STRING';
+      }
+    | undefined,
+  collectionIdOrStyleKind?: string,
+): string {
+  if (collectionIdOrStyleKind === 'typography') {
+    return 'Texts';
+  }
+  if (collectionIdOrStyleKind === 'effects') {
+    return 'Effects';
+  }
+  if (val?.resolvedType === 'COLOR' || val?.hexColor) {
+    return 'Color';
+  }
+  if (val?.resolvedType === 'FLOAT' || typeof val?.rawValue === 'number') {
+    return 'Number';
+  }
+  if (val?.resolvedType === 'BOOLEAN' || typeof val?.rawValue === 'boolean') {
+    return 'Boolean';
+  }
+  return 'String';
+}
+
 export async function createValueItemNode(
   val:
     | {
@@ -1078,18 +1116,12 @@ export async function createValueItemNode(
       }
     | undefined,
   variableId?: string,
+  collectionIdOrStyleKind?: string,
 ): Promise<SceneNode> {
   const valueItemSet = await findComponentSet('1929:52304');
   const displayText = val?.aliasTargetName ?? val?.rawValue ?? '-';
 
-  let variantType = 'String';
-  if (val?.resolvedType === 'COLOR' || val?.hexColor) {
-    variantType = 'Color';
-  } else if (val?.resolvedType === 'FLOAT' || typeof val?.rawValue === 'number') {
-    variantType = 'Number';
-  } else if (val?.resolvedType === 'BOOLEAN' || typeof val?.rawValue === 'boolean') {
-    variantType = 'Boolean';
-  }
+  const variantType = resolveValueItemVariantType(val, collectionIdOrStyleKind);
 
   let solidPaint: SolidPaint | null = null;
   if (val?.hexColor) {
@@ -1107,11 +1139,21 @@ export async function createValueItemNode(
   }
 
   if (valueItemSet) {
-    const variantComp = valueItemSet.children.find(
-      (c) =>
-        c.type === 'COMPONENT' &&
-        (c.name === `Type=${variantType}` || c.name.toLowerCase().includes(variantType.toLowerCase())),
-    ) as ComponentNode | undefined;
+    const variantComp = valueItemSet.children.find((c) => {
+      if (c.type !== 'COMPONENT') return false;
+      const lower = c.name.toLowerCase();
+      if (variantType === 'Texts') {
+        return c.name === 'Type=Texts' || c.name === 'Type=Text' || lower.includes('texts') || lower.includes('type=text');
+      }
+      if (variantType === 'Effects') {
+        return c.name === 'Type=Effects' || c.name === 'Type=Effect' || lower.includes('effects') || lower.includes('type=effect');
+      }
+      return (
+        c.name === `Type=${variantType}` ||
+        lower.includes(`type=${variantType.toLowerCase()}`) ||
+        lower.includes(variantType.toLowerCase())
+      );
+    }) as ComponentNode | undefined;
 
     if (variantComp) {
       try {
@@ -1253,7 +1295,7 @@ export async function createValueColumn(
     if (index % 16 === 0) await cancellation?.yieldToMain();
     const token = tokens[index];
     const val = token.valuesByMode[mode.modeId];
-    const item = await createValueItemNode(val, token.id);
+    const item = await createValueItemNode(val, token.id, collectionId);
     cancellation?.throwIfCancelled();
     column.appendChild(item);
     setHorizontalFill(item);

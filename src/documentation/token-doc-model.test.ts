@@ -56,7 +56,7 @@ describe('buildTokenDocDocument', () => {
       'Radius/Card',
     ], 'Colors')).toEqual({
       groupCount: 3,
-      groupNames: ['Text', 'Bg', 'Radius'],
+      groupNames: ['text', 'bg', 'Radius'],
     });
   });
 
@@ -69,18 +69,18 @@ describe('buildTokenDocDocument', () => {
 
     expect(tokenDocModel.summarizeTokenDocGroups(tokenNames, 'Colors', '1')).toEqual({
       groupCount: 2,
-      groupNames: ['Surface', 'Text'],
+      groupNames: ['surface', 'text'],
     });
     expect(tokenDocModel.summarizeTokenDocGroups(tokenNames, 'Colors', '2')).toEqual({
       groupCount: 3,
-      groupNames: ['Surface / Brand', 'Surface / Neutral', 'Text / Interactive'],
+      groupNames: ['surface / brand', 'surface / neutral', 'text / interactive'],
     });
     expect(tokenDocModel.summarizeTokenDocGroups(tokenNames, 'Colors', '3')).toEqual({
       groupCount: 3,
       groupNames: [
-        'Surface / Brand / Default',
-        'Surface / Neutral / Pressed',
-        'Text / Interactive / Default',
+        'surface / brand / default',
+        'surface / neutral / pressed',
+        'text / interactive / default',
       ],
     });
   });
@@ -128,7 +128,7 @@ describe('buildTokenDocDocument', () => {
     ]);
   });
 
-  it('places root-level tokens in a leading General section', () => {
+  it('keeps root-level tokens in source order without forcing General to the front', () => {
     const collection: RawCollectionData = {
       collectionId: 'col-general-first',
       collectionName: 'Foundations',
@@ -142,12 +142,12 @@ describe('buildTokenDocDocument', () => {
 
     const doc = buildTokenDocDocument(collection);
 
-    expect(doc.sections.map((section) => section.id)).toEqual(['general', 'spacing', 'radius']);
-    expect(doc.sections[0]?.tokens.map((token) => token.name)).toEqual(['BaseSize']);
+    expect(doc.sections.map((section) => section.id)).toEqual(['spacing', 'general', 'radius']);
+    expect(doc.sections[1]?.tokens.map((token) => token.name)).toEqual(['BaseSize']);
     expect(tokenDocModel.summarizeTokenDocGroups(
       collection.tokens.map((token) => token.name),
       collection.collectionName,
-    ).groupNames).toEqual(['General', 'Spacing', 'Radius']);
+    ).groupNames).toEqual(['Spacing', 'General', 'Radius']);
   });
 
   it('computes deterministic content hash', () => {
@@ -197,7 +197,7 @@ describe('buildTokenDocDocument', () => {
 
     const surfaceSec = doc.sections.find((s) => s.id === 'custom-surface');
     expect(surfaceSec).toBeDefined();
-    expect(surfaceSec!.headline).toBe('Custom Surface');
+    expect(surfaceSec!.headline).toBe('custom-surface');
     expect(surfaceSec!.description).toContain('background surfaces');
 
     const buttonSec = doc.sections.find((s) => s.id === 'button-primary');

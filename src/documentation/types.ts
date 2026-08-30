@@ -8,7 +8,15 @@
 export const DOC_FRAME_SCHEMA_VERSION = 1;
 export const DOC_METADATA_PLUGIN_KEY = 'tashil_doc_meta';
 
-export type DocType = 'component' | 'foundations' | 'tokens';
+export type DocType = 'component' | 'foundations' | 'styles' | 'tokens';
+
+export type DocStyleKind = 'effects' | 'typography';
+
+export type DocStyleSourceSummary = {
+  id: DocStyleKind;
+  name: string;
+  styleCount: number;
+};
 
 export type TokenGroupingDepth = '1' | '2' | '3' | '4' | 'all';
 
@@ -154,6 +162,16 @@ export type DocSourcePreview =
       propertyCount: number;
       scope: 'components';
       sourceName: string;
+      targetId: string;
+    }
+  | {
+      groupCount: number;
+      groupNames: string[];
+      groupingDepth?: TokenGroupingDepth;
+      scope: 'styles';
+      sourceName: string;
+      styleCount: number;
+      styleKind: DocStyleKind;
       targetId: string;
     };
 

@@ -96,6 +96,10 @@ import {
   type CancelDocGenerationHandler,
   type GenerateTokenDocsHandler,
   type GenerateTokenDocsResultHandler,
+  type GenerateStyleDocsHandler,
+  type GenerateStyleDocsResultHandler,
+  type LoadDocStyleSourcesHandler,
+  type LoadDocStyleSourcesResultHandler,
   type LoadDocSourcePreviewHandler,
   type LoadDocSourcePreviewResultHandler,
   type UpdateDocsInPlaceHandler,
@@ -128,7 +132,7 @@ import {
   updateComponentDocFrameInPlace,
   updateTokenDocFrameInPlace,
 } from './documentation/figma-canvas-updater';
-import type { TokenGroupingDepth } from './documentation/types';
+import type { DocStyleKind, TokenGroupingDepth } from './documentation/types';
 import {
   createDocumentationGenerationCancellation,
   isDocumentationGenerationCancelledError,
@@ -246,6 +250,14 @@ export default function (): void {
       payload.targetFormat,
       payload.tokenGroupingDepth,
     );
+  });
+
+  on<LoadDocStyleSourcesHandler>('LOAD_DOC_STYLE_SOURCES', () => {
+    void loadDocStyleSources();
+  });
+
+  on<GenerateStyleDocsHandler>('GENERATE_STYLE_DOCS', (payload) => {
+    void generateStyleDocs(payload.styleKind, payload.tokenGroupingDepth);
   });
 
   on<CancelDocGenerationHandler>('CANCEL_DOC_GENERATION', () => {
@@ -2145,6 +2157,13 @@ async function sendSelectionState(
             );
             drift = diffTokenDocument(docMetadata, currentDoc);
           }
+        } else if (docMetadata.docType === 'styles') {
+          const rawStyles = await loadRawStyleCollection(docMetadata.targetId as DocStyleKind);
+          const currentDoc = buildTokenDocDocument(
+            rawStyles,
+            docMetadata.tokenGroupingDepth ?? 'all',
+          );
+          drift = diffTokenDocument(docMetadata, currentDoc);
         } else if (docMetadata.docType === 'component') {
           const allNodes = figma.currentPage.findAllWithCriteria({ types: ['COMPONENT', 'COMPONENT_SET'] });
           const matched = allNodes.find(
@@ -2838,9 +2857,243 @@ async function loadRawCollectionData(collectionId: string): Promise<RawCollectio
   }
 }
 
+async function loadDocStyleSources(): Promise<void> {
+  try {
+    const [textStyles, effectStyles] = await Promise.all([
+      figma.getLocalTextStylesAsync(),
+      figma.getLocalEffectStylesAsync(),
+    ]);
+    emit<LoadDocStyleSourcesResultHandler>('LOAD_DOC_STYLE_SOURCES_RESULT', {
+      ok: true,
+      sources: [
+        { id: 'typography', name: 'Typography', styleCount: textStyles.length },
+        { id: 'effects', name: 'Effects', styleCount: effectStyles.length },
+      ],
+    });
+  } catch (error) {
+    emit<LoadDocStyleSourcesResultHandler>('LOAD_DOC_STYLE_SOURCES_RESULT', {
+      message: errorMessage(error, 'load local styles'),
+      ok: false,
+    });
+  }
+}
+
+function formatStyleMeasurement(value: LineHeight | LetterSpacing): string {
+  if (value.unit === 'AUTO') return 'Auto';
+  return `${value.value}${value.unit === 'PIXELS' ? 'px' : '%'}`;
+}
+
+async function resolveVariableById(
+  id: string,
+  variablesById: Map<string, Variable>,
+): Promise<Variable | null> {
+  const cached = variablesById.get(id);
+  if (cached) return cached;
+  try {
+    const fetched = await figma.variables.getVariableByIdAsync(id);
+    if (fetched) {
+      variablesById.set(id, fetched);
+      return fetched;
+    }
+  } catch (_e) {
+    // Ignore error
+  }
+  return null;
+}
+
+function getVariableAliasId(binding: unknown): string | undefined {
+  if (!binding || typeof binding !== 'object') return undefined;
+  if ('id' in binding && typeof (binding as { id: unknown }).id === 'string') {
+    return (binding as { id: string }).id;
+  }
+  return undefined;
+}
+
+async function formatTextStyleValue(
+  style: TextStyle,
+  variablesById: Map<string, Variable>,
+): Promise<string> {
+  const bound = (style as { boundVariables?: Record<string, unknown> }).boundVariables ?? {};
+
+  // Font family & weight / style
+  const fontFamilyId = getVariableAliasId(bound.fontFamily);
+  const fontFamilyVar = fontFamilyId ? await resolveVariableById(fontFamilyId, variablesById) : null;
+  const fontFamilyStr = fontFamilyVar?.name ?? style.fontName.family;
+
+  const fontStyleId = getVariableAliasId(bound.fontStyle) ?? getVariableAliasId(bound.fontWeight);
+  const fontStyleVar = fontStyleId ? await resolveVariableById(fontStyleId, variablesById) : null;
+  const fontStyleStr = fontStyleVar?.name ?? style.fontName.style;
+
+  const fontParts = (fontFamilyVar || fontStyleVar)
+    ? [fontFamilyStr, fontStyleStr].filter(Boolean)
+    : [`${style.fontName.family} ${style.fontName.style}`.trim()];
+
+  // Font size
+  const fontSizeId = getVariableAliasId(bound.fontSize);
+  const fontSizeVar = fontSizeId ? await resolveVariableById(fontSizeId, variablesById) : null;
+  const fontSizeStr = fontSizeVar ? fontSizeVar.name : `${style.fontSize}px`;
+
+  // Line height
+  const lineHeightId = getVariableAliasId(bound.lineHeight);
+  const lineHeightVar = lineHeightId ? await resolveVariableById(lineHeightId, variablesById) : null;
+  let lineHeightStr: string;
+  if (lineHeightVar) {
+    const nameLower = lineHeightVar.name.toLowerCase().replace(/[-_/]/g, '');
+    if (nameLower.startsWith('lineheight') || nameLower.startsWith('leading')) {
+      lineHeightStr = lineHeightVar.name;
+    } else {
+      lineHeightStr = `line-height ${lineHeightVar.name}`;
+    }
+  } else {
+    lineHeightStr = `line-height ${formatStyleMeasurement(style.lineHeight)}`;
+  }
+
+  // Letter spacing
+  const letterSpacingId = getVariableAliasId(bound.letterSpacing);
+  const letterSpacingVar = letterSpacingId ? await resolveVariableById(letterSpacingId, variablesById) : null;
+  let letterSpacingStr: string;
+  if (letterSpacingVar) {
+    const nameLower = letterSpacingVar.name.toLowerCase().replace(/[-_/]/g, '');
+    if (nameLower.startsWith('letterspacing') || nameLower.startsWith('tracking')) {
+      letterSpacingStr = letterSpacingVar.name;
+    } else {
+      letterSpacingStr = `letter-spacing ${letterSpacingVar.name}`;
+    }
+  } else {
+    letterSpacingStr = `letter-spacing ${formatStyleMeasurement(style.letterSpacing)}`;
+  }
+
+  return [...fontParts, fontSizeStr, lineHeightStr, letterSpacingStr].filter(Boolean).join(' · ');
+}
+
+function formatDimension(value: number): string {
+  return value === 0 ? '0' : `${value}px`;
+}
+
+function formatEffectColor(color: RGBA): string {
+  const channel = (value: number) => Math.round(value * 255);
+  return `rgba(${channel(color.r)}, ${channel(color.g)}, ${channel(color.b)}, ${Number(color.a.toFixed(2))})`;
+}
+
+async function formatEffectStyleValue(
+  style: EffectStyle,
+  variablesById: Map<string, Variable>,
+): Promise<string> {
+  const visibleEffects = style.effects.filter((effect) => effect.visible);
+  if (visibleEffects.length === 0) {
+    return 'none';
+  }
+
+  const cssDeclarations: string[] = [];
+  const shadowParts: string[] = [];
+
+  for (const effect of visibleEffects) {
+    const bound = (effect as { boundVariables?: Record<string, unknown> }).boundVariables ?? {};
+
+    if (effect.type === 'DROP_SHADOW' || effect.type === 'INNER_SHADOW') {
+      const colorId = getVariableAliasId(bound.color);
+      const colorVar = colorId ? await resolveVariableById(colorId, variablesById) : null;
+      const colorStr = colorVar ? colorVar.name : formatEffectColor(effect.color);
+
+      const radiusId = getVariableAliasId(bound.radius);
+      const radiusVar = radiusId ? await resolveVariableById(radiusId, variablesById) : null;
+      const radiusStr = radiusVar ? radiusVar.name : formatDimension(effect.radius);
+
+      const spreadId = getVariableAliasId(bound.spread);
+      const spreadVar = spreadId ? await resolveVariableById(spreadId, variablesById) : null;
+      const spreadStr = spreadVar ? spreadVar.name : formatDimension(effect.spread ?? 0);
+
+      const offsetXId = getVariableAliasId(bound.offsetX);
+      const offsetXVar = offsetXId ? await resolveVariableById(offsetXId, variablesById) : null;
+      const offsetXStr = offsetXVar ? offsetXVar.name : formatDimension(effect.offset.x);
+
+      const offsetYId = getVariableAliasId(bound.offsetY);
+      const offsetYVar = offsetYId ? await resolveVariableById(offsetYId, variablesById) : null;
+      const offsetYStr = offsetYVar ? offsetYVar.name : formatDimension(effect.offset.y);
+
+      const prefix = effect.type === 'INNER_SHADOW' ? 'inset ' : '';
+      shadowParts.push(`${prefix}${offsetXStr} ${offsetYStr} ${radiusStr} ${spreadStr} ${colorStr}`.trim());
+    } else if (effect.type === 'LAYER_BLUR') {
+      const radiusId = getVariableAliasId(bound.radius);
+      const radiusVar = radiusId ? await resolveVariableById(radiusId, variablesById) : null;
+      const radiusStr = radiusVar ? radiusVar.name : `${effect.radius}px`;
+      cssDeclarations.push(`filter: blur(${radiusStr});`);
+    } else if (effect.type === 'BACKGROUND_BLUR') {
+      const radiusId = getVariableAliasId(bound.radius);
+      const radiusVar = radiusId ? await resolveVariableById(radiusId, variablesById) : null;
+      const radiusStr = radiusVar ? radiusVar.name : `${effect.radius}px`;
+      cssDeclarations.push(`backdrop-filter: blur(${radiusStr});`);
+    } else if (effect.type === 'NOISE') {
+      cssDeclarations.push(`/* noise: ${effect.noiseType.toLowerCase()} ${effect.density}% */`);
+    } else if (effect.type === 'TEXTURE') {
+      const radiusId = getVariableAliasId(bound.radius);
+      const radiusVar = radiusId ? await resolveVariableById(radiusId, variablesById) : null;
+      const radiusStr = radiusVar ? radiusVar.name : `${effect.radius}px`;
+      cssDeclarations.push(`/* texture: size ${effect.noiseSize}px radius ${radiusStr} */`);
+    } else if (effect.type === 'GLASS') {
+      const radiusId = getVariableAliasId(bound.radius);
+      const radiusVar = radiusId ? await resolveVariableById(radiusId, variablesById) : null;
+      const radiusStr = radiusVar ? radiusVar.name : `${effect.radius}px`;
+      cssDeclarations.push(`backdrop-filter: blur(${radiusStr}); /* glass depth ${effect.depth} */`);
+    }
+  }
+
+  if (shadowParts.length > 0) {
+    cssDeclarations.unshift(`box-shadow: ${shadowParts.join(', ')};`);
+  }
+
+  return cssDeclarations.join(' ') || 'none';
+}
+
+async function loadRawStyleCollection(styleKind: DocStyleKind): Promise<RawCollectionData> {
+  const modeId = 'style-specification';
+  const localVariables = await figma.variables.getLocalVariablesAsync().catch(() => []);
+  const variablesById = new Map(localVariables.map((v) => [v.id, v]));
+
+  if (styleKind === 'typography') {
+    const styles = await figma.getLocalTextStylesAsync();
+    const tokens = await Promise.all(
+      styles.map(async (style) => ({
+        description: style.description,
+        id: style.id,
+        name: style.name,
+        valuesByMode: {
+          [modeId]: { value: await formatTextStyleValue(style, variablesById) },
+        },
+      })),
+    );
+    return {
+      collectionId: styleKind,
+      collectionName: 'Typography',
+      modes: [{ modeId, name: 'Specification' }],
+      tokens,
+    };
+  }
+
+  const styles = await figma.getLocalEffectStylesAsync();
+  const tokens = await Promise.all(
+    styles.map(async (style) => ({
+      description: style.description,
+      id: style.id,
+      name: style.name,
+      valuesByMode: {
+        [modeId]: {
+          value: await formatEffectStyleValue(style, variablesById),
+        },
+      },
+    })),
+  );
+  return {
+    collectionId: styleKind,
+    collectionName: 'Effects',
+    modes: [{ modeId, name: 'Specification' }],
+    tokens,
+  };
+}
+
 async function loadDocSourcePreview(payload: {
   requestId: string;
-  scope: 'components' | 'tokens';
+  scope: 'components' | 'styles' | 'tokens';
   targetId: string;
   tokenGroupingDepth?: TokenGroupingDepth;
 }): Promise<void> {
@@ -2852,11 +3105,11 @@ async function loadDocSourcePreview(payload: {
         throw new Error('Token collection is no longer available.');
       }
 
-      const collectionVariableIds = new Set(collection.variableIds);
       const variables = await figma.variables.getLocalVariablesAsync();
-      const tokenNames = variables
-        .filter((variable) => collectionVariableIds.has(variable.id))
-        .map((variable) => variable.name);
+      const variablesById = new Map(variables.map((variable) => [variable.id, variable]));
+      const tokenNames = collection.variableIds
+        .map((variableId) => variablesById.get(variableId)?.name)
+        .filter((name): name is string => name !== undefined);
       const groupingDepth = payload.tokenGroupingDepth ?? 'all';
       const summary = summarizeTokenDocGroups(tokenNames, collection.name, groupingDepth);
 
@@ -2871,6 +3124,32 @@ async function loadDocSourcePreview(payload: {
           sourceName: collection.name,
           targetId: collection.id,
           tokenCount: collection.variableIds.length,
+        },
+        requestId: payload.requestId,
+      });
+      return;
+    }
+
+    if (payload.scope === 'styles') {
+      const styleKind = payload.targetId as DocStyleKind;
+      const rawCollection = await loadRawStyleCollection(styleKind);
+      const groupingDepth = payload.tokenGroupingDepth ?? 'all';
+      const summary = summarizeTokenDocGroups(
+        rawCollection.tokens.map((style) => style.name),
+        rawCollection.collectionName,
+        groupingDepth,
+      );
+      emit<LoadDocSourcePreviewResultHandler>('LOAD_DOC_SOURCE_PREVIEW_RESULT', {
+        ok: true,
+        preview: {
+          ...summary,
+          groupingDepth,
+          groupNames: summary.groupNames.slice(0, 3),
+          scope: 'styles',
+          sourceName: rawCollection.collectionName,
+          styleCount: rawCollection.tokens.length,
+          styleKind,
+          targetId: styleKind,
         },
         requestId: payload.requestId,
       });
@@ -2946,6 +3225,7 @@ async function generateTokenDocs(
         reportProgress,
       );
       cancellation.throwIfCancelled();
+      figma.notify(`Created documentation frame for "${doc.title}".`);
       emit<GenerateTokenDocsResultHandler>('GENERATE_TOKEN_DOCS_RESULT', {
         ok: true,
         message: `Created documentation frame for "${doc.title}".`,
@@ -2960,6 +3240,57 @@ async function generateTokenDocs(
     emit<GenerateTokenDocsResultHandler>('GENERATE_TOKEN_DOCS_RESULT', {
       ok: false,
       message: errorMessage(error, 'generate token documentation'),
+    });
+  }
+}
+
+async function generateStyleDocs(
+  styleKind: DocStyleKind,
+  tokenGroupingDepth: TokenGroupingDepth = 'all',
+): Promise<void> {
+  const cancellation = beginDocumentationGeneration();
+  const reportProgress = (message: string, percent: number) => {
+    cancellation.throwIfCancelled();
+    emit<DocGenerationProgressHandler>('DOC_GENERATION_PROGRESS', { message, percent });
+  };
+
+  try {
+    reportProgress('Reading local styles…', 5);
+    const rawCollection = await loadRawStyleCollection(styleKind);
+    cancellation.throwIfCancelled();
+    if (rawCollection.tokens.length === 0) {
+      emit<GenerateStyleDocsResultHandler>('GENERATE_STYLE_DOCS_RESULT', {
+        message: `No local ${styleKind === 'typography' ? 'text' : 'effect'} styles were found.`,
+        ok: false,
+      });
+      return;
+    }
+
+    reportProgress('Building style documentation…', 15);
+    const baseDoc = buildTokenDocDocument(rawCollection, tokenGroupingDepth);
+    const doc = {
+      ...baseDoc,
+      description: styleKind === 'typography'
+        ? `Typography specifications for ${baseDoc.totalTokens} local text styles, including font, size, line height, and letter spacing.`
+        : `Effect specifications for ${baseDoc.totalTokens} local effect styles, including shadows, blurs, textures, and glass effects.`,
+    };
+    const frame = await createTokenDocFrame(
+      doc,
+      { cancellation, docType: 'styles', itemLabel: 'STYLE' },
+      reportProgress,
+    );
+    cancellation.throwIfCancelled();
+    figma.notify(`Created documentation frame for "${doc.title}".`);
+    emit<GenerateStyleDocsResultHandler>('GENERATE_STYLE_DOCS_RESULT', {
+      frameNodeId: frame.id,
+      message: `Created ${doc.title} documentation with ${doc.totalTokens} styles.`,
+      ok: true,
+    });
+  } catch (error) {
+    if (isDocumentationGenerationCancelledError(error)) return;
+    emit<GenerateStyleDocsResultHandler>('GENERATE_STYLE_DOCS_RESULT', {
+      message: errorMessage(error, 'generate style documentation'),
+      ok: false,
     });
   }
 }
@@ -3016,6 +3347,26 @@ async function updateDocsInPlace(
         doc,
         reportProgress,
         cancellation,
+      );
+      cancellation.throwIfCancelled();
+      emit<UpdateDocsInPlaceResultHandler>('UPDATE_DOCS_IN_PLACE_RESULT', {
+        ok: result.ok,
+        message: result.message,
+        updatedTokensCount: result.updatedTokensCount,
+      });
+    } else if (metadata.docType === 'styles') {
+      reportProgress('Loading updated local styles…', 15);
+      const rawStyles = await loadRawStyleCollection(metadata.targetId as DocStyleKind);
+      const doc = buildTokenDocDocument(
+        rawStyles,
+        tokenGroupingDepth ?? metadata.tokenGroupingDepth ?? 'all',
+      );
+      const result = await updateTokenDocFrameInPlace(
+        node,
+        doc,
+        reportProgress,
+        cancellation,
+        { docType: 'styles', itemLabel: 'STYLE' },
       );
       cancellation.throwIfCancelled();
       emit<UpdateDocsInPlaceResultHandler>('UPDATE_DOCS_IN_PLACE_RESULT', {
@@ -3141,6 +3492,7 @@ async function generateComponentDocs(
         reportProgress,
       );
       cancellation.throwIfCancelled();
+      figma.notify(`Generated variant matrix for <${doc.componentName} />.`);
       emit<GenerateComponentDocsResultHandler>('GENERATE_COMPONENT_DOCS_RESULT', {
         ok: true,
         message: `Generated variant matrix for <${doc.componentName} />.`,
