@@ -19,11 +19,11 @@ the `figma.mode` gate in `src/main.ts` decides which code path runs.
 
 | Section | Responsibility | Entry points | Read first | One rule you will break |
 | --- | --- | --- | --- | --- |
-| **Core connect / codegen** | The connect-component pipeline that lives in the `src/` root: plugin entry, UI, source parsing, visual mapping authoring, legacy codegen, drift detection, shared types. | `src/main.ts`, `src/ui.tsx`, `src/codegen.ts`, `src/types.ts` | [section-core-connect.md](section-core-connect.md) | `CURRENT_SCHEMA_VERSION` lives in `src/types.ts`, but the migration `switch` and the "supports versions…" message live in `src/codegen.ts`. Bump all three together. |
+| **Core connect / codegen** | The connect-component pipeline: modular plugin backend (`src/main/`), tabbed UI views (`src/views/`), source parsing, visual mapping authoring, legacy codegen, drift detection, shared types. | `src/main.ts`, `src/main/*.ts`, `src/ui.tsx`, `src/views/*.tsx`, `src/codegen.ts`, `src/types.ts` | [section-core-connect.md](section-core-connect.md) | `CURRENT_SCHEMA_VERSION` lives in `src/types.ts`, but the migration `switch` and the "supports versions…" message live in `src/codegen.ts`. Bump all three together. |
 | **Inspect** (`src/inspect/`) | Dev-Mode-parity selected-layer CSS inspection: partition `getCSSAsync()` into Layout/Style buckets and enumerate connected components. | `src/inspect/inspect-frame.ts` | [section-inspect.md](section-inspect.md) | This consumes CSS Figma **already emitted**. Do not confuse it with Sync Tokens, which **authors** CSS from variables. Different code paths. |
 | **Layout** (`src/layout/`) | Full-tree styled-components React codegen: traverse a selected frame/group/section/text, emit one `.tsx` module with connected components as atomic usages. | `src/layout/react-layout.ts`, `src/layout/figma-layout-extractor.ts` | [section-layout.md](section-layout.md) | Connected instances are **never** expanded into internals. The one exception is an *unconnected* instance with visible children — expanded with a diagnostic. |
 | **Semantic** (`src/semantic/`) | Recipe-based connect for components whose Figma structure does not match source: schema, resolver, authoring, reconcile, source contract, figma extraction. | `src/semantic/resolver.ts`, `src/semantic/types.ts` | [section-semantic.md](section-semantic.md) | Every module here is pure and Figma-free **except** `figma-adapter.ts`. Don't import `@figma/plugin-typings` anywhere else in this folder. |
-| **Sync Tokens** (`src/sync-tokens/`) | Serialize Figma Variable collections to CSS, JSON, Tailwind, and Markdown: pure core; `main.ts` is the Figma adapter. | `src/sync-tokens/serialize.ts`, `src/main.ts` (token region) | [section-sync-tokens.md](section-sync-tokens.md) | The Figma Variables API is touched **only** in `src/main.ts`. The pure core in `src/sync-tokens/` must stay free of `@figma/plugin-typings` so the test project compiles it. |
+| **Sync Tokens** (`src/sync-tokens/`) | Serialize Figma Variable collections to CSS, JSON, Tailwind, and Markdown: pure core; `src/main/token-adapter.ts` is the Figma adapter. | `src/sync-tokens/serialize.ts`, `src/main/token-adapter.ts` | [section-sync-tokens.md](section-sync-tokens.md) | The Figma Variables API is touched **only** in `src/main/token-adapter.ts`. The pure core in `src/sync-tokens/` must stay free of `@figma/plugin-typings` so the test project compiles it. |
 | **Documentation** (`src/documentation/`) | Automated documentation generation and in-place reconciler for tokens, component specifications, and design system frames. | `src/documentation/token-doc-model.ts`, `src/documentation/figma-canvas-writer.ts` | [section-documentation.md](section-documentation.md) | Generated frames are stamped with `tashil_doc_meta` and reconciled in-place rather than recreated from scratch. |
 
 ## Global rules (apply everywhere)
@@ -64,14 +64,14 @@ variants: `getLocalVariableCollectionsAsync()`, `getVariableByIdAsync()`,
 
 Every section keeps a pure, Figma-typings-free core so it is unit-testable
 without the Figma runtime. The Figma API is reached only through a thin adapter
-in `src/main.ts` (and `src/semantic/figma-adapter.ts` for the semantic tree,
+in `src/main/` (and `src/semantic/figma-adapter.ts` for the semantic tree,
 `src/layout/figma-layout-extractor.ts` + `figma-component-resolver.ts` for the
 layout tree). Do not import `@figma/plugin-typings` types into the pure cores.
 
 ### 5. One generation pipeline, three surfaces
 
 Dev Mode, Inspect Code, and Layout Composer all resolve a connection through
-the same code path (`createConnectedOutput` in `src/main.ts`,
+the same code path (`createConnectedOutput` in `src/main/codegen-adapter.ts`,
 `createConnectedUsage` in `src/layout/figma-component-resolver.ts`). Output
 parity across the three surfaces is a **test invariant**, not a convention. If
 you change resolution in one place, the others must follow.
@@ -102,11 +102,11 @@ public behavior, boundary, or invariants, update its `section-*.md`.
 
 ```text
                          ┌─────────────────────────────────────────────┐
-                         │  Core connect / codegen  (src/ root)         │
-                         │  main.ts · ui.tsx · codegen.ts · types.ts     │
-                         │  ui-controller.ts · ui-state.ts               │
-                         │  source-schema · mapping-* · prop-mappings    │
-                         │  connection-health.ts                         │
+                         │  Core connect / codegen                     │
+                         │  src/main/ · src/views/ · src/components/   │
+                         │  ui-controller.ts · ui-state.ts             │
+                         │  source-schema · mapping-* · prop-mappings  │
+                         │  connection-health.ts                       │
                          └───────────────┬─────────────────────────────┘
                                          │  ConnectionMetadata (schema v4)
               ┌──────────────────────────┼──────────────────────────┬──────────────────────────┐

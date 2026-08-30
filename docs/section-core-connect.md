@@ -41,8 +41,22 @@ simple subset.
 
 | File | Role |
 | --- | --- |
-| `src/main.ts` | **Plugin main-thread entry.** Registers the Dev Mode `figma.codegen.on('generate', …)` handler, owns selection reads and connection persistence. `createConnectedOutput` (line 347) is the single generation pipeline for Dev Mode + Inspect. |
-| `src/ui.tsx` | Preact UI: Connect Component, Inspect Code, and Sync Tokens tabs. Includes connection portability, coverage, and Storybook controls. Custom SVG assets live in `ui-assets.tsx`. |
+| `src/main.ts` | **Plugin main-thread coordinator.** Evaluates codegen registration for Dev Mode and dispatches typed event listeners in Design Mode. |
+| `src/main/codegen-adapter.ts` | Dev Mode `figma.codegen.on('generate', …)` handler, multi-selection blocks, layout and inspection blocks. `createConnectedOutput` is the single generation pipeline. |
+| `src/main/connection-adapter.ts` | Storybook shared plugin data persistence (`saveConnection`, `clearConnection`), component inventory scanning (`scanComponents`), CSF 3 story generation, Code Connect, and portability. |
+| `src/main/selection-adapter.ts` | Canvas selection resolution, component property extraction, instance swap resolution, and inspect code state dispatch. |
+| `src/main/token-adapter.ts` | Variable collection scanning, raw collection loading, token export, and token export history in `clientStorage`. |
+| `src/main/doc-adapter.ts` | Design system documentation frame generation, style source extraction, markdown docs emission, and in-place frame updating. |
+| `src/main/preferences.ts` | Per-user output preferences reading/saving via Figma `clientStorage`. |
+| `src/main/types.ts` | Internal main-thread types, helper formatters, and error creators. |
+| `src/ui.tsx` | **Preact UI root coordinator.** Hosts the top navigation tab bar, window resize handling, and workflow tab dispatching. |
+| `src/views/ConnectView.tsx` | Connect Component view: component target setup, property/semantic mapping integration, Storybook generator drawer, component inventory scanning, and import/export preview. |
+| `src/views/InspectView.tsx` | Inspect Code view: React layout preview, CSS layout and style partitions, accessibility badges, and connected component snippets. |
+| `src/views/SyncTokensView.tsx` | Sync Tokens view: variable collection selection, mode toggles, format picker, unit/naming options, and token export diffs. |
+| `src/views/DocsView.tsx` | Documentation view: tokens/styles/components documentation frame generation, search filters, grouping depth selector, and in-place reconciliation. |
+| `src/views/SettingsView.tsx` | Output settings view: quote style, indentation, semicolons, trailing commas, styled-component pattern, and copy mode preferences. |
+| `src/views/HowItWorksView.tsx` | How it works view: workflow guide, field glossary, and maintenance walkthrough. |
+| `src/components/common.tsx` | Reusable UI widgets: `CodeBlock`, `CopyButton`, `ConnectionReferencesPanel`, `AccessibilityBadges`, `Field`, and syntax highlighting. |
 | `src/ui-controller.ts` | Wires Preact hooks to the typed message handlers; owns source upload, mapping edits, save/clear, reconciliation, portability downloads, Storybook results, and Sync Tokens packaging/download. |
 | `src/ui-state.ts` | Pure form-draft state machine: dirty-tracking, validation, pending-mutation identity. `ConnectionFormValues` (13 fields), `FormDraft`, `FormValidationResult`. |
 | `src/source-schema.ts` | `parseSourceComponent` — local TS AST parser → `SourceComponentSnapshot`. Drops `UNSUPPORTED_STANDARD_PROPS` (`className, id, key, ref, style`). Pure, Figma-free. |

@@ -42,10 +42,10 @@ the `semantic/` and `inspect/` layering.
 | `src/sync-tokens/serialize-formats.ts` | Format dispatcher plus Markdown, JSON, SCSS, and Tailwind serializers; also creates per-token content hashes. |
 | `src/sync-tokens/export-diff.ts` | Pure added/changed/removed/unchanged comparison for export snapshots. |
 | `src/sync-tokens/serialize.test.ts` | Unit tests for the serializers. |
-| `src/main.ts` | The **only** place that calls `figma.variables.*`. `generateTokenFiles`, `collectTokens`, `normalizeValue`, `loadTokenCollections`, `previewTokens`, `exportTokens`. |
+| `src/main/token-adapter.ts` | The **only** place that calls `figma.variables.*`. `generateTokenFiles`, `collectTokens`, `normalizeValue`, `loadTokenCollections`, `previewTokens`, `exportTokens`. |
 | `src/ui-controller.ts` | Holds tab state, owns the message round-trips, packages/downloads results via `deliverTokenFiles`. |
 | `src/ui-download.ts` | `downloadBlob()` — the plugin's only file-download mechanism. |
-| `src/ui.tsx` | The `SyncTokensView` component + third-tab wiring. |
+| `src/views/SyncTokensView.tsx` | The `SyncTokensView` component + third-tab wiring. |
 | `src/types.ts` | The three message-handler pairs (`LOAD_TOKEN_COLLECTIONS`, `PREVIEW_TOKENS`, `EXPORT_TOKENS`) and their `*_RESULT` partners. |
 
 ## The pure core (`src/sync-tokens/`)

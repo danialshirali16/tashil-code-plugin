@@ -26,10 +26,14 @@ inspectFrame(root, options)                         (inspect-frame.ts)
         FrameInspection  →  Layout block, Style block, ConnectedComponentEntry[], diagnostics
 ```
 
-Inspect Code is surfaced two ways: the **Tashil UI** Dev Mode language (select a
-connected instance → its usage snippet; select a frame → the inspection), and
-the in-plugin **Inspect Code** screen (same data for teammates without a Dev
-Mode seat).
+Inspect Code is surfaced two ways: the **Tashil UI** Dev Mode language (which emits purpose-driven blocks per selection category: Frame/Container, Connected Component, Not Connected Component, Primitive/Vector, and Text), and the in-plugin **Inspect Code** screen (full React layout and CSS preview for teammates without a Dev Mode seat).
+
+Dev Mode block architecture:
+- **FRAME / CONTAINER**: Generated Code (`.tsx`), `Layout` CSS, `Style` CSS.
+- **CONNECTED COMPONENT**: Generated Code (`.tsx`), `References`, `Layout` CSS, `Style` CSS, `Notes`.
+- **NOT CONNECTED COMPONENT**: `⚠️ This component isn't connected to code.`, `Variant logic`, `Layout` CSS, `Style` CSS.
+- **PRIMITIVE / VECTOR**: `Layout` CSS, `Style` CSS.
+- **TEXT**: `Content`, `Layout` CSS, `Style` CSS.
 
 For connected components, the user-local LTR/RTL preference changes only
 preview direction; the code string and copied bytes are unchanged. Component

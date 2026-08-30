@@ -31,7 +31,7 @@ convention.
 ## Docs Interface
 
 The plugin presents these capabilities as a searchable **Documentation
-library** in `src/ui.tsx`. A native `@create-figma-plugin/ui`
+library** in [`src/views/DocsView.tsx`](file:///Users/danial/Downloads/TashilStoryBook/src/views/DocsView.tsx) and backend [`src/main/doc-adapter.ts`](file:///Users/danial/Downloads/TashilStoryBook/src/main/doc-adapter.ts). A native `@create-figma-plugin/ui`
 `SegmentedControl` separates **Design Tokens** (`IconVariable16`), **Styles** (`IconLibrary16`),
 and **Components** (`IconComponent16`). The Styles scope exposes Typography and Effects as
 collection-sized sources, loaded through the async local Style APIs. Each scope keeps

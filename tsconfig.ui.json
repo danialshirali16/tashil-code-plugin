@@ -8,6 +8,9 @@
   },
   "include": [
     "src/ui.tsx",
+    "src/views/*.tsx",
+    "src/components/*.tsx",
+    "src/components/**/*.tsx",
     "src/ui-assets.tsx",
     "src/output-preferences.ts",
     "src/ui-controller.ts",

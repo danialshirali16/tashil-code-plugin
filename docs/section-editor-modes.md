@@ -84,18 +84,42 @@ No plugin window. The user selects a node and chooses **Tashil UI** in the Code
 section; Figma invokes `figma.codegen.on('generate', …)` →
 `generateCodegenBlocks(node)` → `CodegenBlock[]`.
 
-- Selecting a **connected instance** → its TSX usage snippet
-  (`createConnectedOutput`, the single generation pipeline).
-- Selecting a **frame/group/section/text** → the Layout/Style CSS inspection
-  blocks plus connected-component enumeration
-  ([layout section](section-layout.md) · [inspect section](section-inspect.md)).
+Dev Mode reads connections and emits clean, non-redundant blocks based on the exact selection category:
 
-Dev Mode reads connections; it never authors them.
+```text
+FRAME / CONTAINER
+├── Generated Code
+├── Layout
+└── Style
 
-Connected selections also emit a deterministic `<Component>.stories.tsx` CSF
-3 block. For component sets larger than 32 variants, Dev Mode treats the
-currently selected variant as the explicit subset; the Design-mode editor
-offers the full capped subset picker. Story generation remains read-only.
+CONNECTED COMPONENT
+├── Generated Code
+├── References
+├── Layout
+├── Style
+└── Notes
+
+NOT CONNECTED COMPONENT
+├── ⚠️ This component isn't connected to code.
+├── Variant logic
+├── Layout
+└── Style
+
+PRIMITIVE / VECTOR
+├── Layout
+└── Style
+
+TEXT
+├── Content
+├── Layout
+└── Style
+```
+
+- **Frame / Container**: Generates the complete React layout module (`Generated Code`), followed by the container's `Layout` and `Style` CSS. For large frames (> 150 layers), Dev Mode fast pre-flight skips full React TSX layout generation to prevent UI thread freezing, emitting a tip in `Generated Code` while instantly displaying the container's root `Layout` and `Style` CSS.
+- **Connected Component**: Generates the production usage snippet (`Generated Code`), `References` (Storybook / source repository links), instance `Layout` & `Style` CSS, and a consolidated `Notes` block (deprecations, runtime requirements, diagnostics).
+- **Not Connected Component**: Emits an actionable guidance block (`⚠️ This component isn't connected to code.`), typed `Variant logic` (if a component set has variants), and layer `Layout` & `Style` CSS.
+- **Primitive / Vector**: Emits pure `Layout` and `Style` CSS without clutter.
+- **Text**: Emits raw `Content` followed by `Layout` and `Style` CSS.
 
 The codegen handler loads per-user output preferences from `clientStorage` and
 formats TypeScript blocks only. The same formatter is applied to Design-mode

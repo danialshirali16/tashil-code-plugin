@@ -2135,8 +2135,12 @@ describe('persisted metadata reads', () => {
     const blocks = await codegenEvents.get('generate')?.({ node: component });
     expect(blocks?.[0]).toMatchObject({
       language: 'TYPESCRIPT',
-      title: 'LegacyButton',
+      title: 'Generated Code',
     });
+    expect(blocks?.find(({ title }) => title === 'References')?.code).toBe([
+      'Storybook: javascript:legacy-reference',
+      'Source URL: file:///tmp/LegacyButton.tsx',
+    ].join('\n'));
   });
 
   it('reads and migrates legacy metadata before sending it to the UI', async () => {
@@ -2212,12 +2216,12 @@ describe('persisted metadata reads', () => {
     expect(generate).toBeDefined();
     const blocks = await generate?.({ node: component });
 
-    expect(blocks).toEqual([
+    expect(blocks).toContainEqual(
       expect.objectContaining({
         code: expect.stringContaining(expectedMessage),
         language: 'PLAINTEXT',
       }),
-    ]);
+    );
   });
 
   it('surfaces a future stored schema as a typed issue in Connect, Inspect, and Dev Mode', async () => {
@@ -2251,17 +2255,17 @@ describe('persisted metadata reads', () => {
     });
 
     const blocks = await codegenEvents.get('generate')?.({ node: component });
-    expect(blocks).toEqual([
+    expect(blocks).toContainEqual(
       expect.objectContaining({
         code: expect.stringMatching(/newer.*update the plugin/i),
         language: 'PLAINTEXT',
       }),
-    ]);
+    );
   });
 });
 
 describe('Dev Mode inspection codegen', () => {
-  it('generates React, Layout, and Style for an unconnected component', async () => {
+  it('generates a not-connected message, Layout, and Style for an unconnected component', async () => {
     const { codegenEvents, selection } = await startPlugin();
     const component = createComponent('c-unconnected-card', 'Account card');
     Object.assign(component, {
@@ -2281,9 +2285,9 @@ describe('Dev Mode inspection codegen', () => {
 
     const blocks = await codegenEvents.get('generate')?.({ node: component });
 
-    expect(blocks?.find((block) => block.title === 'AccountCard.tsx')).toMatchObject({
-      language: 'TYPESCRIPT',
-      code: expect.stringContaining('export function AccountCard()'),
+    expect(blocks?.find((block) => block.title === "⚠️ This component isn't connected to code.")).toMatchObject({
+      language: 'PLAINTEXT',
+      code: '💬 Ask the Design System Owner',
     });
     expect(blocks?.find((block) => block.title === 'Layout')?.code).toBe(
       'display: flex;\nflex-direction: column;',
@@ -2321,7 +2325,7 @@ describe('Dev Mode inspection codegen', () => {
     });
   });
 
-  it('uses the visible tree when the unconnected selection is an instance', async () => {
+  it('generates a not-connected message and CSS when the unconnected selection is an instance', async () => {
     const { codegenEvents, selection } = await startPlugin();
     const mainComponent = createComponent('c-unconnected-banner', 'Banner');
     const instance = createInstance(
@@ -2349,8 +2353,7 @@ describe('Dev Mode inspection codegen', () => {
 
     const blocks = await codegenEvents.get('generate')?.({ node: instance });
 
-    expect(blocks?.find((block) => block.title === 'PromoBanner.tsx')?.code)
-      .toContain('export function PromoBanner()');
+    expect(blocks?.find((block) => block.title === "⚠️ This component isn't connected to code.")).toBeDefined();
     expect(blocks?.find((block) => block.title === 'Layout')?.code)
       .toBe('display: flex;');
     expect(blocks?.find((block) => block.title === 'Style')?.code)
@@ -2481,18 +2484,10 @@ describe('Dev Mode inspection codegen', () => {
     Object.assign(componentSet, { defaultVariant: secondaryVariant });
 
     const blocks = await codegenEvents.get('generate')?.({ node: selectedVariant });
-    const react = blocks?.find((block) => block.title === 'Button.tsx');
+    const notConnected = blocks?.find((block) => block.title === "⚠️ This component isn't connected to code.");
     const logic = blocks?.find((block) => block.title === 'Variant logic');
 
-    expect(react?.code).toContain('const ButtonRoot = styled.div`');
-    expect(react?.code).toContain('export function Button()');
-    expect(react?.code).not.toContain('StyleSolidSizeSmallStateRestSingleIconYesRoot');
-    expect(react?.code).toContain('gap: var(--spacing-0);');
-    expect(react?.code).toContain(
-      'padding: var(--spacing-6) var(--spacing-12);',
-    );
-    expect(react?.code).toContain('border-radius: var(--radius-4);');
-    expect(react?.code).toContain('background: ${colors.bg.primary.default};');
+    expect(notConnected).toBeDefined();
     expect(logic).toMatchObject({ language: 'TYPESCRIPT' });
     expect(logic?.code).toContain('export type ButtonVariantProps');
     expect(logic?.code).toContain('size?: "Small" | "Large";');
@@ -2544,7 +2539,7 @@ describe('Dev Mode inspection codegen', () => {
     });
 
     const blocks = await codegenEvents.get('generate')?.({ node: frame });
-    const devModeTsx = blocks?.find((block) => block.title === 'ParityLayout.tsx')?.code;
+    const devModeTsx = blocks?.find((block) => block.title === 'Generated Code')?.code;
 
     selection.push(frame);
     utilityMocks.handlers.get('REFRESH_SELECTION')?.(undefined);
@@ -2561,7 +2556,7 @@ describe('Dev Mode inspection codegen', () => {
     expect(devModeTsx).toBe(inspectState.layout.tsx);
   });
 
-  it('returns Layout and Style CSS blocks plus a connected-components note for a frame', async () => {
+  it('returns Frame TSX, Layout, and Style CSS blocks for a frame selection', async () => {
     const metadata: ConnectionMetadata = {
       schemaVersion: CURRENT_SCHEMA_VERSION,
       childrenMode: 'none',
@@ -2589,8 +2584,7 @@ describe('Dev Mode inspection codegen', () => {
 
     const layout = blocks?.find((b) => b.title === 'Layout');
     const style = blocks?.find((b) => b.title === 'Style');
-    const components = blocks?.find((b) => b.title === 'Connected components');
-    const react = blocks?.find((b) => b.title === 'PaymentForm.tsx');
+    const react = blocks?.find((b) => b.title === 'Generated Code');
     expect(react).toMatchObject({ language: 'TYPESCRIPT' });
     expect(react?.code).toContain('export function PaymentForm()');
     expect(react?.code).toContain('import styled from "styled-components";');
@@ -2604,89 +2598,29 @@ describe('Dev Mode inspection codegen', () => {
     );
     expect(style).toMatchObject({ language: 'CSS' });
     expect(style?.code).toBe('border-bottom: 1px solid var(--color-border);');
-    // The connected component's usage code — imports plus JSX with mapped
-    // props — appears in Dev Mode, with the layer path as a comment.
-    expect(components).toMatchObject({ language: 'TYPESCRIPT' });
-    expect(components?.code).toBe([
-      'import { Button } from "@tashilcar/ui";',
-      '',
-      '//./ i-button',
-      '<Button />',
-    ].join('\n'));
+    expect(blocks?.some((b) => b.title === 'Connected components')).toBe(false);
   });
 
-  it('includes non-blocking accessibility findings for a known contrast failure', async () => {
+  it('extracts raw content for a text layer', async () => {
     const { codegenEvents } = await startPlugin();
-    const frame = createFrame('a11y-frame', 'Low contrast action', [], {
-      css: {
-        'background-color': '#888888',
-        color: '#777777',
-        height: '18px',
-        width: '20px',
-      },
-    });
-    const blocks = await codegenEvents.get('generate')?.({ node: frame });
-    expect(blocks?.find((block) => block.title === 'Accessibility')).toEqual(expect.objectContaining({
-      code: expect.stringContaining('below WCAG AA'),
+    const textNode = {
+      id: 't1',
+      name: 'Headline',
+      type: 'TEXT',
+      characters: 'Welcome to Tashil',
+      parent: { type: 'PAGE' },
+      getCSSAsync: vi.fn(() => Promise.resolve({
+        color: '#111111',
+        'font-size': '24px',
+      })),
+    } as unknown as SceneNode;
+
+    const blocks = await codegenEvents.get('generate')?.({ node: textNode });
+    expect(blocks?.find((b) => b.title === 'Content')).toMatchObject({
+      code: 'Welcome to Tashil',
       language: 'PLAINTEXT',
-    }));
-    expect(blocks?.some((block) => block.language === 'TYPESCRIPT')).toBe(true);
-  });
-
-  it('hides source comments when the Dev Mode preference is set to hide', async () => {
-    const metadata: ConnectionMetadata = {
-      schemaVersion: CURRENT_SCHEMA_VERSION,
-      childrenMode: 'none',
-      componentName: 'Button',
-      importPath: '@tashilcar/ui',
-    };
-    const { codegenEvents, codegenCustomSettings } = await startPlugin();
-    codegenCustomSettings['pathComments'] = 'hide';
-    const button = createComponent('c-button', 'Button', {
-      sharedPluginData: JSON.stringify(metadata),
     });
-    const frame = createFrame('f-root', 'Payment form', [
-      createInstance('i-button', Promise.resolve(button)),
-    ], { css: { display: 'flex' } });
-
-    const blocks = await codegenEvents.get('generate')?.({ node: frame });
-
-    const components = blocks?.find((b) => b.title === 'Connected components');
-    expect(components?.code).toBe([
-      'import { Button } from "@tashilcar/ui";',
-      '',
-      '<Button />',
-    ].join('\n'));
-    expect(components?.code).not.toContain('//./');
-  });
-
-  it('deduplicates imports across connected components in the Dev Mode snippet', async () => {
-    const metadata: ConnectionMetadata = {
-      schemaVersion: CURRENT_SCHEMA_VERSION,
-      childrenMode: 'none',
-      componentName: 'Button',
-      importPath: '@tashilcar/ui',
-    };
-    const { codegenEvents } = await startPlugin();
-    const button = createComponent('c-button', 'Button', {
-      sharedPluginData: JSON.stringify(metadata),
-    });
-    const frame = createFrame('f-row', 'Bottom bar', [
-      createInstance('i-cancel', Promise.resolve(button)),
-      createInstance('i-submit', Promise.resolve(button)),
-    ], { css: { display: 'flex' } });
-
-    const blocks = await codegenEvents.get('generate')?.({ node: frame });
-
-    const components = blocks?.find((b) => b.title === 'Connected components');
-    const importLines = components?.code
-      .split('\n')
-      .filter((line) => line.startsWith('import '));
-    expect(importLines).toEqual(['import { Button } from "@tashilcar/ui";']);
-    expect(components?.code).toContain('//./ i-cancel');
-    expect(components?.code).toContain('//./ i-submit');
-    // Inspection is read-only: generating never writes plugin data.
-    expect(button.setSharedPluginData).not.toHaveBeenCalled();
+    expect(blocks?.find((b) => b.title === 'Style')?.code).toBe('color: #111111;\nfont-size: 24px;');
   });
 
   it('combines selected connected instances in order and reports unsupported selections', async () => {
@@ -2738,31 +2672,39 @@ describe('Dev Mode inspection codegen', () => {
     );
   });
 
-  it('keeps connected-component output byte-identical (no layout branch)', async () => {
+  it('generates Connected Component blocks including usage, references, layout, and style', async () => {
     const metadata: ConnectionMetadata = {
       schemaVersion: CURRENT_SCHEMA_VERSION,
       childrenMode: 'none',
       componentName: 'Button',
       importPath: 'tashil-ui',
+      storybookUrl: 'https://storybook.example.com/?path=/story/button',
     };
     const { codegenEvents } = await startPlugin();
     const component = createComponent('c-button', 'Button', {
       sharedPluginData: JSON.stringify(metadata),
     });
-    Object.assign(component, { description: 'Primary action component.' });
+    Object.assign(component, {
+      getCSSAsync: vi.fn(() => Promise.resolve({ display: 'inline-flex', padding: '8px 16px' })),
+    });
 
     const blocks = await codegenEvents.get('generate')?.({ node: component });
 
-    // A connected component returns usage plus its Storybook starter, without
-    // entering the CSS/layout branch.
     expect(blocks).toEqual(expect.arrayContaining([
       expect.objectContaining({
+        title: 'Generated Code',
         code: expect.stringContaining('<Button'),
         language: 'TYPESCRIPT',
       }),
+      expect.objectContaining({
+        title: 'References',
+        language: 'PLAINTEXT',
+      }),
+      expect.objectContaining({
+        title: 'Layout',
+        language: 'CSS',
+      }),
     ]));
-    expect(blocks?.some((b) => b.language === 'CSS')).toBe(false);
-    expect(blocks?.some((b) => b.title === 'Component descriptions')).toBe(false);
   });
 
   it('inspects any node type — a vector gets its CSS, not a rejection', async () => {
@@ -2791,23 +2733,35 @@ describe('Dev Mode inspection codegen', () => {
     const blocks = await codegenEvents.get('generate')?.({ node: noneFrame });
 
     expect(blocks?.find((b) => b.title === 'Layout')?.code).toBe('width: 320px;\nheight: 200px;');
-    expect(blocks?.find((b) => b.title === 'AbsoluteFrame.tsx')?.code)
+    expect(blocks?.find((b) => b.title === 'Generated Code')?.code)
       .toContain('export function AbsoluteFrame()');
-    const notes = blocks?.find((b) => b.title === 'React generation notes')?.code;
-    expect(notes).toBeUndefined();
   });
 
-  it('adds a Notes block when the runtime cannot produce CSS', async () => {
-    // No `css` option → the double has no getCSSAsync, mirroring a runtime
-    // without the API. The plugin degrades instead of failing.
+  it('skips heavy React generation and emits a tip when a frame has more than 150 layers', async () => {
     const { codegenEvents } = await startPlugin();
-    const frame = createFrame('f-nocss', 'Panel', []);
+    const children = Array.from({ length: 151 }, (_, index) =>
+      createFrame(`child-${index}`, `Child ${index}`, [], {
+        css: { display: 'block' },
+      }),
+    );
+    const largeFrame = createFrame('f-large', 'Full Dashboard Screen', children, {
+      css: {
+        display: 'flex',
+        'flex-direction': 'column',
+        'background-color': '#f8f9fa',
+      },
+    });
 
-    const blocks = await codegenEvents.get('generate')?.({ node: frame });
+    const blocks = await codegenEvents.get('generate')?.({ node: largeFrame });
 
-    const notes = blocks?.find((b) => b.title === 'Notes');
-    expect(notes?.language).toBe('PLAINTEXT');
-    expect(notes?.code).toContain('CSS inspection is not available');
+    const generatedCode = blocks?.find((b) => b.title === 'Generated Code');
+    expect(generatedCode).toMatchObject({
+      language: 'PLAINTEXT',
+      code: expect.stringContaining('⚠️ This frame contains too many layers for full React generation.'),
+    });
+    expect(generatedCode?.code).toContain('💡 Tip: Select a specific section');
+    expect(blocks?.find((b) => b.title === 'Layout')?.code).toBe('display: flex;\nflex-direction: column;');
+    expect(blocks?.find((b) => b.title === 'Style')?.code).toBe('background-color: #f8f9fa;');
   });
 });
 
@@ -3322,31 +3276,26 @@ describe('semantic connection generation', () => {
     return component;
   }
 
-  it('generates the approved semantic TSX with runtime and explanation blocks in Dev Mode', async () => {
+  it('generates the approved semantic TSX with runtime requirements in Notes in Dev Mode', async () => {
     const { codegenEvents } = await startPlugin();
     const component = createSemanticDialogComponent();
 
     const blocks = await codegenEvents.get('generate')?.({ node: component });
 
     expect(blocks?.[0]).toEqual({
-      title: 'ConfirmationDialog',
+      title: 'Generated Code',
       language: 'TYPESCRIPT',
       code: APPROVED_DIALOG_CODE,
     });
 
     const titles = blocks?.map((block) => block.title);
-    expect(titles).toContain('Set in application');
-    expect(titles).toContain('Why this structure?');
-    expect(titles).not.toContain('Mapping diagnostics');
+    expect(titles).toContain('Notes');
 
-    const runtimeBlock = blocks?.find((block) => block.title === 'Set in application');
-    expect(runtimeBlock?.code).toBe('onConfirm: () => void');
-
-    const explanationBlock = blocks?.find((block) => block.title === 'Why this structure?');
-    expect(explanationBlock?.code).toContain('title — From nested text "Header / Title".');
+    const notesBlock = blocks?.find((block) => block.title === 'Notes');
+    expect(notesBlock?.code).toContain('onConfirm: () => void');
   });
 
-  it('emits a Deprecated block but still generates code for a deprecated recipe', async () => {
+  it('emits a Notes block with deprecation info but still generates code for a deprecated recipe', async () => {
     const { codegenEvents } = await startPlugin();
     const recipe = { ...createDialogRecipe(), lifecycle: { replacement: 'Use AlertDialog instead.', state: 'deprecated' as const } };
     const component = createComponent('dialog-main', 'Dialog', {
@@ -3364,8 +3313,8 @@ describe('semantic connection generation', () => {
 
     const blocks = await codegenEvents.get('generate')?.({ node: component });
 
-    const deprecationBlock = blocks?.find((block) => block.title === '⚠️ Deprecated');
-    expect(deprecationBlock?.code).toBe('ConfirmationDialog is deprecated. Use AlertDialog instead.');
+    const notesBlock = blocks?.find((block) => block.title === 'Notes');
+    expect(notesBlock?.code).toContain('ConfirmationDialog is deprecated. Use AlertDialog instead.');
     // The production code is still emitted in full.
     expect(blocks?.[0].code).toBe(APPROVED_DIALOG_CODE);
   });
@@ -3423,8 +3372,8 @@ describe('semantic connection generation', () => {
 
     const blocks = await codegenEvents.get('generate')?.({ node: component });
 
-    const diagnosticsBlock = blocks?.find((block) => block.title === 'Mapping diagnostics');
-    expect(diagnosticsBlock?.code).toContain('"title"');
+    const notesBlock = blocks?.find((block) => block.title === 'Notes');
+    expect(notesBlock?.code).toContain('"title"');
     expect(blocks?.[0].code).toContain('cancelAction={{ label: "Cancel" }}');
     expect(blocks?.[0].code).not.toContain('title=');
   });

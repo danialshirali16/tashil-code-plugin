@@ -6,6 +6,7 @@
   "scripts": {
     "audit:library": "vite-node scripts/audit-library-compatibility.mjs",
     "build": "npm run typecheck && build-figma-plugin --minify",
+    "check:bundle": "node scripts/check-bundle-size.mjs",
     "harness": "vite --config vite.harness.config.ts",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",

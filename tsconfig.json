@@ -6,6 +6,7 @@
   },
   "include": [
     "src/main.ts",
+    "src/main/*.ts",
     "src/codegen.ts",
     "src/connection-portability.ts",
     "src/storybook.ts",

@@ -8,9 +8,38 @@ Tashil components. The result appears in two places:
 - **Tashil Code → Inspect Code** — inside the plugin, in Design mode, so
   teammates without a Dev Mode seat get the same inspection.
 
-Selecting a **connected component instance** still produces that component's
-standalone usage snippet. Vector and other leaf selections retain selected-node
-CSS inspection rather than pretending to reconstruct unavailable geometry.
+## Dev Mode Output Architecture
+
+Dev Mode emits a structured, clean sequence of blocks based on the exact selection category:
+
+```text
+FRAME / CONTAINER
+├── Generated Code
+├── Layout
+└── Style
+
+CONNECTED COMPONENT
+├── Generated Code
+├── References
+├── Layout
+├── Style
+└── Notes
+
+NOT CONNECTED COMPONENT
+├── ⚠️ This component isn't connected to code.
+├── Variant logic
+├── Layout
+└── Style
+
+PRIMITIVE / VECTOR
+├── Layout
+└── Style
+
+TEXT
+├── Content
+├── Layout
+└── Style
+```
 
 ## What you see
 
@@ -89,7 +118,8 @@ being silently dropped:
 - unsupported assets, preserved as JSX comments;
 - non-auto-layout frames, emitted as relative positioning contexts with
   ordinary children placed from their Figma-local coordinates;
-- a very large tree truncated at the node/depth budget.
+- **large frames (> 150 layers)**: Dev Mode fast pre-flight skips full React TSX layout generation to prevent UI thread freezing, emitting a tip in `Generated Code` while instantly displaying the container's root `Layout` and `Style` CSS.
+- a very large tree truncated at the node/depth budget in Design mode Inspect.
 
 Inspect Code keeps these notes separate from **Set in application**, which lists
 runtime values required by semantic component recipes. The summary card reports
