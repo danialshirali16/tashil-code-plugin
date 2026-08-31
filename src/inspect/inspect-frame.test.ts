@@ -89,13 +89,31 @@ describe('inspectFrame — text style', () => {
     expect(inspection.css.style).toHaveLength(4);
   });
 
-  it('leaves textStyleName unset when the node has no text style', async () => {
-    const label = text('t:plain', 'Label', 'Hello', {
-      css: { color: '#111' },
+  it('resolves effectStyleName to lower_underscore when effectStyleId is set', async () => {
+    const card = frame('f:card', 'Card', [], {
+      effectStyleId: 'S:elevation-md',
+      css: {
+        'box-shadow': '0px 4px 6px -1px rgba(0, 0, 0, 0.1)',
+      },
     }) as unknown as InspectableNode;
-    const inspection = await inspectFrame(label);
+    const inspection = await inspectFrame(card, {
+      loadEffectStyle: async (id) =>
+        id === 'S:elevation-md' ? { name: 'Elevation / Shadow-MD' } : null,
+    });
 
-    expect(inspection.textStyleName).toBeUndefined();
+    expect(inspection.effectStyleName).toBe('elevation_shadow_md');
+    expect(inspection.css.style).toHaveLength(1);
+  });
+
+  it('leaves effectStyleName unset when the node has no effect style', async () => {
+    const card = frame('f:card', 'Card', [], {
+      css: {
+        'box-shadow': '0px 4px 6px -1px rgba(0, 0, 0, 0.1)',
+      },
+    }) as unknown as InspectableNode;
+    const inspection = await inspectFrame(card);
+
+    expect(inspection.effectStyleName).toBeUndefined();
   });
 });
 

@@ -4,8 +4,8 @@ Status: Active
 Last updated: 2026-08-01
 
 The **Sync Tokens** tab exports Figma Variables as CSS, raw Markdown token
-lists, flat JSON, W3C DTCG JSON, SCSS variables/maps, or a Tailwind
-theme-extension snippet.
+lists, flat JSON, W3C DTCG JSON, SCSS variables/maps, a Tailwind
+theme-extension snippet, or a Nested TypeScript object.
 
 ## What it does
 
@@ -83,6 +83,8 @@ stylesheet.
 - **SCSS variables + map** emits individual `$token` variables and a `$tokens` map.
 - **Tailwind theme extension** emits a TypeScript theme snippet under
   `theme.extend.tokens`.
+- **TypeScript — nested object** emits a typed `.ts` file with slash-delimited token hierarchies
+  converted to nested objects and alias references written as JavaScript property paths.
 
 The last-export comparison is informational. It never changes or blocks the
 download, and its per-token hashes stay in Figma `clientStorage` for your user.
@@ -194,4 +196,4 @@ no unit, so a blanket px→rem would corrupt unitless values.
 | Preview shows a mode fallback warning | A referenced collection does not have a mode with the selected mode's name, so its default mode was used. Use the warning's **Alias mode** dropdown to choose the intended mode. |
 | Preview reports fewer declarations than variables | Open the listed warnings; missing values and unsupported Figma value shapes are skipped instead of fabricating CSS. |
 | Opacity / font-weight came out as `rem` | It shouldn't — only length-scoped variables convert. If it does, the variable's scope in Figma is mislabeled. |
-| Need another file syntax | Choose CSS, Markdown, JSON, SCSS, or Tailwind under **Output format**. |
+| Need another file syntax | Choose CSS, Markdown, JSON, SCSS, Tailwind, or TypeScript under **Output format**. |

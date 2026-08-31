@@ -88,6 +88,11 @@ and stops at the 50-selection safety limit.
    comma-joined for mixed runs) after the last `color:` declaration. If no
    `color:` declaration is present the comment appears at the top. The CSS
    declarations themselves are unchanged.
+10. **Effect-style names appear in the Style block.** When a layer uses a
+    Figma Effect Style (e.g. drop shadow, inner shadow, blur), the Style CSS block
+    inserts a `/* name */` comment (snake_case via
+    `formatTokenName(name, 'lower-underscore')`) immediately preceding the
+    `box-shadow:` or `filter:` declaration. The CSS declarations themselves are unchanged.
 
 ## Gotchas
 

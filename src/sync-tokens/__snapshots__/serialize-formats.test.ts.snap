@@ -60,6 +60,20 @@ export default {
 };"
 `;
 
+exports[`extended token serializers > generates typescript-nested output 1`] = `
+"import type { Core } from './types';
+
+export const core: Core = {
+  color: {
+    primary: '#ff0000',
+  },
+  space: {
+    small: '0.5rem',
+  },
+};
+"
+`;
+
 exports[`extended token serializers > keeps omitted outputFormat byte-identical to CSS 1`] = `
 "/* Core — exported from Figma variables */
 :root {

@@ -20,6 +20,8 @@ export type StyledDefinition = {
   tag: string;
   /** When set, font-* props were dropped and this comment replaces them. */
   textStyleName?: string;
+  /** When set, an effect-style comment is inserted before box-shadow/filter. */
+  effectStyleName?: string;
 };
 
 /**
@@ -136,6 +138,15 @@ export function renderStyledDefinitions(
           lines.push(comment);
         }
       }
+      if (definition.effectStyleName) {
+        const commentIndex = findEffectStyleCommentIndex(definition.declarations);
+        const comment = `  /* ${definition.effectStyleName} */`;
+        if (commentIndex >= 0 && commentIndex <= lines.length) {
+          lines.splice(commentIndex, 0, comment);
+        } else {
+          lines.push(comment);
+        }
+      }
       const declarations = lines.join('\n');
       return [
         `const ${definition.name} = styled.${definition.tag}\``,
@@ -144,6 +155,18 @@ export function renderStyledDefinitions(
       ].join('\n');
     })
     .join('\n\n');
+}
+
+/**
+ * Place the effect-style comment right before `box-shadow`, `filter`, or `backdrop-filter`.
+ * Falls back to the top of the block.
+ */
+function findEffectStyleCommentIndex(declarations: readonly CssDeclaration[]): number {
+  const index = declarations.findIndex(({ property }) => {
+    const prop = property.trim().toLowerCase();
+    return prop === 'box-shadow' || prop === 'filter' || prop === 'backdrop-filter';
+  });
+  return index !== -1 ? index : 0;
 }
 
 /**
@@ -240,6 +263,7 @@ function collectDefinitions(
       name,
       nodeId: node.nodeId,
       tag: node.element,
+      ...(node.effectStyleName ? { effectStyleName: node.effectStyleName } : {}),
     });
 
     for (const child of node.children) {
@@ -273,6 +297,7 @@ function collectDefinitions(
       nodeId: node.nodeId,
       tag: 'span',
       ...(node.textStyleName ? { textStyleName: node.textStyleName } : {}),
+      ...(node.effectStyleName ? { effectStyleName: node.effectStyleName } : {}),
     });
     return;
   }
@@ -320,6 +345,7 @@ function collectDefinitions(
       name,
       nodeId: node.nodeId,
       tag: 'div',
+      ...(node.effectStyleName ? { effectStyleName: node.effectStyleName } : {}),
     });
     return;
   }

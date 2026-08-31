@@ -9,13 +9,13 @@ architecture doc when you need the message-protocol byte shapes or the
 extension table.
 
 The working tree exports CSS, raw Markdown token lists, flat JSON, W3C DTCG
-JSON, SCSS variables/maps, and Tailwind theme-extension snippets through one
+JSON, SCSS variables/maps, Tailwind theme-extension snippets, and Nested TypeScript objects through one
 format dispatcher.
 
 ## At a glance
 
 Sync Tokens exports Figma Variable collections in CSS, Markdown, JSON, SCSS,
-or Tailwind formats (one file per collection × selected mode). The work splits
+Tailwind, or Nested TypeScript formats (one file per collection × selected mode). The work splits
 into three layers, matching the rest of the plugin:
 
 ```text
@@ -39,7 +39,7 @@ the `semantic/` and `inspect/` layering.
 | --- | --- |
 | `src/sync-tokens/types.ts` | Pure domain model. Zero `@figma/plugin-typings` imports. Defines `Token`, `TokenCollection`, `ExportOptions`, `LENGTH_SCOPES`, `ExportFile`. |
 | `src/sync-tokens/serialize.ts` | Pure CSS transforms and value formatting. |
-| `src/sync-tokens/serialize-formats.ts` | Format dispatcher plus Markdown, JSON, SCSS, and Tailwind serializers; also creates per-token content hashes. |
+| `src/sync-tokens/serialize-formats.ts` | Format dispatcher plus Markdown, JSON, SCSS, Tailwind, and Nested TypeScript serializers; also creates per-token content hashes. |
 | `src/sync-tokens/export-diff.ts` | Pure added/changed/removed/unchanged comparison for export snapshots. |
 | `src/sync-tokens/serialize.test.ts` | Unit tests for the serializers. |
 | `src/main/token-adapter.ts` | The **only** place that calls `figma.variables.*`. `generateTokenFiles`, `collectTokens`, `normalizeValue`, `loadTokenCollections`, `previewTokens`, `exportTokens`. |

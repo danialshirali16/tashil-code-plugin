@@ -173,6 +173,8 @@ export type ContainerCompositionNode = {
   children: CompositionNode[];
   /** How this container behaves as a flex item in its parent. */
   childStyle?: ChildStyle;
+  /** Snake-cased Figma effect-style name. */
+  effectStyleName?: string;
 };
 
 /** A safely exported visual leaf rendered as an image or token-colored mask. */
@@ -202,6 +204,8 @@ export type ShapeCompositionNode = {
   className: string;
   declarations: CssDeclaration[];
   childStyle?: ChildStyle;
+  /** Snake-cased Figma effect-style name. */
+  effectStyleName?: string;
 };
 
 /** An unconnected text node emitted as escaped JSX text. */
@@ -221,6 +225,8 @@ export type TextCompositionNode = {
    * rendering concern in `styled-components-emitter.ts`.
    */
   textStyleName?: string;
+  /** Snake-cased Figma effect-style name. */
+  effectStyleName?: string;
   /** How this text behaves as a flex item in its parent. */
   childStyle?: ChildStyle;
 };

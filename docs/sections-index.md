@@ -23,7 +23,7 @@ the `figma.mode` gate in `src/main.ts` decides which code path runs.
 | **Inspect** (`src/inspect/`) | Dev-Mode-parity selected-layer CSS inspection: partition `getCSSAsync()` into Layout/Style buckets and enumerate connected components. | `src/inspect/inspect-frame.ts` | [section-inspect.md](section-inspect.md) | This consumes CSS Figma **already emitted**. Do not confuse it with Sync Tokens, which **authors** CSS from variables. Different code paths. |
 | **Layout** (`src/layout/`) | Full-tree styled-components React codegen: traverse a selected frame/group/section/text, emit one `.tsx` module with connected components as atomic usages. | `src/layout/react-layout.ts`, `src/layout/figma-layout-extractor.ts` | [section-layout.md](section-layout.md) | Connected instances are **never** expanded into internals. The one exception is an *unconnected* instance with visible children — expanded with a diagnostic. |
 | **Semantic** (`src/semantic/`) | Recipe-based connect for components whose Figma structure does not match source: schema, resolver, authoring, reconcile, source contract, figma extraction. | `src/semantic/resolver.ts`, `src/semantic/types.ts` | [section-semantic.md](section-semantic.md) | Every module here is pure and Figma-free **except** `figma-adapter.ts`. Don't import `@figma/plugin-typings` anywhere else in this folder. |
-| **Sync Tokens** (`src/sync-tokens/`) | Serialize Figma Variable collections to CSS, JSON, Tailwind, and Markdown: pure core; `src/main/token-adapter.ts` is the Figma adapter. | `src/sync-tokens/serialize.ts`, `src/main/token-adapter.ts` | [section-sync-tokens.md](section-sync-tokens.md) | The Figma Variables API is touched **only** in `src/main/token-adapter.ts`. The pure core in `src/sync-tokens/` must stay free of `@figma/plugin-typings` so the test project compiles it. |
+| **Sync Tokens** (`src/sync-tokens/`) | Serialize Figma Variable collections to CSS, JSON, Tailwind, Markdown, and Nested TypeScript: pure core; `src/main/token-adapter.ts` is the Figma adapter. | `src/sync-tokens/serialize.ts`, `src/main/token-adapter.ts` | [section-sync-tokens.md](section-sync-tokens.md) | The Figma Variables API is touched **only** in `src/main/token-adapter.ts`. The pure core in `src/sync-tokens/` must stay free of `@figma/plugin-typings` so the test project compiles it. |
 | **Documentation** (`src/documentation/`) | Automated documentation generation and in-place reconciler for tokens, component specifications, and design system frames. | `src/documentation/token-doc-model.ts`, `src/documentation/figma-canvas-writer.ts` | [section-documentation.md](section-documentation.md) | Generated frames are stamped with `tashil_doc_meta` and reconciled in-place rather than recreated from scratch. |
 
 ## Global rules (apply everywhere)
@@ -133,7 +133,7 @@ public behavior, boundary, or invariants, update its `section-*.md`.
   they share the connection model and (for Semantic) feed back into Layout via
   `resolveSemanticUsage`.
 - **Sync Tokens** reads the Figma Variables API and serializes tokens into CSS,
-  JSON, Tailwind, and Markdown formats.
+  JSON, Tailwind, Markdown, and Nested TypeScript formats.
 - **Documentation** turns Figma Variable Collections and connected components into
   pixel-accurate canvas specifications using the Swiss Army Knife design system,
   supporting real-time in-place reconciliation when variables or component APIs evolve.

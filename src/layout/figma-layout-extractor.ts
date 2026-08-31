@@ -63,6 +63,8 @@ export type LayoutSourceNode = {
   boundVariables?: object;
   /** string = single text style; the `figma.mixed` symbol = multiple runs. */
   textStyleId?: unknown;
+  /** string = single effect style id. */
+  effectStyleId?: unknown;
   /** Resolves mixed-style runs to their per-segment `textStyleId`s. */
   getStyledTextSegmentsAsync?: (fields: readonly string[]) =>
     Promise<readonly { textStyleId?: unknown }[]>;
@@ -70,10 +72,14 @@ export type LayoutSourceNode = {
   exportAsync?: (settings: { format: 'SVG_STRING' }) => Promise<string | Uint8Array>;
 };
 
+export type EffectStyleLike = { name: string };
+export type EffectStyleLoader = (id: string) => Promise<EffectStyleLike | null>;
+
 class StructuralTokenResolver {
   constructor(
     private readonly load: VariableLoader,
     private readonly loadTextStyle: TextStyleLoader | null,
+    private readonly loadEffectStyle: EffectStyleLoader | null,
     private readonly context: GenerationContext,
   ) {}
 
@@ -120,6 +126,22 @@ class StructuralTokenResolver {
     }
     return names.length > 0 ? names.join(', ') : undefined;
   }
+
+  /**
+   * Resolve the Figma effect-style name for a node.
+   * Returns a `lower-underscore`-cased string, or `undefined`.
+   */
+  async resolveEffectStyleName(node: LayoutSourceNode): Promise<string | undefined> {
+    if (!this.loadEffectStyle) {
+      return undefined;
+    }
+    const id = typeof node.effectStyleId === 'string' ? node.effectStyleId.trim() : undefined;
+    if (!id) {
+      return undefined;
+    }
+    const style = await this.loadEffectStyle(id).catch(() => null);
+    return style ? formatTokenName(style.name, 'lower-underscore') : undefined;
+  }
 }
 
 class ClassNameRegistry {
@@ -148,6 +170,8 @@ export type ExtractLayoutOptions = GenerationLimits & {
   loadVariable?: VariableLoader;
   /** Resolves a Figma text-style id to its name; falls back to `getStyleByIdAsync`. */
   loadTextStyle?: TextStyleLoader;
+  /** Resolves a Figma effect-style id to its name; falls back to `getStyleByIdAsync`. */
+  loadEffectStyle?: EffectStyleLoader;
   /** Public component name to use when the selected layer is one variant. */
   rootName?: string;
 };
@@ -161,6 +185,7 @@ export async function extractLayout(
   const tokens = new StructuralTokenResolver(
     options.loadVariable ?? loadFigmaVariable,
     options.loadTextStyle ?? loadFigmaTextStyle,
+    options.loadEffectStyle ?? loadFigmaEffectStyle,
     context,
   );
   const diagnostics: LayoutDiagnostic[] = [];
@@ -294,6 +319,7 @@ async function resolveContainer(
     diagnostics,
     layerPath,
   );
+  const effectStyleName = await tokens.resolveEffectStyleName(node);
   const children: CompositionNode[] = [];
 
   if (depth >= context.maxDepth) {
@@ -313,6 +339,7 @@ async function resolveContainer(
       layerPath,
       isRoot,
       childStyle,
+      effectStyleName,
     );
   }
 
@@ -365,6 +392,7 @@ async function resolveContainer(
     layerPath,
     isRoot,
     childStyle,
+    effectStyleName,
   );
 }
 
@@ -517,7 +545,10 @@ async function resolveTextNode(
     diagnostics,
     layerPath,
   );
-  const textStyleName = await tokens.resolveTextStyleName(node);
+  const [textStyleName, effectStyleName] = await Promise.all([
+    tokens.resolveTextStyleName(node),
+    tokens.resolveEffectStyleName(node),
+  ]);
   return {
     kind: 'text',
     nodeId: node.id,
@@ -525,6 +556,7 @@ async function resolveTextNode(
     text: typeof node.characters === 'string' ? node.characters : node.name,
     declarations,
     ...(textStyleName ? { textStyleName } : {}),
+    ...(effectStyleName ? { effectStyleName } : {}),
     ...(childStyle || declarations.length > 0
       ? {
           ...(childStyle ? { childStyle } : {}),
@@ -543,6 +575,7 @@ function containerNode(
   layerPath: string[],
   isRoot: boolean,
   childStyle: ChildStyle | undefined,
+  effectStyleName?: string,
 ): ContainerCompositionNode {
   return {
     kind: 'container',
@@ -554,6 +587,7 @@ function containerNode(
     declarations,
     children,
     ...(childStyle ? { childStyle } : {}),
+    ...(effectStyleName ? { effectStyleName } : {}),
   };
 }
 
@@ -581,6 +615,7 @@ async function resolveLineNode(
     );
   }
   const childStyle = await getChildStyle(node, tokens, parentIsFreeform);
+  const effectStyleName = await tokens.resolveEffectStyleName(node);
   return {
     kind: 'shape',
     nodeId: node.id,
@@ -588,6 +623,7 @@ async function resolveLineNode(
     className: classNames.assign(node.id, node.name),
     declarations,
     ...(childStyle ? { childStyle } : {}),
+    ...(effectStyleName ? { effectStyleName } : {}),
   };
 }
 
@@ -947,6 +983,15 @@ async function loadFigmaVariable(id: string): Promise<VariableLike | null> {
 }
 
 async function loadFigmaTextStyle(id: string): Promise<TextStyleLike | null> {
+  if (typeof figma === 'undefined'
+    || typeof figma.getStyleByIdAsync !== 'function') {
+    return null;
+  }
+  const style = await figma.getStyleByIdAsync(id);
+  return style ? { name: style.name } : null;
+}
+
+async function loadFigmaEffectStyle(id: string): Promise<EffectStyleLike | null> {
   if (typeof figma === 'undefined'
     || typeof figma.getStyleByIdAsync !== 'function') {
     return null;

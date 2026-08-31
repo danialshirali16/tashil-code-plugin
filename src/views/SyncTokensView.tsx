@@ -51,7 +51,7 @@ export function boundedCssPreview(css: string, maximumLines = 14): string {
 export function tokenOutputExtension(format: OutputFormat): string {
   if (format === 'markdown') return 'md';
   if (format === 'scss') return 'scss';
-  if (format === 'tailwind-theme') return 'ts';
+  if (format === 'tailwind-theme' || format === 'typescript-nested') return 'ts';
   if (format === 'json-flat' || format === 'json-dtcg') return 'json';
   return 'css';
 }
@@ -451,6 +451,7 @@ export function SyncTokensView(props: {
                     { value: 'markdown', text: 'Markdown — raw token list' },
                     { value: 'scss', text: 'SCSS variables + map' },
                     { value: 'tailwind-theme', text: 'Tailwind theme extension' },
+                    { value: 'typescript-nested', text: 'TypeScript — nested object' },
                   ]}
                   value={outputFormat}
                 />

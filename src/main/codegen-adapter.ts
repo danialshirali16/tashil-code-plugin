@@ -333,7 +333,7 @@ export function createCssBlocks(inspection: FrameInspection): CodegenBlock[] {
     let styleCss = styleCssRaw;
     if (inspection.textStyleName) {
       const comment = `/* Text style: "${inspection.textStyleName}" */`;
-      const lines = styleCssRaw.split('\n');
+      const lines = styleCss.split('\n');
       let lastColorIndex = -1;
       for (let i = 0; i < lines.length; i++) {
         if (lines[i].trimStart().startsWith('color:')) {
@@ -341,9 +341,31 @@ export function createCssBlocks(inspection: FrameInspection): CodegenBlock[] {
         }
       }
       if (lastColorIndex === -1) {
-        styleCss = `${comment}\n${styleCssRaw}`;
+        styleCss = `${comment}\n${styleCss}`;
       } else {
         lines.splice(lastColorIndex + 1, 0, comment);
+        styleCss = lines.join('\n');
+      }
+    }
+    if (inspection.effectStyleName) {
+      const comment = `/* ${inspection.effectStyleName} */`;
+      const lines = styleCss.split('\n');
+      let effectIndex = -1;
+      for (let i = 0; i < lines.length; i++) {
+        const trimmed = lines[i].trimStart();
+        if (
+          trimmed.startsWith('box-shadow:')
+          || trimmed.startsWith('filter:')
+          || trimmed.startsWith('backdrop-filter:')
+        ) {
+          effectIndex = i;
+          break;
+        }
+      }
+      if (effectIndex === -1) {
+        styleCss = `${styleCss}\n${comment}`;
+      } else {
+        lines.splice(effectIndex, 0, comment);
         styleCss = lines.join('\n');
       }
     }
@@ -431,10 +453,14 @@ export async function inspectSceneNode(
   return inspectFrame(node as unknown as InspectableNode, {
     context,
     loadTextStyle: loadFigmaTextStyle,
+    loadEffectStyle: loadFigmaTextStyle,
   });
 }
 
 export async function loadFigmaTextStyle(id: string): Promise<{ name: string } | null> {
+  if (typeof figma === 'undefined' || typeof figma.getStyleByIdAsync !== 'function') {
+    return null;
+  }
   const style = await figma.getStyleByIdAsync(id);
   return style ? { name: style.name } : null;
 }

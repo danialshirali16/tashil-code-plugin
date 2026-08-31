@@ -122,6 +122,7 @@ type FrameOptions = {
   layoutSizingHorizontal?: 'FIXED' | 'HUG' | 'FILL';
   layoutSizingVertical?: 'FIXED' | 'HUG' | 'FILL';
   width?: number;
+  effectStyleId?: string;
   /** When set, the double exposes `getCSSAsync` resolving to these declarations. */
   css?: { [property: string]: string };
 };
@@ -150,6 +151,7 @@ function createFrame(
     name,
     parent: { type: 'PAGE' },
     type: 'FRAME',
+    ...(options.effectStyleId ? { effectStyleId: options.effectStyleId } : {}),
     ...(options.css ? { getCSSAsync: vi.fn(() => Promise.resolve(options.css)) } : {}),
   } as unknown as FrameDouble;
 }
@@ -236,6 +238,9 @@ async function startPlugin(options: StartPluginOptions = {}): Promise<{
   const variables = options.variables ?? [];
   const textStyles = options.textStyles ?? [];
   const effectStyles = options.effectStyles ?? [];
+  const stylesById = new Map<string, BaseStyle>(
+    [...effectStyles, ...textStyles].map((style) => [style.id, style as BaseStyle]),
+  );
   const variableCollectionsById = new Map(
     variableCollections.map((collection) => [collection.id, collection]),
   );
@@ -277,6 +282,7 @@ async function startPlugin(options: StartPluginOptions = {}): Promise<{
     currentPage: { selection },
     fileKey: 'file-key',
     getNodeByIdAsync: vi.fn((id: string) => Promise.resolve(nodesById.get(id) ?? null)),
+    getStyleByIdAsync: vi.fn((id: string) => Promise.resolve(stylesById.get(id) ?? null)),
     getLocalEffectStylesAsync: vi.fn(() => Promise.resolve(effectStyles)),
     getLocalTextStylesAsync: vi.fn(() => Promise.resolve(textStyles)),
     mode: 'default',
@@ -2762,6 +2768,27 @@ describe('Dev Mode inspection codegen', () => {
     expect(generatedCode?.code).toContain('💡 Tip: Select a specific section');
     expect(blocks?.find((b) => b.title === 'Layout')?.code).toBe('display: flex;\nflex-direction: column;');
     expect(blocks?.find((b) => b.title === 'Style')?.code).toBe('background-color: #f8f9fa;');
+  });
+
+  it('emits an Effect style comment before box-shadow when effectStyleId is set', async () => {
+    const { codegenEvents } = await startPlugin({
+      effectStyles: [
+        { id: 'S:elevation-md', name: 'Elevation / Shadow-MD' } as EffectStyle,
+      ],
+    });
+    const shadowFrame = createFrame('f-shadow', 'Shadow Frame', [], {
+      effectStyleId: 'S:elevation-md',
+      css: {
+        width: '320px',
+        height: '200px',
+        'box-shadow': '0px 4px 6px -1px rgba(0, 0, 0, 0.1)',
+      },
+    });
+
+    const blocks = await codegenEvents.get('generate')?.({ node: shadowFrame });
+
+    const styleBlock = blocks?.find((b) => b.title === 'Style');
+    expect(styleBlock?.code).toContain('/* elevation_shadow_md */\nbox-shadow: 0px 4px 6px -1px rgba(0, 0, 0, 0.1);');
   });
 });
 

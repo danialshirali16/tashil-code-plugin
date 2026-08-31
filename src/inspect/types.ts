@@ -69,4 +69,10 @@ export type FrameInspection = {
    * Only present for TEXT layers with a Figma Text Style.
    */
   textStyleName?: string;
+  /**
+   * Snake-cased Figma effect-style name (`lower-underscore`). When set, the
+   * Style block inserts an effect-style comment before the box-shadow/filter declaration.
+   * Only present for layers with a Figma Effect Style.
+   */
+  effectStyleName?: string;
 };

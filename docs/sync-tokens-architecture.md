@@ -11,7 +11,7 @@ decisions. Read this before changing anything in the export pipeline.
 ## At a glance
 
 Sync Tokens exports Figma Variable collections as CSS, Markdown, JSON, SCSS,
-or Tailwind files. The work splits cleanly into three layers, matching the rest
+Tailwind, or Nested TypeScript files. The work splits cleanly into three layers, matching the rest
 of the plugin:
 
 ```text
@@ -219,7 +219,7 @@ demand it — the persistence pattern already exists for connections.
 ### Multiple output formats
 
 The pure format dispatcher supports CSS, raw Markdown token lists, flat JSON,
-W3C DTCG JSON, SCSS, and a Tailwind theme extension. CSS is the compatibility
+W3C DTCG JSON, SCSS, a Tailwind theme extension, and Nested TypeScript objects. CSS is the compatibility
 default; JSON always uses hex colors to keep its values stable and
 tool-friendly. Each generated file also carries hashed token snapshots so the
 backend can compare it with the last successful export without storing raw

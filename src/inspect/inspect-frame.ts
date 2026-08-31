@@ -33,8 +33,10 @@ import type {
   InspectionDiagnosticReason,
 } from './types';
 
-type TextStyleLike = { name: string };
-type TextStyleLoader = (id: string) => Promise<TextStyleLike | null>;
+export type TextStyleLike = { name: string };
+export type TextStyleLoader = (id: string) => Promise<TextStyleLike | null>;
+export type EffectStyleLike = { name: string };
+export type EffectStyleLoader = (id: string) => Promise<EffectStyleLike | null>;
 
 /** Minimal structural view of a node the inspection traversal reads. */
 export type InspectableNode = CssSourceNode & {
@@ -43,6 +45,8 @@ export type InspectableNode = CssSourceNode & {
   children?: readonly InspectableNode[];
   /** string = single text style; the `figma.mixed` symbol = multiple runs. */
   textStyleId?: unknown;
+  /** string = single effect style id. */
+  effectStyleId?: unknown;
   /** Resolves mixed-style runs to their per-segment `textStyleId`s. */
   getStyledTextSegmentsAsync?: (fields: readonly string[]) =>
     Promise<readonly { textStyleId?: unknown }[]>;
@@ -52,6 +56,8 @@ export type InspectFrameOptions = GenerationLimits & {
   context?: GenerationContext;
   /** Resolves a Figma text-style id to its name; falls back to `getStyleByIdAsync`. */
   loadTextStyle?: TextStyleLoader;
+  /** Resolves a Figma effect-style id to its name; falls back to `getStyleByIdAsync`. */
+  loadEffectStyle?: EffectStyleLoader;
 };
 
 /**
@@ -95,9 +101,12 @@ export async function inspectFrame(
     });
   }
 
-  const textStyleName = root.type === 'TEXT'
-    ? await resolveTextStyleName(root, options.loadTextStyle ?? loadFigmaTextStyle)
-    : undefined;
+  const [textStyleName, effectStyleName] = await Promise.all([
+    root.type === 'TEXT'
+      ? resolveTextStyleName(root, options.loadTextStyle ?? loadFigmaTextStyle)
+      : Promise.resolve(undefined),
+    resolveEffectStyleName(root, options.loadEffectStyle ?? loadFigmaEffectStyle),
+  ]);
 
   return {
     accessibility: analyzeAccessibility(cssResult.css, root.type),
@@ -107,6 +116,7 @@ export async function inspectFrame(
     connectedComponents,
     diagnostics,
     ...(textStyleName ? { textStyleName } : {}),
+    ...(effectStyleName ? { effectStyleName } : {}),
   };
 }
 
@@ -260,6 +270,30 @@ async function collectTextStyleIds(node: InspectableNode): Promise<string[]> {
 }
 
 async function loadFigmaTextStyle(id: string): Promise<TextStyleLike | null> {
+  if (typeof figma === 'undefined'
+    || typeof figma.getStyleByIdAsync !== 'function') {
+    return null;
+  }
+  const style = await figma.getStyleByIdAsync(id);
+  return style ? { name: style.name } : null;
+}
+
+async function resolveEffectStyleName(
+  node: InspectableNode,
+  loadEffectStyle: EffectStyleLoader | null,
+): Promise<string | undefined> {
+  if (!loadEffectStyle) {
+    return undefined;
+  }
+  const id = typeof node.effectStyleId === 'string' ? node.effectStyleId.trim() : undefined;
+  if (!id) {
+    return undefined;
+  }
+  const style = await loadEffectStyle(id).catch(() => null);
+  return style ? formatTokenName(style.name, 'lower-underscore') : undefined;
+}
+
+async function loadFigmaEffectStyle(id: string): Promise<EffectStyleLike | null> {
   if (typeof figma === 'undefined'
     || typeof figma.getStyleByIdAsync !== 'function') {
     return null;

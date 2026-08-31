@@ -96,7 +96,10 @@ collisions receive matching deterministic aliases.
 
 Dev Mode also includes the selected node's **Layout** and **Style** CSS blocks
 from `getCSSAsync()`. These are passed through unmodified, so bound values keep
-their `var(--token, fallback)` form.
+their `var(--token, fallback)` form. When a node is bound to a Figma Text Style
+or Effect Style (shadows/blurs), a descriptive CSS comment
+(e.g., `/* Text style: "body_md_normal" */` or `/* elevation_shadow_md */`)
+is automatically inserted next to the corresponding declaration.
 
 ### Accessibility checks
 

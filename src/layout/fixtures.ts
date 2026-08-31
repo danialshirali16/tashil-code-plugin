@@ -45,6 +45,7 @@ type FrameOptions = {
   x?: number;
   y?: number;
   visible?: boolean;
+  effectStyleId?: unknown;
   css?: Record<string, string>;
   boundVariables?: Record<string, { id: string }>;
 };
@@ -87,6 +88,9 @@ export function frame(
     type: 'FRAME',
     visible: options.visible ?? true,
     boundVariables: options.boundVariables,
+    ...(options.effectStyleId !== undefined
+      ? { effectStyleId: options.effectStyleId }
+      : {}),
     ...(options.css
       ? { getCSSAsync: () => Promise.resolve({ ...options.css }) }
       : {}),
@@ -127,6 +131,8 @@ type ChildLayoutOptions = {
   css?: Record<string, string>;
   /** string = single text style; a symbol = mixed runs. */
   textStyleId?: unknown;
+  /** string = single effect style id. */
+  effectStyleId?: unknown;
   /** Mock for `TextNode.getStyledTextSegmentsAsync` (mixed-style runs). */
   getStyledTextSegmentsAsync?: (fields: readonly string[]) =>
     Promise<readonly { textStyleId?: unknown }[]>;
@@ -155,6 +161,9 @@ export function text(
     visible: childOptions.visible ?? true,
     ...(childOptions.textStyleId !== undefined
       ? { textStyleId: childOptions.textStyleId }
+      : {}),
+    ...(childOptions.effectStyleId !== undefined
+      ? { effectStyleId: childOptions.effectStyleId }
       : {}),
     ...(childOptions.getStyledTextSegmentsAsync
       ? { getStyledTextSegmentsAsync: childOptions.getStyledTextSegmentsAsync }
@@ -272,6 +281,9 @@ export function line(
     parent: { type: 'PAGE' },
     type: 'LINE',
     visible: childOptions.visible ?? true,
+    ...(childOptions.effectStyleId !== undefined
+      ? { effectStyleId: childOptions.effectStyleId }
+      : {}),
     ...(childOptions.svg || childOptions.exportError
       ? {
           exportAsync: () => childOptions.exportError

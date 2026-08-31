@@ -45,7 +45,8 @@ export type OutputFormat =
   | 'json-dtcg'
   | 'markdown'
   | 'scss'
-  | 'tailwind-theme';
+  | 'tailwind-theme'
+  | 'typescript-nested';
 
 /** Figma variable resolved type, mirrored here to stay runtime-free. */
 export type VariableResolvedType = 'BOOLEAN' | 'COLOR' | 'FLOAT' | 'STRING';

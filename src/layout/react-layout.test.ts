@@ -961,6 +961,24 @@ describe('full React layout generation', () => {
     expect(generated.tsx).not.toContain('letter-spacing');
   });
 
+  it('inserts an effect-style comment before box-shadow when a container uses a Figma Effect Style', async () => {
+    const card = frame('f:card-shadow', 'Card with shadow', [], {
+      effectStyleId: 'S:elevation-lg',
+      css: {
+        'box-shadow': '0 10px 15px -3px rgba(0, 0, 0, 0.1)',
+        'background-color': '#ffffff',
+      },
+    });
+
+    const generated = await generate(card, {
+      loadEffectStyle: async (id) =>
+        id === 'S:elevation-lg' ? { name: 'Elevation / LG' } : null,
+    });
+
+    expectValidTsx(generated.tsx);
+    expect(generated.tsx).toContain('/* elevation_lg */\n  box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1);');
+  });
+
   it('preserves the Figma node receiver when loading layout CSS through the cache', async () => {
     const root = frame('f:receiver', 'Receiver card', []) as unknown as FrameNode & {
       getCSSAsync: () => Promise<Record<string, string>>;
