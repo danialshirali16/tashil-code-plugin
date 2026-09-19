@@ -38,15 +38,16 @@ the `semantic/` and `inspect/` layering.
 | File | Role |
 | --- | --- |
 | `src/sync-tokens/types.ts` | Pure domain model. Zero `@figma/plugin-typings` imports. Defines `Token`, `TokenCollection`, `ExportOptions`, `LENGTH_SCOPES`, `ExportFile`. |
+| `src/sync-tokens/preferences.ts` | Pure domain model and normalization for user export preferences (`TokenExportPreferences`). |
 | `src/sync-tokens/serialize.ts` | Pure CSS transforms and value formatting. |
-| `src/sync-tokens/serialize-formats.ts` | Format dispatcher plus Markdown, JSON, SCSS, Tailwind, and Nested TypeScript serializers; also creates per-token content hashes. |
+| `src/sync-tokens/serialize-formats.ts` | Format dispatcher plus Markdown, JSON, SCSS, Tailwind, and Nested TypeScript serializers; also creates per-token content hashes and maps `$description` in DTCG JSON. |
 | `src/sync-tokens/export-diff.ts` | Pure added/changed/removed/unchanged comparison for export snapshots. |
 | `src/sync-tokens/serialize.test.ts` | Unit tests for the serializers. |
-| `src/main/token-adapter.ts` | The **only** place that calls `figma.variables.*`. `generateTokenFiles`, `collectTokens`, `normalizeValue`, `loadTokenCollections`, `previewTokens`, `exportTokens`. |
-| `src/ui-controller.ts` | Holds tab state, owns the message round-trips, packages/downloads results via `deliverTokenFiles`. |
+| `src/main/token-adapter.ts` | The **only** place that calls `figma.variables.*`. `generateTokenFiles`, `collectTokens`, `normalizeValue`, `loadTokenCollections`, `previewTokens`, `exportTokens`, `loadTokenExportPreferences`, `saveTokenExportPreferences`. |
+| `src/ui-controller.ts` | Holds tab state, owns the message round-trips, packages/downloads results via `deliverTokenFiles`, manages export preferences persistence. |
 | `src/ui-download.ts` | `downloadBlob()` — the plugin's only file-download mechanism. |
 | `src/views/SyncTokensView.tsx` | The `SyncTokensView` component + third-tab wiring. |
-| `src/types.ts` | The three message-handler pairs (`LOAD_TOKEN_COLLECTIONS`, `PREVIEW_TOKENS`, `EXPORT_TOKENS`) and their `*_RESULT` partners. |
+| `src/types.ts` | Message-handler pairs (`LOAD_TOKEN_COLLECTIONS`, `SAVE_TOKEN_EXPORT_PREFERENCES`, `PREVIEW_TOKENS`, `EXPORT_TOKENS`) and their `*_RESULT` partners. |
 
 ## The pure core (`src/sync-tokens/`)
 
@@ -120,9 +121,9 @@ and export orchestrator. Per selected collection, per selected mode:
   (`src/ui.tsx`) and the `tabs` array in `handleTabKeyDown` must stay in sync.
   Adding a fourth tab means updating the union, `tabs`, `tabIds`, **and** the
   rendered button markup.
-- **Export options are not persisted.** Selections and advanced settings reset
-  when the plugin reopens. Add a `setSharedPluginData` round-trip if
-  repeat-export workflows demand it.
+- **Export settings are persisted per-user in `clientStorage`.** Selected output format,
+  color format, naming style, px-to-rem conversion, and root font size persist
+  across plugin reopenings; active collection selections remain transient per session.
 - **One file per (collection × mode).** A multi-mode collection produces
   one file per mode using the selected format's extension. CSS files use a flat
   `:root {}`. Scoped `[data-theme]` blocks would be a backend change in

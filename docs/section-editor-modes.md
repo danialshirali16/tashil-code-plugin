@@ -30,7 +30,7 @@ src/main.ts
 │       (registered at module load; Dev Mode is what actually triggers it)
 │
 └── export default function () {             ← the UI/message layer
-        if (figma.mode !== 'default') return;   ← HARD GATE (main.ts:117)
+        if (figma.mode !== 'default') return;   ← HARD GATE (main.ts:87)
         showUI({ width: 560, height: 680 });
         on<SaveConnectionHandler>(…)
         on<ClearConnectionHandler>(…)
@@ -40,6 +40,11 @@ src/main.ts
         on<LoadTokenCollectionsHandler>(…)
         on<ExportTokensHandler>(…)
         on<PreviewTokensHandler>(…)
+        on<ScanDesignHealthHandler>(…)
+        on<ApplyTokenBindingsHandler>(…)
+        on<BuildCompatibilityPlanHandler>(…)
+        on<ExecuteComponentReplacementHandler>(…)
+        on<FocusNodeHandler>(…)
         on<OpenExternalHandler>(…)
         on<ResizeWindowHandler>(…)
         on<CloseHandler>(…)
@@ -59,7 +64,7 @@ src/main.ts
 
 **This gate is load-bearing.** An agent that adds a message handler *outside*
 the default export, or moves codegen logic *inside* it, will silently break one
-surface. The `if (figma.mode !== 'default') return;` at `main.ts:117` is the
+surface. The `if (figma.mode !== 'default') return;` at `main.ts:87` is the
 single source of truth for "which surface am I in."
 
 ## What each surface does
@@ -73,7 +78,9 @@ window (`src/ui.tsx`) is where design-system owners:
 - author semantic recipes ([semantic section](section-semantic.md)),
 - run **Inspect Code** — the in-plugin preview of what Dev Mode would generate,
   for teammates without a Dev Mode seat ([inspect section](section-inspect.md)),
-- export Figma Variables to CSS via **Sync Tokens** ([sync-tokens section](section-sync-tokens.md)).
+- export Figma Variables to CSS via **Sync Tokens** ([sync-tokens section](section-sync-tokens.md)),
+- generate and reconcile design system documentation frames ([documentation section](section-documentation.md)),
+- audit canvas selection, lint unbound tokens, plan component replacements, and batch-bind tokens via **Design Health** ([design-health section](section-design-health.md)).
 
 All connection persistence (`setSharedPluginData` under `tashil_storybook`) and
 all mutation messages (`SAVE_CONNECTION`, `CLEAR_CONNECTION`,

@@ -136,4 +136,46 @@ describe('extended token serializers', () => {
     expect(result.content).toContain(declaration);
     expect(result.content).not.toContain('\\.');
   });
+
+  it('includes $description in DTCG JSON when token has a description', () => {
+    const descCollection: TokenCollection = {
+      defaultModeId: 'default',
+      id: 'desc-col',
+      modes: [{ modeId: 'default', name: 'Default' }],
+      name: 'Descriptions',
+      tokens: [
+        {
+          description: 'The primary brand color for buttons and links',
+          id: 'c1',
+          name: 'color/brand/primary',
+          resolvedType: 'COLOR',
+          scopes: [],
+          value: { kind: 'color', value: { r: 0.1, g: 0.2, b: 0.9 } },
+        },
+        {
+          id: 'c2',
+          name: 'color/brand/secondary',
+          resolvedType: 'COLOR',
+          scopes: [],
+          value: { kind: 'color', value: { r: 0.5, g: 0.5, b: 0.5 } },
+        },
+      ],
+    };
+    const result = serializeTokenCollection(descCollection, {
+      ...base,
+      outputFormat: 'json-dtcg',
+    });
+    const parsed = JSON.parse(result.content);
+    expect(parsed.color.brand.primary).toEqual({
+      $description: 'The primary brand color for buttons and links',
+      $type: 'color',
+      $value: '#1a33e6',
+    });
+    expect(parsed.color.brand.secondary).toEqual({
+      $type: 'color',
+      $value: '#808080',
+    });
+    expect(parsed.color.brand.secondary.$description).toBeUndefined();
+  });
 });
+

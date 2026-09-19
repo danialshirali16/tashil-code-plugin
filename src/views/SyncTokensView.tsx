@@ -11,7 +11,7 @@ import {
   Toggle,
 } from '@create-figma-plugin/ui';
 import { h } from 'preact';
-import { useEffect, useState } from 'preact/hooks';
+import { useEffect, useRef, useState } from 'preact/hooks';
 import type {
   ColorFormat,
   ExportFile,
@@ -19,6 +19,7 @@ import type {
   NameStyle,
   OutputFormat,
   TokenCollectionSummary,
+  TokenExportPreferences,
 } from '../sync-tokens/types';
 import { IconDetach48 } from '../ui-assets';
 import {
@@ -63,12 +64,14 @@ export function SyncTokensView(props: {
   exportStatus: 'idle' | 'exporting' | 'error';
   exportError: string;
   exportSuccess: string;
+  preferences?: TokenExportPreferences;
   previewStatus: 'idle' | 'loading' | 'error';
   previewError: string;
   previewFiles: readonly ExportFile[];
   onLoadCollections: () => void;
   onExport: (collectionIds: readonly string[], options: ExportOptions) => void;
   onPreview: (collectionIds: readonly string[], options: ExportOptions) => void;
+  onSavePreferences?: (preferences: TokenExportPreferences) => void;
 }): h.JSX.Element {
   const {
     collections,
@@ -77,25 +80,39 @@ export function SyncTokensView(props: {
     exportStatus,
     exportError,
     exportSuccess,
+    preferences,
     previewStatus,
     previewError,
     previewFiles,
     onLoadCollections,
     onExport,
     onPreview,
+    onSavePreferences,
   } = props;
 
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [modesByCollection, setModesByCollection] = useState<Record<string, Set<string>>>({});
   const [query, setQuery] = useState('');
-  const [convertPxToRem, setConvertPxToRem] = useState(true);
-  const [rootFontSize, setRootFontSize] = useState<number>(16);
-  const [colorFormat, setColorFormat] = useState<ColorFormat>('hex');
-  const [nameStyle, setNameStyle] = useState<NameStyle>('lower-hyphen');
-  const [outputFormat, setOutputFormat] = useState<OutputFormat>('css');
+  const [convertPxToRem, setConvertPxToRem] = useState(preferences?.convertPxToRem ?? true);
+  const [rootFontSize, setRootFontSize] = useState<number>(preferences?.rootFontSize ?? 16);
+  const [colorFormat, setColorFormat] = useState<ColorFormat>(preferences?.colorFormat ?? 'hex');
+  const [nameStyle, setNameStyle] = useState<NameStyle>(preferences?.nameStyle ?? 'lower-hyphen');
+  const [outputFormat, setOutputFormat] = useState<OutputFormat>(preferences?.outputFormat ?? 'css');
   const [aliasModeOverrides, setAliasModeOverrides] = useState<
     Record<string, Record<string, Record<string, string>>>
   >({});
+
+  const hasHydratedPreferencesRef = useRef(false);
+  useEffect(() => {
+    if (preferences && !hasHydratedPreferencesRef.current) {
+      hasHydratedPreferencesRef.current = true;
+      setConvertPxToRem(preferences.convertPxToRem);
+      setRootFontSize(preferences.rootFontSize);
+      setColorFormat(preferences.colorFormat);
+      setNameStyle(preferences.nameStyle);
+      setOutputFormat(preferences.outputFormat);
+    }
+  }, [preferences]);
 
   useEffect(() => {
     if (collections.length === 0 && collectionsStatus === 'idle') {
@@ -189,6 +206,69 @@ export function SyncTokensView(props: {
       colorFormat,
       nameStyle,
       outputFormat,
+    });
+    onSavePreferences?.({
+      colorFormat,
+      convertPxToRem,
+      nameStyle,
+      outputFormat,
+      rootFontSize: rootFontSize > 0 ? rootFontSize : 16,
+    });
+  }
+
+  function handleConvertPxToRemChange(value: boolean): void {
+    setConvertPxToRem(value);
+    onSavePreferences?.({
+      colorFormat,
+      convertPxToRem: value,
+      nameStyle,
+      outputFormat,
+      rootFontSize: rootFontSize > 0 ? rootFontSize : 16,
+    });
+  }
+
+  function handleRootFontSizeChange(value: number | null): void {
+    const size = value === null || value <= 0 ? 16 : value;
+    setRootFontSize(size);
+    onSavePreferences?.({
+      colorFormat,
+      convertPxToRem,
+      nameStyle,
+      outputFormat,
+      rootFontSize: size,
+    });
+  }
+
+  function handleOutputFormatChange(value: OutputFormat): void {
+    setOutputFormat(value);
+    onSavePreferences?.({
+      colorFormat,
+      convertPxToRem,
+      nameStyle,
+      outputFormat: value,
+      rootFontSize: rootFontSize > 0 ? rootFontSize : 16,
+    });
+  }
+
+  function handleColorFormatChange(value: ColorFormat): void {
+    setColorFormat(value);
+    onSavePreferences?.({
+      colorFormat: value,
+      convertPxToRem,
+      nameStyle,
+      outputFormat,
+      rootFontSize: rootFontSize > 0 ? rootFontSize : 16,
+    });
+  }
+
+  function handleNameStyleChange(value: NameStyle): void {
+    setNameStyle(value);
+    onSavePreferences?.({
+      colorFormat,
+      convertPxToRem,
+      nameStyle: value,
+      outputFormat,
+      rootFontSize: rootFontSize > 0 ? rootFontSize : 16,
     });
   }
 
@@ -415,7 +495,7 @@ export function SyncTokensView(props: {
           <div class="sync-tokens-settings-panel">
             <div class="sync-tokens-unit-settings">
               <Toggle
-                onValueChange={setConvertPxToRem}
+                onValueChange={handleConvertPxToRemChange}
                 value={convertPxToRem}
               >
                 Convert px to rem
@@ -426,9 +506,7 @@ export function SyncTokensView(props: {
                   <div class="sync-tokens-number-input">
                     <TextboxNumeric
                       aria-label="Root font size in pixels"
-                      onNumericValueInput={(value) =>
-                        setRootFontSize(value === null ? 16 : value)
-                      }
+                      onNumericValueInput={handleRootFontSizeChange}
                       minimum={1}
                       integer
                       value={String(rootFontSize)}
@@ -443,7 +521,7 @@ export function SyncTokensView(props: {
               <Field id="tashil-output-format" label="Output format">
                 <Dropdown
                   aria-label="Output format"
-                  onValueChange={(value) => setOutputFormat(value as OutputFormat)}
+                  onValueChange={(value) => handleOutputFormatChange(value as OutputFormat)}
                   options={[
                     { value: 'css', text: 'CSS variables' },
                     { value: 'json-flat', text: 'JSON — flat' },
@@ -458,7 +536,7 @@ export function SyncTokensView(props: {
               </Field>
               <Field id="tashil-color-format" label="Color format">
                 <SegmentedControl
-                  onValueChange={(value) => setColorFormat(value as ColorFormat)}
+                  onValueChange={(value) => handleColorFormatChange(value as ColorFormat)}
                   options={[
                     { value: 'hex', children: 'HEX' },
                     { value: 'rgb', children: 'RGB' },
@@ -472,7 +550,7 @@ export function SyncTokensView(props: {
               <Field id="tashil-name-style" label="Token name">
                 <div class="sync-tokens-name-style">
                   <SegmentedControl
-                    onValueChange={(value) => setNameStyle(value as NameStyle)}
+                    onValueChange={(value) => handleNameStyleChange(value as NameStyle)}
                     options={[
                       { value: 'default', children: 'Default' },
                       { value: 'title-slash', children: 'A/A' },

@@ -410,7 +410,16 @@ export type LoadTokenCollectionsResultHandler = {
   handler: (result: {
     ok: boolean;
     collections?: ReadonlyArray<import('./sync-tokens/types').TokenCollectionSummary>;
+    preferences?: import('./sync-tokens/types').TokenExportPreferences;
     message?: string;
+  }) => void;
+};
+
+/** UI -> main: persist Sync Tokens export preferences in clientStorage. */
+export type SaveTokenExportPreferencesHandler = {
+  name: 'SAVE_TOKEN_EXPORT_PREFERENCES';
+  handler: (payload: {
+    preferences: import('./sync-tokens/types').TokenExportPreferences;
   }) => void;
 };
 
@@ -580,5 +589,91 @@ export type DocGenerationProgressHandler = {
   handler: (payload: {
     message: string;
     percent: number;
+  }) => void;
+};
+
+// --- Design Health Handlers ---
+
+export type ScanDesignHealthHandler = {
+  name: 'SCAN_DESIGN_HEALTH';
+  handler: (payload: {
+    scanId: string;
+    targetNodeId?: string;
+  }) => void;
+};
+
+export type ScanDesignHealthResultHandler = {
+  name: 'SCAN_DESIGN_HEALTH_RESULT';
+  handler: (result: {
+    ok: boolean;
+    scanId: string;
+    scanResult?: import('./design-health/types').DesignHealthScanResult;
+    message?: string;
+  }) => void;
+};
+
+export type ApplyTokenBindingsHandler = {
+  name: 'APPLY_TOKEN_BINDINGS';
+  handler: (payload: {
+    operationId: string;
+    bindings: import('./design-health/types').TokenBindingRequest[];
+  }) => void;
+};
+
+export type ApplyTokenBindingsResultHandler = {
+  name: 'APPLY_TOKEN_BINDINGS_RESULT';
+  handler: (result: {
+    ok: boolean;
+    operationId: string;
+    boundCount: number;
+    failedCount: number;
+    message?: string;
+  }) => void;
+};
+
+export type BuildCompatibilityPlanHandler = {
+  name: 'BUILD_COMPATIBILITY_PLAN';
+  handler: (payload: {
+    requestId: string;
+    sourceComponentKey: string;
+    targetComponentKey: string;
+    instancesCount: number;
+  }) => void;
+};
+
+export type BuildCompatibilityPlanResultHandler = {
+  name: 'BUILD_COMPATIBILITY_PLAN_RESULT';
+  handler: (result: {
+    ok: boolean;
+    requestId: string;
+    plan?: import('./design-health/types').CompatibilityPlan;
+    message?: string;
+  }) => void;
+};
+
+export type ExecuteComponentReplacementHandler = {
+  name: 'EXECUTE_COMPONENT_REPLACEMENT';
+  handler: (payload: {
+    operationId: string;
+    request: import('./design-health/types').ComponentReplacementExecutionRequest;
+  }) => void;
+};
+
+export type ExecuteComponentReplacementResultHandler = {
+  name: 'EXECUTE_COMPONENT_REPLACEMENT_RESULT';
+  handler: (result: {
+    ok: boolean;
+    operationId: string;
+    replacedCount: number;
+    failedCount: number;
+    warningCount: number;
+    message?: string;
+  }) => void;
+};
+
+export type FocusNodeHandler = {
+  name: 'FOCUS_NODE';
+  handler: (payload: {
+    nodeId: string;
   }) => void;
 };

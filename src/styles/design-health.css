@@ -1,0 +1,610 @@
+/* --- Design Health tab styling --- */
+
+.design-health-view {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  grid-row: 2;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 16px;
+}
+
+/* Header bar */
+.health-header {
+  align-items: center;
+  background: var(--figma-color-bg-secondary);
+  border: 1px solid var(--figma-color-border);
+  border-radius: 8px;
+  display: flex;
+  justify-content: space-between;
+  padding: 8px 12px;
+}
+
+.health-header-info {
+  align-items: center;
+  display: flex;
+  gap: 8px;
+  min-width: 0;
+}
+
+.health-header-icon {
+  align-items: center;
+  color: var(--figma-color-text-secondary);
+  display: flex;
+  flex-shrink: 0;
+  justify-content: center;
+}
+
+.health-header-titles {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+
+.health-header-name-row {
+  align-items: center;
+  display: flex;
+  gap: 6px;
+}
+
+.health-header-name {
+  color: var(--figma-color-text);
+  font-size: 12px;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.health-header-badge {
+  background: var(--figma-color-border);
+  border-radius: 3px;
+  color: var(--figma-color-text-secondary);
+  font-family: monospace;
+  font-size: 9px;
+  padding: 1px 4px;
+  white-space: nowrap;
+}
+
+.health-header-actions {
+  align-items: center;
+  display: flex;
+  gap: 8px;
+}
+
+/* Live Auto-Audited Indicator */
+.health-status-indicator {
+  align-items: center;
+  background: var(--figma-color-bg);
+  border: 1px solid var(--figma-color-border);
+  border-radius: 999px;
+  color: var(--figma-color-text-secondary);
+  display: inline-flex;
+  font-size: 10px;
+  font-weight: 500;
+  gap: 5px;
+  padding: 2px 8px;
+  user-select: none;
+  white-space: nowrap;
+}
+
+.health-status-indicator-live {
+  border-color: rgba(20, 174, 92, 0.3);
+  color: #14ae5c;
+}
+
+.health-status-dot {
+  background: #14ae5c;
+  border-radius: 50%;
+  box-shadow: 0 0 0 0 rgba(20, 174, 92, 0.6);
+  display: inline-block;
+  height: 6px;
+  width: 6px;
+  animation: health-pulse 2s infinite;
+}
+
+@keyframes health-pulse {
+  0% {
+    transform: scale(0.95);
+    box-shadow: 0 0 0 0 rgba(20, 174, 92, 0.7);
+  }
+  70% {
+    transform: scale(1);
+    box-shadow: 0 0 0 4px rgba(20, 174, 92, 0);
+  }
+  100% {
+    transform: scale(0.95);
+    box-shadow: 0 0 0 0 rgba(20, 174, 92, 0);
+  }
+}
+
+/* Hero Score Card */
+.health-hero-card {
+  align-items: center;
+  background: var(--figma-color-bg-secondary);
+  border: 1px solid var(--figma-color-border);
+  border-radius: 8px;
+  display: grid;
+  gap: 16px;
+  grid-template-columns: auto 1fr;
+  padding: 12px 16px;
+}
+
+.health-score-ring-container {
+  align-items: center;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  position: relative;
+}
+
+.health-score-gauge {
+  height: 64px;
+  position: relative;
+  width: 64px;
+}
+
+.health-gauge-svg {
+  height: 64px;
+  transform: rotate(-90deg);
+  width: 64px;
+}
+
+.health-gauge-track {
+  fill: none;
+  stroke: var(--figma-color-border);
+  stroke-width: 4.5;
+}
+
+.health-gauge-val {
+  fill: none;
+  stroke-linecap: round;
+  stroke-width: 4.5;
+  transition: stroke-dashoffset 0.4s ease, stroke 0.4s ease;
+}
+
+.health-gauge-center {
+  align-items: center;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  justify-content: center;
+  left: 0;
+  position: absolute;
+  top: 0;
+  width: 100%;
+}
+
+.health-gauge-pct {
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  line-height: 1;
+}
+
+.health-score-label {
+  color: var(--figma-color-text-secondary);
+  font-size: 10px;
+  margin-top: 3px;
+  text-align: center;
+}
+
+.health-metrics-grid {
+  align-content: center;
+  border-left: 1px solid var(--figma-color-border);
+  display: grid;
+  gap: 8px 12px;
+  grid-template-columns: repeat(3, 1fr);
+  padding-left: 16px;
+}
+
+.health-metric-item {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.health-metric-val {
+  font-size: 16px;
+  font-weight: 700;
+  line-height: 1.2;
+}
+
+.health-metric-val-success {
+  color: #14ae5c;
+}
+
+.health-metric-val-warning {
+  color: #ffaa00;
+}
+
+.health-metric-val-danger {
+  color: #f24822;
+}
+
+.health-metric-lbl {
+  color: var(--figma-color-text-secondary);
+  font-size: 10px;
+  white-space: nowrap;
+}
+
+/* Sub Navigation (Segmented Pill Bar) */
+.health-tabs {
+  background: var(--figma-color-bg-secondary);
+  border: 1px solid var(--figma-color-border);
+  border-radius: 6px;
+  display: flex;
+  gap: 2px;
+  padding: 2px;
+}
+
+.health-tab {
+  align-items: center;
+  background: transparent;
+  border: 0;
+  border-radius: 4px;
+  color: var(--figma-color-text-secondary);
+  cursor: pointer;
+  display: flex;
+  flex: 1;
+  font-size: 11px;
+  font-weight: 500;
+  gap: 6px;
+  justify-content: center;
+  padding: 6px 10px;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.health-tab:hover {
+  color: var(--figma-color-text);
+}
+
+.health-tab-active {
+  background: var(--figma-color-bg);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+  color: var(--figma-color-text);
+  font-weight: 600;
+}
+
+.health-tab-badge {
+  border-radius: 10px;
+  font-size: 9px;
+  font-weight: 600;
+  padding: 1px 5px;
+}
+
+.health-tab-badge-neutral {
+  background: var(--figma-color-bg-secondary);
+  color: var(--figma-color-text-secondary);
+}
+
+.health-tab-badge-warning {
+  background: rgba(255, 170, 0, 0.15);
+  color: #ffaa00;
+}
+
+.health-tab-badge-info {
+  background: rgba(13, 153, 255, 0.15);
+  color: #0d99ff;
+}
+
+/* Action & Filter Bar */
+.health-action-bar {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: space-between;
+}
+
+.health-filter-pills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.health-filter-pill {
+  background: transparent;
+  border: 1px solid var(--figma-color-border);
+  border-radius: 999px;
+  color: var(--figma-color-text-secondary);
+  cursor: pointer;
+  font-size: 10px;
+  font-weight: 500;
+  padding: 2px 8px;
+  transition: all 0.15s ease;
+}
+
+.health-filter-pill:hover {
+  border-color: var(--figma-color-border-brand-strong, #0d99ff);
+  color: var(--figma-color-text);
+}
+
+.health-filter-pill-active {
+  background: var(--figma-color-bg-secondary);
+  border-color: var(--figma-color-text);
+  color: var(--figma-color-text);
+  font-weight: 600;
+}
+
+.health-filter-label {
+  align-items: center;
+  color: var(--figma-color-text-secondary);
+  cursor: pointer;
+  display: flex;
+  font-size: 11px;
+  gap: 6px;
+  user-select: none;
+}
+
+/* Issues List */
+.health-issue-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.health-issue-card {
+  align-items: center;
+  background: var(--figma-color-bg);
+  border: 1px solid var(--figma-color-border);
+  border-radius: 6px;
+  display: grid;
+  gap: 10px;
+  grid-template-columns: 24px minmax(0, 1fr) auto;
+  padding: 8px 10px;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.health-issue-card:hover {
+  border-color: var(--figma-color-border-brand-strong, #0d99ff);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.05);
+}
+
+.health-issue-swatch {
+  background-image: linear-gradient(45deg, #ccc 25%, transparent 25%),
+    linear-gradient(-45deg, #ccc 25%, transparent 25%),
+    linear-gradient(45deg, transparent 75%, #ccc 75%),
+    linear-gradient(-45deg, transparent 75%, #ccc 75%);
+  background-position: 0 0, 0 4px, 4px -4px, -4px 0px;
+  background-size: 8px 8px;
+  border: 1px solid var(--figma-color-border);
+  border-radius: 4px;
+  height: 22px;
+  overflow: hidden;
+  position: relative;
+  width: 22px;
+}
+
+.health-issue-swatch-color {
+  height: 100%;
+  width: 100%;
+}
+
+.health-issue-icon-badge {
+  align-items: center;
+  background: var(--figma-color-bg-secondary);
+  border: 1px dashed var(--figma-color-border);
+  border-radius: 4px;
+  color: var(--figma-color-text-secondary);
+  display: flex;
+  font-family: monospace;
+  font-size: 10px;
+  font-weight: 600;
+  height: 22px;
+  justify-content: center;
+  width: 22px;
+}
+
+.health-issue-content {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.health-issue-topline {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.health-issue-node-btn {
+  background: transparent;
+  border: 0;
+  color: var(--figma-color-text);
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 0;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.health-issue-node-btn:hover {
+  color: #0d99ff;
+}
+
+.health-issue-prop-tag {
+  background: var(--figma-color-bg-secondary);
+  border-radius: 3px;
+  color: var(--figma-color-text-secondary);
+  font-family: monospace;
+  font-size: 9px;
+  padding: 1px 4px;
+}
+
+.health-issue-raw-val {
+  color: var(--figma-color-text-tertiary, #808080);
+  font-size: 10px;
+}
+
+.health-issue-suggestion {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  font-size: 11px;
+  gap: 6px;
+}
+
+.health-issue-alt-select {
+  background: var(--figma-color-bg-secondary);
+  border: 1px solid var(--figma-color-border);
+  border-radius: 4px;
+  color: var(--figma-color-text);
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 11px;
+  font-weight: 600;
+  max-width: 240px;
+  outline: none;
+  padding: 2px 6px;
+}
+
+.health-issue-alt-select:focus {
+  border-color: #0d99ff;
+}
+
+.confidence-chip {
+  border-radius: 3px;
+  font-size: 9px;
+  font-weight: 600;
+  padding: 1px 4px;
+  text-transform: uppercase;
+}
+
+.confidence-high {
+  background: rgba(20, 174, 92, 0.15);
+  color: #14ae5c;
+}
+
+.confidence-medium {
+  background: rgba(13, 153, 255, 0.15);
+  color: #0d99ff;
+}
+
+.confidence-low {
+  background: rgba(255, 170, 0, 0.15);
+  color: #ffaa00;
+}
+
+.health-issue-action {
+  align-items: center;
+  display: flex;
+  gap: 6px;
+}
+
+.health-subtle-tag {
+  color: var(--figma-color-text-tertiary, #808080);
+  font-size: 10px;
+  white-space: nowrap;
+}
+
+/* Success Clean State */
+.health-clean-state {
+  align-items: center;
+  background: rgba(20, 174, 92, 0.06);
+  border: 1px dashed rgba(20, 174, 92, 0.3);
+  border-radius: 8px;
+  color: #14ae5c;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 24px 16px;
+  text-align: center;
+}
+
+.health-clean-state h3 {
+  font-size: 13px;
+  font-weight: 600;
+  margin: 0;
+}
+
+.health-clean-state p {
+  color: var(--figma-color-text-secondary);
+  font-size: 11px;
+  margin: 0;
+}
+
+/* Form Groups */
+.health-form-group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.health-form-label {
+  color: var(--figma-color-text);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.health-form-description {
+  color: var(--figma-color-text-secondary);
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+/* Compatibility Report Card */
+.compatibility-report-card {
+  background: var(--figma-color-bg-secondary);
+  border: 1px solid var(--figma-color-border);
+  border-radius: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px 14px;
+}
+
+.compatibility-header {
+  align-items: center;
+  display: flex;
+  justify-content: space-between;
+}
+
+.compatibility-stats {
+  display: flex;
+  font-size: 11px;
+  gap: 12px;
+}
+
+.compatibility-list {
+  background: var(--figma-color-bg);
+  border: 1px solid var(--figma-color-border);
+  border-radius: 6px;
+  display: flex;
+  flex-direction: column;
+  font-size: 11px;
+  max-height: 180px;
+  overflow-y: auto;
+}
+
+.compatibility-row {
+  align-items: center;
+  border-bottom: 1px solid var(--figma-color-border-subtle, var(--figma-color-border));
+  display: flex;
+  justify-content: space-between;
+  padding: 6px 10px;
+}
+
+.compatibility-row:last-child {
+  border-bottom: 0;
+}
+
+.health-loading-container {
+  align-items: center;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  justify-content: center;
+  padding: 48px 16px;
+}
+
+.health-loading-text {
+  color: var(--figma-color-text-secondary);
+  font-size: 11px;
+}

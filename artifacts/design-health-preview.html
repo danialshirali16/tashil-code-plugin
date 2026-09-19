@@ -1,0 +1,1391 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Tashil Code — Design Health Preview</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --canvas: #eef0f4;
+      --canvas-dot: #d7dae1;
+      --panel: #ffffff;
+      --panel-2: #f7f7f8;
+      --panel-3: #f1f2f4;
+      --text: #171719;
+      --muted: #696a70;
+      --faint: #96989f;
+      --line: #dedfe3;
+      --line-strong: #c8c9ce;
+      --blue: #0d72ff;
+      --blue-ink: #0753c8;
+      --blue-soft: #eaf2ff;
+      --violet: #7b3ff2;
+      --violet-soft: #f1ebff;
+      --green: #18864b;
+      --green-soft: #eaf8f0;
+      --amber: #9b6400;
+      --amber-soft: #fff4d8;
+      --red: #c83935;
+      --red-soft: #fff0ef;
+      --shadow: 0 24px 70px rgba(30, 33, 43, .17), 0 2px 8px rgba(30, 33, 43, .09);
+      --sans: Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      --mono: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+    }
+
+    * { box-sizing: border-box; }
+
+    html, body { min-height: 100%; }
+
+    body {
+      margin: 0;
+      background-color: var(--canvas);
+      background-image: radial-gradient(var(--canvas-dot) .75px, transparent .75px);
+      background-size: 18px 18px;
+      color: var(--text);
+      font-family: var(--sans);
+      font-size: 12px;
+    }
+
+    button, select, input { font: inherit; }
+
+    button, select, label { -webkit-tap-highlight-color: transparent; }
+
+    button:focus-visible, select:focus-visible, input:focus-visible {
+      outline: 2px solid var(--blue);
+      outline-offset: 2px;
+    }
+
+    button:disabled { cursor: not-allowed; opacity: .48; }
+
+    .workbench {
+      min-height: 100vh;
+      display: grid;
+      place-items: center;
+      padding: 32px 18px;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .canvas-note {
+      position: fixed;
+      left: max(20px, calc(50vw - 414px));
+      top: 50%;
+      transform: translate(-100%, -50%);
+      padding-right: 24px;
+      width: 220px;
+      color: #575961;
+    }
+
+    .canvas-note .eyebrow {
+      color: var(--blue-ink);
+      font: 700 10px/1 var(--mono);
+      letter-spacing: .1em;
+      text-transform: uppercase;
+    }
+
+    .canvas-note h1 {
+      font-size: 25px;
+      letter-spacing: -.04em;
+      line-height: 1.08;
+      margin: 10px 0 12px;
+    }
+
+    .canvas-note p {
+      font-size: 12px;
+      line-height: 1.55;
+      margin: 0;
+    }
+
+    .canvas-note kbd {
+      background: rgba(255,255,255,.7);
+      border: 1px solid #cfd1d7;
+      border-bottom-color: #b6b8c0;
+      border-radius: 4px;
+      color: #34353a;
+      font: 10px/1 var(--mono);
+      padding: 3px 5px;
+    }
+
+    .plugin {
+      background: var(--panel);
+      border: 1px solid #d2d3d7;
+      border-radius: 12px;
+      box-shadow: var(--shadow);
+      display: grid;
+      grid-template-rows: 42px 1fr;
+      height: min(760px, calc(100vh - 48px));
+      min-height: 580px;
+      overflow: hidden;
+      position: relative;
+      width: min(620px, calc(100vw - 36px));
+    }
+
+    .plugin-header {
+      align-items: center;
+      border-bottom: 1px solid var(--line);
+      display: flex;
+      min-width: 0;
+      padding: 0 10px 0 12px;
+    }
+
+    .brand-mark {
+      align-items: center;
+      background: var(--text);
+      border-radius: 4px;
+      color: #fff;
+      display: inline-flex;
+      font: 700 9px/1 var(--mono);
+      height: 20px;
+      justify-content: center;
+      letter-spacing: -.04em;
+      margin-right: 10px;
+      width: 20px;
+    }
+
+    .top-tabs {
+      align-items: center;
+      display: flex;
+      gap: 2px;
+      min-width: 0;
+      overflow-x: auto;
+      scrollbar-width: none;
+    }
+
+    .top-tabs::-webkit-scrollbar { display: none; }
+
+    .top-tab {
+      background: transparent;
+      border: 0;
+      border-radius: 5px;
+      color: var(--muted);
+      cursor: default;
+      font-size: 11px;
+      height: 26px;
+      padding: 0 8px;
+      white-space: nowrap;
+    }
+
+    .top-tab.active {
+      background: var(--panel-3);
+      color: var(--text);
+      font-weight: 650;
+    }
+
+    .icon-button {
+      align-items: center;
+      background: transparent;
+      border: 0;
+      border-radius: 5px;
+      color: var(--muted);
+      display: inline-flex;
+      height: 26px;
+      justify-content: center;
+      margin-left: auto;
+      width: 26px;
+    }
+
+    .plugin-body {
+      display: grid;
+      grid-template-columns: 154px minmax(0, 1fr);
+      min-height: 0;
+    }
+
+    .sidebar {
+      background: #fbfbfc;
+      border-right: 1px solid var(--line);
+      display: flex;
+      flex-direction: column;
+      min-height: 0;
+      padding: 14px 10px 12px;
+    }
+
+    .sidebar-label {
+      color: var(--faint);
+      font: 700 9px/1 var(--mono);
+      letter-spacing: .09em;
+      margin: 2px 8px 9px;
+      text-transform: uppercase;
+    }
+
+    .side-nav {
+      display: grid;
+      gap: 3px;
+    }
+
+    .side-button {
+      align-items: center;
+      appearance: none;
+      background: transparent;
+      border: 0;
+      border-radius: 6px;
+      color: var(--muted);
+      cursor: pointer;
+      display: grid;
+      font-size: 11px;
+      gap: 8px;
+      grid-template-columns: 18px 1fr auto;
+      min-height: 32px;
+      padding: 5px 8px;
+      text-align: left;
+      width: 100%;
+    }
+
+    .side-button:hover { background: var(--panel-3); color: var(--text); }
+
+    .side-button.active {
+      background: var(--text);
+      color: #fff;
+    }
+
+    .side-icon {
+      align-items: center;
+      display: inline-flex;
+      height: 18px;
+      justify-content: center;
+      width: 18px;
+    }
+
+    .count {
+      align-items: center;
+      background: var(--panel-3);
+      border-radius: 999px;
+      color: var(--muted);
+      display: inline-flex;
+      font: 700 9px/1 var(--mono);
+      height: 18px;
+      justify-content: center;
+      min-width: 18px;
+      padding: 0 5px;
+    }
+
+    .side-button.active .count {
+      background: rgba(255,255,255,.16);
+      color: #fff;
+    }
+
+    .scope-mini {
+      border-top: 1px solid var(--line);
+      margin-top: auto;
+      padding: 12px 8px 2px;
+    }
+
+    .scope-mini .label {
+      color: var(--faint);
+      display: block;
+      font: 700 9px/1 var(--mono);
+      letter-spacing: .07em;
+      margin-bottom: 7px;
+      text-transform: uppercase;
+    }
+
+    .scope-mini strong {
+      display: block;
+      font-size: 11px;
+      line-height: 1.35;
+    }
+
+    .scope-mini span {
+      color: var(--muted);
+      display: block;
+      font-size: 10px;
+      line-height: 1.4;
+      margin-top: 3px;
+    }
+
+    .main {
+      min-height: 0;
+      overflow: auto;
+      position: relative;
+    }
+
+    .view { display: none; min-height: 100%; }
+    .view.active { display: block; animation: view-in 160ms ease-out; }
+
+    @keyframes view-in {
+      from { opacity: 0; transform: translateY(3px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    .page-head {
+      align-items: flex-start;
+      background: rgba(255,255,255,.95);
+      border-bottom: 1px solid var(--line);
+      display: flex;
+      gap: 16px;
+      justify-content: space-between;
+      padding: 20px 22px 16px;
+      position: sticky;
+      top: 0;
+      z-index: 4;
+    }
+
+    .page-title {
+      font-size: 17px;
+      font-weight: 680;
+      letter-spacing: -.025em;
+      line-height: 1.2;
+      margin: 0;
+    }
+
+    .page-subtitle {
+      color: var(--muted);
+      font-size: 10px;
+      line-height: 1.45;
+      margin: 4px 0 0;
+    }
+
+    .button {
+      align-items: center;
+      appearance: none;
+      border: 1px solid transparent;
+      border-radius: 6px;
+      cursor: pointer;
+      display: inline-flex;
+      font-size: 11px;
+      font-weight: 620;
+      gap: 6px;
+      height: 30px;
+      justify-content: center;
+      padding: 0 10px;
+      white-space: nowrap;
+    }
+
+    .button.primary { background: var(--blue); color: #fff; }
+    .button.primary:hover { background: #0067eb; }
+    .button.secondary { background: var(--panel); border-color: var(--line-strong); color: var(--text); }
+    .button.secondary:hover { background: var(--panel-2); }
+    .button.dark { background: var(--text); color: #fff; }
+
+    .button svg { height: 13px; width: 13px; }
+
+    .content { padding: 18px 22px 24px; }
+
+    .scope-card {
+      background: #171719;
+      border-radius: 9px;
+      color: #fff;
+      display: grid;
+      gap: 14px;
+      grid-template-columns: 1fr auto;
+      overflow: hidden;
+      padding: 14px 15px;
+      position: relative;
+    }
+
+    .scope-card::before {
+      background: linear-gradient(90deg, transparent, rgba(47,132,255,.48), transparent);
+      content: "";
+      height: 1px;
+      left: -35%;
+      position: absolute;
+      top: 0;
+      width: 35%;
+    }
+
+    .scope-card.scanning::before { animation: scanner 1s linear infinite; }
+
+    @keyframes scanner { to { left: 100%; } }
+
+    .scope-card .kicker {
+      color: #a8abb3;
+      font: 700 9px/1 var(--mono);
+      letter-spacing: .08em;
+      text-transform: uppercase;
+    }
+
+    .scope-card h2 {
+      font-size: 13px;
+      line-height: 1.3;
+      margin: 5px 0 0;
+    }
+
+    .scope-meta {
+      align-items: center;
+      color: #aeb0b7;
+      display: flex;
+      font-size: 10px;
+      gap: 7px;
+      margin-top: 5px;
+    }
+
+    .scope-dot {
+      background: #35d17c;
+      border-radius: 50%;
+      box-shadow: 0 0 0 3px rgba(53,209,124,.12);
+      height: 6px;
+      width: 6px;
+    }
+
+    .scope-figure {
+      align-items: flex-end;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+    }
+
+    .scope-figure strong { font: 700 21px/1 var(--mono); }
+    .scope-figure span { color: #aeb0b7; font-size: 9px; margin-top: 4px; }
+
+    .progress {
+      background: rgba(255,255,255,.11);
+      bottom: 0;
+      height: 2px;
+      left: 0;
+      overflow: hidden;
+      position: absolute;
+      right: 0;
+    }
+
+    .progress-bar {
+      background: #2f84ff;
+      height: 100%;
+      transition: width 180ms ease;
+      width: 100%;
+    }
+
+    .section-heading {
+      align-items: baseline;
+      display: flex;
+      justify-content: space-between;
+      margin: 19px 0 10px;
+    }
+
+    .section-heading h3 {
+      font-size: 11px;
+      font-weight: 680;
+      margin: 0;
+    }
+
+    .section-heading span {
+      color: var(--faint);
+      font: 9px/1 var(--mono);
+    }
+
+    .health-rail {
+      display: grid;
+      gap: 8px;
+      margin-left: 6px;
+      position: relative;
+    }
+
+    .health-rail::before {
+      background: var(--line);
+      bottom: 25px;
+      content: "";
+      left: 7px;
+      position: absolute;
+      top: 25px;
+      width: 1px;
+    }
+
+    .health-card {
+      align-items: center;
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      cursor: pointer;
+      display: grid;
+      gap: 10px;
+      grid-template-columns: 16px 32px 1fr auto;
+      min-height: 64px;
+      padding: 10px 11px 10px 0;
+      position: relative;
+      text-align: left;
+      transition: border-color 120ms ease, box-shadow 120ms ease, transform 120ms ease;
+      width: 100%;
+    }
+
+    .health-card:hover {
+      border-color: var(--line-strong);
+      box-shadow: 0 4px 16px rgba(24,26,34,.06);
+      transform: translateY(-1px);
+    }
+
+    .rail-node {
+      background: var(--panel);
+      border: 2px solid currentColor;
+      border-radius: 50%;
+      height: 9px;
+      justify-self: center;
+      position: relative;
+      width: 9px;
+      z-index: 1;
+    }
+
+    .health-card.blue { color: var(--blue); }
+    .health-card.violet { color: var(--violet); }
+    .health-card.amber { color: var(--amber); }
+
+    .health-icon {
+      align-items: center;
+      border-radius: 7px;
+      display: flex;
+      height: 32px;
+      justify-content: center;
+      width: 32px;
+    }
+
+    .blue .health-icon { background: var(--blue-soft); }
+    .violet .health-icon { background: var(--violet-soft); }
+    .amber .health-icon { background: var(--amber-soft); }
+
+    .health-icon svg { height: 17px; width: 17px; }
+
+    .health-copy { color: var(--text); min-width: 0; }
+    .health-copy strong { display: block; font-size: 11px; line-height: 1.3; }
+    .health-copy span { color: var(--muted); display: block; font-size: 10px; line-height: 1.35; margin-top: 2px; }
+
+    .health-number {
+      color: var(--text);
+      font: 700 18px/1 var(--mono);
+      text-align: right;
+    }
+
+    .health-number span {
+      color: var(--faint);
+      display: block;
+      font: 8px/1.2 var(--sans);
+      margin-top: 4px;
+      text-transform: uppercase;
+    }
+
+    .notice {
+      align-items: flex-start;
+      background: var(--blue-soft);
+      border: 1px solid #c7dcff;
+      border-radius: 7px;
+      color: #174b98;
+      display: flex;
+      font-size: 10px;
+      gap: 8px;
+      line-height: 1.45;
+      margin-top: 14px;
+      padding: 9px 10px;
+    }
+
+    .notice svg { flex: 0 0 auto; height: 14px; margin-top: 1px; width: 14px; }
+
+    .toolbar {
+      align-items: center;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      margin-bottom: 13px;
+    }
+
+    .chip {
+      appearance: none;
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      color: var(--muted);
+      cursor: pointer;
+      font-size: 10px;
+      height: 25px;
+      padding: 0 9px;
+    }
+
+    .chip.active { background: var(--text); border-color: var(--text); color: #fff; }
+
+    .toolbar-spacer { flex: 1; }
+
+    .selection-count { color: var(--muted); font: 9px/1 var(--mono); }
+
+    .list {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      overflow: hidden;
+    }
+
+    .list-row {
+      align-items: center;
+      background: var(--panel);
+      border-bottom: 1px solid var(--line);
+      display: grid;
+      gap: 10px;
+      grid-template-columns: auto minmax(0, 1fr) auto;
+      min-height: 58px;
+      padding: 9px 11px;
+    }
+
+    .list-row:last-child { border-bottom: 0; }
+    .list-row[data-hidden="true"] { display: none; }
+
+    .check {
+      align-items: center;
+      cursor: pointer;
+      display: flex;
+    }
+
+    .check input {
+      accent-color: var(--blue);
+      height: 14px;
+      margin: 0;
+      width: 14px;
+    }
+
+    .row-main { min-width: 0; }
+
+    .row-title {
+      align-items: center;
+      display: flex;
+      gap: 6px;
+      min-width: 0;
+    }
+
+    .row-title strong {
+      font-size: 11px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .path {
+      color: var(--muted);
+      font: 9px/1.35 var(--mono);
+      margin-top: 4px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .badge {
+      align-items: center;
+      border-radius: 4px;
+      display: inline-flex;
+      font: 700 8px/1 var(--mono);
+      height: 18px;
+      letter-spacing: .03em;
+      padding: 0 5px;
+      text-transform: uppercase;
+      white-space: nowrap;
+    }
+
+    .badge.high { background: var(--green-soft); color: var(--green); }
+    .badge.medium { background: var(--amber-soft); color: var(--amber); }
+    .badge.library { background: var(--violet-soft); color: var(--violet); }
+    .badge.done { background: var(--green-soft); color: var(--green); }
+    .badge.registry { background: var(--panel-3); color: var(--muted); }
+
+    .token-suggestion {
+      align-items: flex-end;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      max-width: 142px;
+    }
+
+    .token-suggestion code {
+      color: var(--blue-ink);
+      font: 9px/1.3 var(--mono);
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      width: 100%;
+    }
+
+    .raw-value { color: var(--faint); font: 9px/1 var(--mono); }
+
+    .footer-bar {
+      align-items: center;
+      background: rgba(255,255,255,.96);
+      border-top: 1px solid var(--line);
+      bottom: 0;
+      display: flex;
+      gap: 8px;
+      justify-content: space-between;
+      margin: 20px -22px -24px;
+      padding: 10px 22px;
+      position: sticky;
+      z-index: 3;
+    }
+
+    .footer-copy { color: var(--muted); font-size: 10px; }
+
+    .field-grid {
+      display: grid;
+      gap: 12px;
+      grid-template-columns: 1fr 28px 1fr;
+    }
+
+    .field label {
+      color: var(--muted);
+      display: block;
+      font-size: 9px;
+      font-weight: 650;
+      margin: 0 0 6px 1px;
+      text-transform: uppercase;
+    }
+
+    .select {
+      appearance: none;
+      background-color: var(--panel);
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath d='m3.5 4.5 2.5 3 2.5-3' fill='none' stroke='%23696a70' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+      background-position: right 8px center;
+      background-repeat: no-repeat;
+      border: 1px solid var(--line-strong);
+      border-radius: 6px;
+      color: var(--text);
+      height: 34px;
+      padding: 0 28px 0 9px;
+      width: 100%;
+    }
+
+    .swap-arrow {
+      align-items: flex-end;
+      color: var(--faint);
+      display: flex;
+      justify-content: center;
+      padding-bottom: 9px;
+    }
+
+    .compatibility {
+      background: var(--panel-2);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      display: grid;
+      gap: 12px;
+      grid-template-columns: auto 1fr auto;
+      margin-top: 14px;
+      padding: 12px;
+    }
+
+    .score-ring {
+      align-items: center;
+      background: conic-gradient(var(--green) 0 94%, #dfe3e1 94% 100%);
+      border-radius: 50%;
+      display: flex;
+      height: 42px;
+      justify-content: center;
+      position: relative;
+      width: 42px;
+    }
+
+    .score-ring::after {
+      background: var(--panel-2);
+      border-radius: 50%;
+      content: "";
+      inset: 4px;
+      position: absolute;
+    }
+
+    .score-ring span { font: 700 10px/1 var(--mono); position: relative; z-index: 1; }
+
+    .compatibility strong { display: block; font-size: 11px; margin-top: 3px; }
+    .compatibility p { color: var(--muted); font-size: 10px; line-height: 1.45; margin: 3px 0 0; }
+
+    .instance-total { text-align: right; }
+    .instance-total strong { font: 700 17px/1 var(--mono); }
+    .instance-total span { color: var(--faint); display: block; font-size: 8px; margin-top: 4px; text-transform: uppercase; }
+
+    .plan-group { margin-top: 17px; }
+
+    .plan-heading {
+      align-items: center;
+      display: flex;
+      font-size: 10px;
+      font-weight: 680;
+      gap: 6px;
+      margin-bottom: 8px;
+    }
+
+    .plan-heading svg { height: 13px; width: 13px; }
+    .plan-heading.good { color: var(--green); }
+    .plan-heading.warn { color: var(--amber); }
+
+    .mapping {
+      align-items: center;
+      border: 1px solid var(--line);
+      border-bottom: 0;
+      display: grid;
+      gap: 8px;
+      grid-template-columns: minmax(0, 1fr) 18px minmax(0, 1fr) auto;
+      min-height: 38px;
+      padding: 7px 9px;
+    }
+
+    .mapping:first-of-type { border-radius: 7px 7px 0 0; }
+    .mapping:last-child { border-bottom: 1px solid var(--line); border-radius: 0 0 7px 7px; }
+    .mapping code { font: 9px/1.3 var(--mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .mapping .arrow { color: var(--faint); text-align: center; }
+
+    .update-version {
+      align-items: center;
+      display: flex;
+      font: 9px/1 var(--mono);
+      gap: 5px;
+      white-space: nowrap;
+    }
+
+    .update-version .old { color: var(--faint); text-decoration: line-through; }
+    .update-version .new { color: var(--blue-ink); font-weight: 700; }
+
+    .update-detail {
+      background: var(--panel-2);
+      border-top: 1px solid var(--line);
+      display: none;
+      padding: 10px 11px 11px 35px;
+    }
+
+    .update-detail.open { display: block; }
+
+    .change-list {
+      color: var(--muted);
+      display: grid;
+      font-size: 10px;
+      gap: 5px;
+      line-height: 1.35;
+      margin: 0;
+      padding: 0;
+      list-style: none;
+    }
+
+    .change-list li::before { color: var(--green); content: "+"; font: 700 10px/1 var(--mono); margin-right: 7px; }
+    .change-list li.removed::before { color: var(--red); content: "−"; }
+
+    .row-action {
+      background: transparent;
+      border: 0;
+      color: var(--muted);
+      cursor: pointer;
+      height: 24px;
+      padding: 0 3px;
+    }
+
+    .empty-note {
+      border: 1px dashed var(--line-strong);
+      border-radius: 8px;
+      color: var(--muted);
+      font-size: 10px;
+      line-height: 1.5;
+      padding: 12px;
+      text-align: center;
+    }
+
+    .toast {
+      align-items: center;
+      background: #1c1c1f;
+      border-radius: 7px;
+      bottom: 16px;
+      box-shadow: 0 10px 30px rgba(0,0,0,.2);
+      color: #fff;
+      display: flex;
+      font-size: 10px;
+      gap: 8px;
+      left: 50%;
+      max-width: calc(100% - 28px);
+      opacity: 0;
+      padding: 9px 11px;
+      pointer-events: none;
+      position: absolute;
+      transform: translate(-50%, 8px);
+      transition: opacity 160ms ease, transform 160ms ease;
+      z-index: 20;
+    }
+
+    .toast.show { opacity: 1; transform: translate(-50%, 0); }
+
+    .toast-dot { background: #36d27c; border-radius: 50%; height: 7px; width: 7px; }
+
+    .spin { animation: spin 700ms linear infinite; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    @media (max-width: 920px) {
+      .canvas-note { display: none; }
+    }
+
+    @media (max-width: 560px) {
+      .workbench { padding: 0; }
+      .plugin { border: 0; border-radius: 0; height: 100vh; min-height: 560px; width: 100vw; }
+      .plugin-body { grid-template-columns: 49px minmax(0, 1fr); }
+      .sidebar { padding-left: 7px; padding-right: 7px; }
+      .sidebar-label, .side-button > span:not(.side-icon):not(.count), .scope-mini { display: none; }
+      .side-button { grid-template-columns: 1fr; justify-items: center; padding: 5px 3px; }
+      .side-button .count { display: none; }
+      .content, .page-head { padding-left: 14px; padding-right: 14px; }
+      .footer-bar { margin-left: -14px; margin-right: -14px; padding-left: 14px; padding-right: 14px; }
+      .field-grid { grid-template-columns: 1fr; }
+      .swap-arrow { align-items: center; padding: 0; transform: rotate(90deg); }
+      .token-suggestion { max-width: 106px; }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after { animation-duration: .001ms !important; animation-iteration-count: 1 !important; scroll-behavior: auto !important; transition-duration: .001ms !important; }
+    }
+  </style>
+</head>
+<body>
+  <div class="workbench">
+    <aside class="canvas-note" aria-hidden="true">
+      <div class="eyebrow">Interactive prototype</div>
+      <h1>Design health, at the point of work.</h1>
+      <p>Select a section from the left rail. Try rescanning, filtering token suggestions, reviewing component changes, and applying a replacement plan.</p>
+      <p style="margin-top:14px"><kbd>560 × 680</kbd> target plugin size</p>
+    </aside>
+
+    <main class="plugin" aria-label="Tashil Code Design Health prototype">
+      <header class="plugin-header">
+        <span class="brand-mark" aria-hidden="true">T</span>
+        <nav class="top-tabs" aria-label="Plugin sections">
+          <button class="top-tab" type="button">Components</button>
+          <button class="top-tab" type="button">Inspect</button>
+          <button class="top-tab" type="button">Sync Tokens</button>
+          <button class="top-tab active" type="button">Design Health</button>
+          <button class="top-tab" type="button">Docs</button>
+        </nav>
+        <button class="icon-button" type="button" aria-label="Help" title="Help">
+          <svg viewBox="0 0 16 16" fill="none" aria-hidden="true"><circle cx="8" cy="8" r="5.5" stroke="currentColor"/><path d="M6.6 6.1a1.55 1.55 0 0 1 3 .55c0 1.35-1.6 1.55-1.6 2.55M8 11.5h.01" stroke="currentColor" stroke-linecap="round"/></svg>
+        </button>
+      </header>
+
+      <div class="plugin-body">
+        <aside class="sidebar">
+          <div class="sidebar-label">Design health</div>
+          <nav class="side-nav" aria-label="Design health sections">
+            <button class="side-button active" data-view="overview" type="button">
+              <span class="side-icon"><svg viewBox="0 0 18 18" fill="none" aria-hidden="true"><rect x="3" y="3" width="5" height="5" rx="1" stroke="currentColor"/><rect x="10" y="3" width="5" height="5" rx="1" stroke="currentColor"/><rect x="3" y="10" width="5" height="5" rx="1" stroke="currentColor"/><rect x="10" y="10" width="5" height="5" rx="1" stroke="currentColor"/></svg></span>
+              <span>Overview</span>
+            </button>
+            <button class="side-button" data-view="updates" type="button">
+              <span class="side-icon"><svg viewBox="0 0 18 18" fill="none" aria-hidden="true"><path d="M14.5 8.7A5.5 5.5 0 1 1 13 5" stroke="currentColor" stroke-linecap="round"/><path d="M13 2.8V5h2.2" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+              <span>Updates</span>
+              <span class="count">3</span>
+            </button>
+            <button class="side-button" data-view="tokens" type="button">
+              <span class="side-icon"><svg viewBox="0 0 18 18" fill="none" aria-hidden="true"><path d="M9 2.5 14.5 8 9 15.5 3.5 8 9 2.5Z" stroke="currentColor"/><path d="m3.8 8 5.2 3 5.2-3" stroke="currentColor"/></svg></span>
+              <span>Token gaps</span>
+              <span class="count" id="token-count-badge">7</span>
+            </button>
+            <button class="side-button" data-view="replace" type="button">
+              <span class="side-icon"><svg viewBox="0 0 18 18" fill="none" aria-hidden="true"><path d="M3 6h9.5M10.5 3.5 13 6l-2.5 2.5M15 12H5.5M7.5 9.5 5 12l2.5 2.5" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+              <span>Replace</span>
+              <span class="count">24</span>
+            </button>
+          </nav>
+
+          <div class="scope-mini">
+            <span class="label">Selected scope</span>
+            <strong>Checkout / Mobile</strong>
+            <span>Frame · 148 layers</span>
+          </div>
+        </aside>
+
+        <section class="main">
+          <article class="view active" id="view-overview">
+            <div class="page-head">
+              <div>
+                <h1 class="page-title">Design health</h1>
+                <p class="page-subtitle">Review the selected frame before making changes.</p>
+              </div>
+              <button class="button secondary" id="scan-button" type="button">
+                <svg id="scan-icon" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M13 7.7A5 5 0 1 1 11.7 4.3" stroke="currentColor" stroke-linecap="round"/><path d="M11.6 2.5v2h2" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                <span id="scan-label">Scan again</span>
+              </button>
+            </div>
+            <div class="content">
+              <div class="scope-card" id="scope-card">
+                <div>
+                  <div class="kicker">Selected scope</div>
+                  <h2>Checkout / Mobile</h2>
+                  <div class="scope-meta"><span class="scope-dot"></span><span id="scan-status">Scanned just now</span><span>·</span><span>Frame</span></div>
+                </div>
+                <div class="scope-figure"><strong id="layer-count">148</strong><span>layers checked</span></div>
+                <div class="progress"><div class="progress-bar" id="progress-bar"></div></div>
+              </div>
+
+              <div class="section-heading"><h3>What needs attention</h3><span>34 findings</span></div>
+              <div class="health-rail">
+                <button class="health-card blue" data-go="updates" type="button">
+                  <span class="rail-node"></span>
+                  <span class="health-icon"><svg viewBox="0 0 18 18" fill="none" aria-hidden="true"><path d="M14.5 8.7A5.5 5.5 0 1 1 13 5" stroke="currentColor" stroke-linecap="round"/><path d="M13 2.8V5h2.2" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+                  <span class="health-copy"><strong>Component updates</strong><span>12 instances use 3 newer library releases</span></span>
+                  <span class="health-number">3<span>updates</span></span>
+                </button>
+
+                <button class="health-card violet" data-go="tokens" type="button">
+                  <span class="rail-node"></span>
+                  <span class="health-icon"><svg viewBox="0 0 18 18" fill="none" aria-hidden="true"><path d="M9 2.5 14.5 8 9 15.5 3.5 8 9 2.5Z" stroke="currentColor"/><path d="m3.8 8 5.2 3 5.2-3" stroke="currentColor"/></svg></span>
+                  <span class="health-copy"><strong>Token gaps</strong><span>5 exact matches, 2 choices need review</span></span>
+                  <span class="health-number" id="overview-token-number">7<span>unbound</span></span>
+                </button>
+
+                <button class="health-card amber" data-go="replace" type="button">
+                  <span class="rail-node"></span>
+                  <span class="health-icon"><svg viewBox="0 0 18 18" fill="none" aria-hidden="true"><path d="M3 6h9.5M10.5 3.5 13 6l-2.5 2.5M15 12H5.5M7.5 9.5 5 12l2.5 2.5" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+                  <span class="health-copy"><strong>Legacy component</strong><span>Old Text field can be replaced safely in most cases</span></span>
+                  <span class="health-number">24<span>instances</span></span>
+                </button>
+              </div>
+
+              <div class="notice">
+                <svg viewBox="0 0 16 16" fill="none" aria-hidden="true"><circle cx="8" cy="8" r="5.5" stroke="currentColor"/><path d="M8 7v3.2M8 5.1h.01" stroke="currentColor" stroke-linecap="round"/></svg>
+                <span>Nothing changes until you review and confirm a plan. Library-owned layers are reported separately from layers editable in this file.</span>
+              </div>
+            </div>
+          </article>
+
+          <article class="view" id="view-updates">
+            <div class="page-head">
+              <div>
+                <h1 class="page-title">Component updates</h1>
+                <p class="page-subtitle">Review library changes used inside this frame.</p>
+              </div>
+              <span class="badge registry">Registry preview</span>
+            </div>
+            <div class="content">
+              <div class="toolbar">
+                <button class="chip active" type="button">All 3</button>
+                <button class="chip" type="button">Safe 2</button>
+                <button class="chip" type="button">Review 1</button>
+                <span class="toolbar-spacer"></span>
+                <span class="selection-count" id="update-selection-count">3 selected</span>
+              </div>
+
+              <div class="list" id="updates-list">
+                <div class="update-item">
+                  <div class="list-row">
+                    <label class="check"><input class="update-check" type="checkbox" checked aria-label="Select Button update"></label>
+                    <div class="row-main">
+                      <div class="row-title"><strong>Button</strong><span class="badge high">Safe</span></div>
+                      <div class="path">8 instances · Tashil UI / Actions</div>
+                    </div>
+                    <div style="display:flex;align-items:center;gap:7px">
+                      <div class="update-version"><span class="old">3.4.0</span><span>→</span><span class="new">3.5.0</span></div>
+                      <button class="row-action update-toggle" type="button" aria-label="Show Button changes">⌄</button>
+                    </div>
+                  </div>
+                  <div class="update-detail"><ul class="change-list"><li>Added Loading component property</li><li>Improved icon spacing in small size</li><li class="removed">Removed deprecated Quiet variant</li></ul></div>
+                </div>
+                <div class="update-item">
+                  <div class="list-row">
+                    <label class="check"><input class="update-check" type="checkbox" checked aria-label="Select Input update"></label>
+                    <div class="row-main">
+                      <div class="row-title"><strong>Input</strong><span class="badge medium">Review</span></div>
+                      <div class="path">3 instances · Tashil UI / Forms</div>
+                    </div>
+                    <div style="display:flex;align-items:center;gap:7px">
+                      <div class="update-version"><span class="old">2.7.0</span><span>→</span><span class="new">2.8.0</span></div>
+                      <button class="row-action update-toggle" type="button" aria-label="Show Input changes">⌄</button>
+                    </div>
+                  </div>
+                  <div class="update-detail"><ul class="change-list"><li>Renamed Hint to Helper text</li><li>Added Success validation state</li><li class="removed">Compact density is no longer available</li></ul></div>
+                </div>
+                <div class="update-item">
+                  <div class="list-row">
+                    <label class="check"><input class="update-check" type="checkbox" checked aria-label="Select Badge update"></label>
+                    <div class="row-main">
+                      <div class="row-title"><strong>Badge</strong><span class="badge high">Safe</span></div>
+                      <div class="path">1 instance · Tashil UI / Data display</div>
+                    </div>
+                    <div style="display:flex;align-items:center;gap:7px">
+                      <div class="update-version"><span class="old">1.3.0</span><span>→</span><span class="new">1.4.0</span></div>
+                      <button class="row-action update-toggle" type="button" aria-label="Show Badge changes">⌄</button>
+                    </div>
+                  </div>
+                  <div class="update-detail"><ul class="change-list"><li>Added Neutral tone</li><li>Mapped radius to radius/full token</li></ul></div>
+                </div>
+              </div>
+
+              <div class="notice">
+                <svg viewBox="0 0 16 16" fill="none" aria-hidden="true"><circle cx="8" cy="8" r="5.5" stroke="currentColor"/><path d="M8 7v3.2M8 5.1h.01" stroke="currentColor" stroke-linecap="round"/></svg>
+                <span>This preview assumes a Tashil component registry. Figma’s public plugin API does not expose the native pending-update count directly.</span>
+              </div>
+
+              <div class="footer-bar">
+                <span class="footer-copy">12 instances in selected frame</span>
+                <button class="button primary" id="apply-updates" type="button">Update selected</button>
+              </div>
+            </div>
+          </article>
+
+          <article class="view" id="view-tokens">
+            <div class="page-head">
+              <div>
+                <h1 class="page-title">Token gaps</h1>
+                <p class="page-subtitle">Bind raw values to the closest design token.</p>
+              </div>
+              <button class="button secondary" id="select-high" type="button">Select exact</button>
+            </div>
+            <div class="content">
+              <div class="toolbar" id="token-filters">
+                <button class="chip active" data-filter="all" type="button">All 7</button>
+                <button class="chip" data-filter="high" type="button">Exact 5</button>
+                <button class="chip" data-filter="medium" type="button">Review 2</button>
+                <span class="toolbar-spacer"></span>
+                <span class="selection-count" id="token-selection-count">5 selected</span>
+              </div>
+
+              <div class="list" id="token-list">
+                <div class="list-row token-row" data-confidence="high">
+                  <label class="check"><input class="token-check" type="checkbox" checked aria-label="Select card gap token"></label>
+                  <div class="row-main"><div class="row-title"><strong>Item spacing</strong><span class="badge high">Exact</span></div><div class="path">Order card / Content · gap</div></div>
+                  <div class="token-suggestion"><code>spacing/300</code><span class="raw-value">12 px</span></div>
+                </div>
+                <div class="list-row token-row" data-confidence="high">
+                  <label class="check"><input class="token-check" type="checkbox" checked aria-label="Select card radius token"></label>
+                  <div class="row-main"><div class="row-title"><strong>Corner radius</strong><span class="badge high">Exact</span></div><div class="path">Order card · all corners</div></div>
+                  <div class="token-suggestion"><code>radius/300</code><span class="raw-value">12 px</span></div>
+                </div>
+                <div class="list-row token-row" data-confidence="high">
+                  <label class="check"><input class="token-check" type="checkbox" checked aria-label="Select title color token"></label>
+                  <div class="row-main"><div class="row-title"><strong>Text fill</strong><span class="badge high">Exact</span></div><div class="path">Summary / Total title · fill</div></div>
+                  <div class="token-suggestion"><code>text/primary</code><span class="raw-value">#171719</span></div>
+                </div>
+                <div class="list-row token-row" data-confidence="medium">
+                  <label class="check"><input class="token-check" type="checkbox" aria-label="Select divider color token"></label>
+                  <div class="row-main"><div class="row-title"><strong>Stroke color</strong><span class="badge medium">2 matches</span></div><div class="path">Payment / Divider · stroke</div></div>
+                  <div class="token-suggestion"><code>border/subtle?</code><span class="raw-value">#dedfe3</span></div>
+                </div>
+                <div class="list-row token-row" data-confidence="high">
+                  <label class="check"><input class="token-check" type="checkbox" checked aria-label="Select section padding token"></label>
+                  <div class="row-main"><div class="row-title"><strong>Horizontal padding</strong><span class="badge high">Exact</span></div><div class="path">Payment methods · left/right</div></div>
+                  <div class="token-suggestion"><code>spacing/400</code><span class="raw-value">16 px</span></div>
+                </div>
+                <div class="list-row token-row" data-confidence="medium">
+                  <label class="check"><input class="token-check" type="checkbox" aria-label="Select field opacity token"></label>
+                  <div class="row-main"><div class="row-title"><strong>Opacity</strong><span class="badge library">Upstream</span></div><div class="path">Promo input / Icon · library layer</div></div>
+                  <div class="token-suggestion"><code>opacity/muted?</code><span class="raw-value">48%</span></div>
+                </div>
+                <div class="list-row token-row" data-confidence="high">
+                  <label class="check"><input class="token-check" type="checkbox" checked aria-label="Select footer gap token"></label>
+                  <div class="row-main"><div class="row-title"><strong>Item spacing</strong><span class="badge high">Exact</span></div><div class="path">Footer actions · gap</div></div>
+                  <div class="token-suggestion"><code>spacing/200</code><span class="raw-value">8 px</span></div>
+                </div>
+              </div>
+
+              <div class="footer-bar">
+                <span class="footer-copy">Only exact matches are preselected</span>
+                <button class="button primary" id="apply-tokens" type="button">Bind 5 tokens</button>
+              </div>
+            </div>
+          </article>
+
+          <article class="view" id="view-replace">
+            <div class="page-head">
+              <div>
+                <h1 class="page-title">Replace component</h1>
+                <p class="page-subtitle">Swap instances while preserving compatible overrides.</p>
+              </div>
+              <button class="button secondary" id="rebuild-plan" type="button">Rebuild plan</button>
+            </div>
+            <div class="content">
+              <div class="field-grid">
+                <div class="field">
+                  <label for="source-component">Replace</label>
+                  <select class="select" id="source-component">
+                    <option>Text field / Legacy</option>
+                    <option>Old button</option>
+                    <option>Notice / v1</option>
+                  </select>
+                </div>
+                <div class="swap-arrow" aria-hidden="true">→</div>
+                <div class="field">
+                  <label for="target-component">With</label>
+                  <select class="select" id="target-component">
+                    <option>Input / Default</option>
+                    <option>Text area / Default</option>
+                    <option>Search field / Default</option>
+                  </select>
+                </div>
+              </div>
+
+              <div class="compatibility" id="compatibility-card">
+                <div class="score-ring"><span>94%</span></div>
+                <div><strong>High compatibility</strong><p>21 of 24 instances should retain every direct override.</p></div>
+                <div class="instance-total"><strong>24</strong><span>instances</span></div>
+              </div>
+
+              <div class="plan-group">
+                <div class="plan-heading good">
+                  <svg viewBox="0 0 16 16" fill="none" aria-hidden="true"><circle cx="8" cy="8" r="5.5" stroke="currentColor"/><path d="m5.5 8 1.6 1.6 3.5-3.5" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                  5 properties will be preserved
+                </div>
+                <div class="mapping"><code>Label#43:8</code><span class="arrow">→</span><code>Label#90:2</code><span class="badge high">Text</span></div>
+                <div class="mapping"><code>Disabled#43:11</code><span class="arrow">→</span><code>Disabled#90:5</code><span class="badge high">Boolean</span></div>
+                <div class="mapping"><code>State / Error</code><span class="arrow">→</span><code>Validation / Error</code><span class="badge high">Variant</span></div>
+                <div class="mapping"><code>Leading icon</code><span class="arrow">→</span><code>Start icon</code><span class="badge high">Swap</span></div>
+              </div>
+
+              <div class="plan-group">
+                <div class="plan-heading warn">
+                  <svg viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="m8 2.5 5.5 10H2.5l5.5-10Z" stroke="currentColor" stroke-linejoin="round"/><path d="M8 6v3M8 11h.01" stroke="currentColor" stroke-linecap="round"/></svg>
+                  3 instances need review
+                </div>
+                <div class="mapping"><code>Density / Compact</code><span class="arrow">→</span><code>No matching option</code><span class="badge medium">Review</span></div>
+                <div class="mapping"><code>Description layer</code><span class="arrow">→</span><code>Helper text?</code><span class="badge medium">Review</span></div>
+              </div>
+
+              <div class="notice">
+                <svg viewBox="0 0 16 16" fill="none" aria-hidden="true"><circle cx="8" cy="8" r="5.5" stroke="currentColor"/><path d="M8 7v3.2M8 5.1h.01" stroke="currentColor" stroke-linecap="round"/></svg>
+                <span>The swap uses Figma’s native override-preservation heuristics, then reapplies compatible component properties. The whole batch remains undoable.</span>
+              </div>
+
+              <div class="footer-bar">
+                <span class="footer-copy">21 safe · 3 need review</span>
+                <button class="button dark" id="apply-replacement" type="button">Replace 24 instances</button>
+              </div>
+            </div>
+          </article>
+
+          <div class="toast" id="toast" role="status" aria-live="polite"><span class="toast-dot"></span><span id="toast-message">Done</span></div>
+        </section>
+      </div>
+    </main>
+  </div>
+
+  <script>
+    const sideButtons = [...document.querySelectorAll('.side-button[data-view]')];
+    const views = [...document.querySelectorAll('.view')];
+    const toast = document.getElementById('toast');
+    const toastMessage = document.getElementById('toast-message');
+    let toastTimer;
+
+    function showToast(message) {
+      window.clearTimeout(toastTimer);
+      toastMessage.textContent = message;
+      toast.classList.add('show');
+      toastTimer = window.setTimeout(() => toast.classList.remove('show'), 2600);
+    }
+
+    function showView(name) {
+      sideButtons.forEach((button) => button.classList.toggle('active', button.dataset.view === name));
+      views.forEach((view) => view.classList.toggle('active', view.id === `view-${name}`));
+      document.querySelector('.main').scrollTop = 0;
+    }
+
+    sideButtons.forEach((button) => button.addEventListener('click', () => showView(button.dataset.view)));
+    document.querySelectorAll('[data-go]').forEach((button) => button.addEventListener('click', () => showView(button.dataset.go)));
+
+    const scanButton = document.getElementById('scan-button');
+    const scanLabel = document.getElementById('scan-label');
+    const scanIcon = document.getElementById('scan-icon');
+    const scopeCard = document.getElementById('scope-card');
+    const progressBar = document.getElementById('progress-bar');
+    const scanStatus = document.getElementById('scan-status');
+    const layerCount = document.getElementById('layer-count');
+
+    scanButton.addEventListener('click', () => {
+      if (scanButton.disabled) return;
+      scanButton.disabled = true;
+      scanLabel.textContent = 'Scanning…';
+      scanIcon.classList.add('spin');
+      scopeCard.classList.add('scanning');
+      scanStatus.textContent = 'Checking selected frame…';
+      layerCount.textContent = '0';
+      progressBar.style.width = '0%';
+      let progress = 0;
+      const timer = window.setInterval(() => {
+        progress = Math.min(100, progress + 8 + Math.round(Math.random() * 12));
+        progressBar.style.width = `${progress}%`;
+        layerCount.textContent = String(Math.round(148 * progress / 100));
+        if (progress >= 100) {
+          window.clearInterval(timer);
+          window.setTimeout(() => {
+            scanButton.disabled = false;
+            scanLabel.textContent = 'Scan again';
+            scanIcon.classList.remove('spin');
+            scopeCard.classList.remove('scanning');
+            scanStatus.textContent = 'Scanned just now';
+            layerCount.textContent = '148';
+            showToast('Scan complete · 34 findings');
+          }, 220);
+        }
+      }, 110);
+    });
+
+    document.querySelectorAll('.update-toggle').forEach((button) => {
+      button.addEventListener('click', () => {
+        const detail = button.closest('.update-item').querySelector('.update-detail');
+        const isOpen = detail.classList.toggle('open');
+        button.textContent = isOpen ? '⌃' : '⌄';
+      });
+    });
+
+    function updateUpdateSelection() {
+      const selected = document.querySelectorAll('.update-check:checked').length;
+      document.getElementById('update-selection-count').textContent = `${selected} selected`;
+      const action = document.getElementById('apply-updates');
+      action.disabled = selected === 0;
+      action.textContent = selected === 0 ? 'Select updates' : `Update ${selected} component${selected === 1 ? '' : 's'}`;
+    }
+
+    document.querySelectorAll('.update-check').forEach((input) => input.addEventListener('change', updateUpdateSelection));
+
+    document.getElementById('apply-updates').addEventListener('click', () => {
+      const selected = document.querySelectorAll('.update-check:checked').length;
+      showToast(`${selected} component updates queued for 12 instances`);
+    });
+
+    const tokenChecks = [...document.querySelectorAll('.token-check')];
+    const applyTokens = document.getElementById('apply-tokens');
+
+    function updateTokenSelection() {
+      const selected = tokenChecks.filter((input) => input.checked).length;
+      document.getElementById('token-selection-count').textContent = `${selected} selected`;
+      applyTokens.disabled = selected === 0;
+      applyTokens.textContent = selected === 0 ? 'Select tokens' : `Bind ${selected} token${selected === 1 ? '' : 's'}`;
+    }
+
+    tokenChecks.forEach((input) => input.addEventListener('change', updateTokenSelection));
+
+    document.getElementById('select-high').addEventListener('click', () => {
+      document.querySelectorAll('.token-row').forEach((row) => {
+        row.querySelector('.token-check').checked = row.dataset.confidence === 'high';
+      });
+      updateTokenSelection();
+    });
+
+    document.querySelectorAll('#token-filters [data-filter]').forEach((button) => {
+      button.addEventListener('click', () => {
+        document.querySelectorAll('#token-filters [data-filter]').forEach((item) => item.classList.toggle('active', item === button));
+        document.querySelectorAll('.token-row').forEach((row) => {
+          row.dataset.hidden = String(button.dataset.filter !== 'all' && row.dataset.confidence !== button.dataset.filter);
+        });
+      });
+    });
+
+    applyTokens.addEventListener('click', () => {
+      const selected = tokenChecks.filter((input) => input.checked);
+      selected.forEach((input) => {
+        input.checked = false;
+        input.disabled = true;
+        const badge = input.closest('.token-row').querySelector('.badge');
+        badge.className = 'badge done';
+        badge.textContent = 'Bound';
+      });
+      const remaining = tokenChecks.filter((input) => !input.disabled).length;
+      document.getElementById('token-count-badge').textContent = String(remaining);
+      document.getElementById('overview-token-number').innerHTML = `${remaining}<span>unbound</span>`;
+      updateTokenSelection();
+      showToast(`${selected.length} token bindings applied`);
+    });
+
+    document.getElementById('rebuild-plan').addEventListener('click', () => {
+      const card = document.getElementById('compatibility-card');
+      card.animate([
+        { opacity: .45, transform: 'scale(.99)' },
+        { opacity: 1, transform: 'scale(1)' }
+      ], { duration: 320, easing: 'ease-out' });
+      showToast('Replacement plan rebuilt');
+    });
+
+    document.getElementById('apply-replacement').addEventListener('click', (event) => {
+      const button = event.currentTarget;
+      button.disabled = true;
+      button.textContent = 'Replacing…';
+      window.setTimeout(() => {
+        button.textContent = 'Replacement complete';
+        showToast('24 instances replaced · Overrides preserved');
+        window.setTimeout(() => {
+          button.disabled = false;
+          button.textContent = 'Replace 24 instances';
+        }, 1800);
+      }, 900);
+    });
+
+    document.getElementById('source-component').addEventListener('change', () => showToast('Source changed · Rebuild the plan'));
+    document.getElementById('target-component').addEventListener('change', () => showToast('Target changed · Rebuild the plan'));
+  </script>
+</body>
+</html>

@@ -119,6 +119,7 @@ export type TokenValue =
 export type Token = {
   id: string;
   name: string;
+  description?: string;
   resolvedType: VariableResolvedType;
   /** Scopes, used to decide px→rem eligibility for FLOAT tokens. */
   scopes: readonly string[];
@@ -184,3 +185,6 @@ export type TokenExportDiff = {
   removed: number;
   unchanged: number;
 };
+
+export type { TokenExportPreferences } from './preferences';
+export { DEFAULT_TOKEN_EXPORT_PREFERENCES } from './preferences';

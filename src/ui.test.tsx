@@ -64,7 +64,6 @@ vi.mock('@create-figma-plugin/ui', async (importOriginal) => {
   };
 });
 
-vi.mock('!./ui.css', () => ({}));
 
 function existingConnection(
   overrides: Partial<ConnectionMetadata> = {},
@@ -202,6 +201,24 @@ afterEach(() => {
 });
 
 describe('Plugin rendered interactions', () => {
+  it('runs Design Health scans only while its tab is active', async () => {
+    renderPlugin();
+
+    fireEvent.click(screen.getByRole('tab', { name: 'Design Health' }));
+    await waitFor(() => {
+      expect(emittedPayloads('SCAN_DESIGN_HEALTH')).toHaveLength(1);
+    });
+
+    receive('INSPECT_CODE_STATE', { status: 'invalid-selection' });
+    await waitFor(() => {
+      expect(emittedPayloads('SCAN_DESIGN_HEALTH')).toHaveLength(2);
+    });
+
+    fireEvent.click(screen.getByRole('tab', { name: 'Components' }));
+    receive('INSPECT_CODE_STATE', { status: 'invalid-selection' });
+    expect(emittedPayloads('SCAN_DESIGN_HEALTH')).toHaveLength(2);
+  });
+
   it('keeps the inventory visible when the initial canvas selection is empty', () => {
     renderPlugin();
 

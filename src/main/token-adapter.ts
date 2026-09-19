@@ -21,12 +21,37 @@ import type {
   PreviewTokensResultHandler,
 } from '../types';
 import type { RawCollectionData, RawVariableValue } from '../documentation/token-doc-model';
+import {
+  DEFAULT_TOKEN_EXPORT_PREFERENCES,
+  readTokenExportPreferences,
+  type TokenExportPreferences,
+} from '../sync-tokens/preferences';
 import { errorMessage } from './types';
 
 export const TOKEN_EXPORT_HISTORY_KEY = 'tashil-token-export-history-v1';
+export const TOKEN_EXPORT_PREFERENCES_KEY = 'tashil-token-export-preferences-v1';
 
 let latestTokensExportId = '';
 let latestTokensPreviewId = '';
+
+export async function loadTokenExportPreferences(): Promise<TokenExportPreferences> {
+  try {
+    return readTokenExportPreferences(await figma.clientStorage?.getAsync(TOKEN_EXPORT_PREFERENCES_KEY));
+  } catch (_error) {
+    return { ...DEFAULT_TOKEN_EXPORT_PREFERENCES };
+  }
+}
+
+export async function saveTokenExportPreferences(
+  preferences: Partial<TokenExportPreferences> | ExportOptions,
+): Promise<void> {
+  try {
+    const normalized = readTokenExportPreferences(preferences);
+    await figma.clientStorage?.setAsync(TOKEN_EXPORT_PREFERENCES_KEY, normalized);
+  } catch (_error) {
+    // Best-effort clientStorage persistence
+  }
+}
 
 export async function loadTokenCollections(): Promise<void> {
   try {
@@ -38,9 +63,11 @@ export async function loadTokenCollections(): Promise<void> {
       defaultModeId: collection.defaultModeId,
       tokenCount: collection.variableIds.length,
     }));
+    const preferences = await loadTokenExportPreferences();
     emit<LoadTokenCollectionsResultHandler>('LOAD_TOKEN_COLLECTIONS_RESULT', {
       ok: true,
       collections: summaries,
+      preferences,
     });
   } catch (error) {
     emit<LoadTokenCollectionsResultHandler>('LOAD_TOKEN_COLLECTIONS_RESULT', {
@@ -56,6 +83,7 @@ export async function exportTokens(
   options: ExportOptions,
 ): Promise<void> {
   latestTokensExportId = operationId;
+  void saveTokenExportPreferences(options);
   try {
     const files = await generateTokenFiles(
       collectionIds,
@@ -281,9 +309,11 @@ export async function collectTokens(
         tokenName: variable.name,
       });
     }
+    const description = variable.description ? variable.description.trim() : undefined;
     tokens.push({
       id: variable.id,
       name: variable.name,
+      ...(description ? { description } : {}),
       resolvedType: variable.resolvedType as VariableResolvedType,
       scopes: variable.scopes as readonly string[],
       value,

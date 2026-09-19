@@ -42,6 +42,7 @@
     "src/sync-tokens/serialize.ts",
     "src/sync-tokens/serialize-formats.ts",
     "src/sync-tokens/export-diff.ts",
+    "src/design-health/*.ts",
     "src/documentation/*.ts"
   ]
 }

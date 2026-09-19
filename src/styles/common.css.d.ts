@@ -1,0 +1,35 @@
+declare const styles: {
+  readonly "actions": string;
+  readonly "button-content": string;
+  readonly "clear-confirmation-actions": string;
+  readonly "clear-confirmation-title": string;
+  readonly "code-section-heading": string;
+  readonly "connection-issue-message": string;
+  readonly "connection-status": string;
+  readonly "connection-status-connected": string;
+  readonly "connection-status-header": string;
+  readonly "connection-status-indicator": string;
+  readonly "connection-status-issue": string;
+  readonly "connection-status-not-connected": string;
+  readonly "connection-status-title": string;
+  readonly "connection-unsaved-label": string;
+  readonly "connection-updated-at": string;
+  readonly "field": string;
+  readonly "field-error": string;
+  readonly "field-label": string;
+  readonly "field-label-row": string;
+  readonly "footer": string;
+  readonly "footer-confirmation-copy": string;
+  readonly "form-error": string;
+  readonly "form-stack": string;
+  readonly "form-status": string;
+  readonly "help-section-heading": string;
+  readonly "page-heading": string;
+  readonly "primary-actions": string;
+  readonly "reference-section-heading": string;
+  readonly "resize-corner": string;
+  readonly "section-heading": string;
+  readonly "spacer": string;
+};
+export = styles;
+

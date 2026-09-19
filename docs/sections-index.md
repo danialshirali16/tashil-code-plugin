@@ -15,7 +15,7 @@ every section. If you are unsure which Figma surface (Design mode vs Dev Mode)
 your change affects, read [Figma Editor Modes](section-editor-modes.md) first —
 the `figma.mode` gate in `src/main.ts` decides which code path runs.
 
-## The six sections
+## The seven sections
 
 | Section | Responsibility | Entry points | Read first | One rule you will break |
 | --- | --- | --- | --- | --- |
@@ -25,6 +25,7 @@ the `figma.mode` gate in `src/main.ts` decides which code path runs.
 | **Semantic** (`src/semantic/`) | Recipe-based connect for components whose Figma structure does not match source: schema, resolver, authoring, reconcile, source contract, figma extraction. | `src/semantic/resolver.ts`, `src/semantic/types.ts` | [section-semantic.md](section-semantic.md) | Every module here is pure and Figma-free **except** `figma-adapter.ts`. Don't import `@figma/plugin-typings` anywhere else in this folder. |
 | **Sync Tokens** (`src/sync-tokens/`) | Serialize Figma Variable collections to CSS, JSON, Tailwind, Markdown, and Nested TypeScript: pure core; `src/main/token-adapter.ts` is the Figma adapter. | `src/sync-tokens/serialize.ts`, `src/main/token-adapter.ts` | [section-sync-tokens.md](section-sync-tokens.md) | The Figma Variables API is touched **only** in `src/main/token-adapter.ts`. The pure core in `src/sync-tokens/` must stay free of `@figma/plugin-typings` so the test project compiles it. |
 | **Documentation** (`src/documentation/`) | Automated documentation generation and in-place reconciler for tokens, component specifications, and design system frames. | `src/documentation/token-doc-model.ts`, `src/documentation/figma-canvas-writer.ts` | [section-documentation.md](section-documentation.md) | Generated frames are stamped with `tashil_doc_meta` and reconciled in-place rather than recreated from scratch. |
+| **Design Health** (`src/design-health/`) | Canvas/frame-level auditing, token linting, auto-binding, smart component replacement, and library health inspection in Figma Design mode. | `src/design-health/token-audit.ts`, `src/main/design-health-adapter.ts`, `src/views/DesignHealthView.tsx` | [section-design-health.md](section-design-health.md) | Pure core in `src/design-health/` must never import `@figma/plugin-typings`. Successful batch mutations must checkpoint with `figma.commitUndo()`. |
 
 ## Global rules (apply everywhere)
 
@@ -108,22 +109,22 @@ public behavior, boundary, or invariants, update its `section-*.md`.
                          │  source-schema · mapping-* · prop-mappings  │
                          │  connection-health.ts                       │
                          └───────────────┬─────────────────────────────┘
-                                         │  ConnectionMetadata (schema v4)
-              ┌──────────────────────────┼──────────────────────────┬──────────────────────────┐
-              ▼                          ▼                          ▼                          ▼
-   ┌─────────────────────┐   ┌─────────────────────┐   ┌─────────────────────┐   ┌───────────────────────────┐
-   │ Inspect (src/inspect)│   │ Layout (src/layout)  │   │Semantic(src/semantic)│   │Documentation(src/documen.)│
-   │ selected-layer CSS   │   │ full-tree codegen    │   │ recipe-based connect │   │ canvas specifications &   │
-   │ getCSSAsync() →      │   │ frame/group/section  │   │ schema·resolver·     │   │ in-place token & component│
-   │ Layout/Style buckets │   │ → one .tsx module    │   │ authoring·reconcile  │   │ reconciliation            │
-   └─────────────────────┘   └──────────┬──────────┘   └──────────┬──────────┘   └─────────────┬─────────────┘
-                                        │                         │                            │
-                                        └────────────┬────────────┘                            │
-                                                     ▼                                         │
-                                  ┌──────────────────────────────┐                             │
-                                  │ Sync Tokens (src/sync-tokens) │◄────────────────────────────┘
-                                  │ Figma Variables → CSS/JSON     │  reads shared collection data
-                                  │ (pure core; main.ts adapts)    │
+                                         │  ConnectionMetadata (schema v5)
+              ┌──────────────────────────┼──────────────────────────┬──────────────────────────┬──────────────────────────┐
+              ▼                          ▼                          ▼                          ▼                          ▼
+   ┌─────────────────────┐   ┌─────────────────────┐   ┌─────────────────────┐   ┌───────────────────────────┐   ┌─────────────────────────────┐
+   │ Inspect (src/inspect)│   │ Layout (src/layout)  │   │Semantic(src/semantic)│   │Documentation(src/documen.)│   │Design Health(src/des.-hlth) │
+   │ selected-layer CSS   │   │ full-tree codegen    │   │ recipe-based connect │   │ canvas specifications &   │   │ canvas/frame-level auditing,│
+   │ getCSSAsync() →      │   │ frame/group/section  │   │ schema·resolver·     │   │ in-place token & component│   │ token linting, auto-binding,│
+   │ Layout/Style buckets │   │ → one .tsx module    │   │ authoring·reconcile  │   │ reconciliation            │   │ component replacement plan  │
+   └─────────────────────┘   └──────────┬──────────┘   └──────────┬──────────┘   └─────────────┬─────────────┘   └──────────────┬──────────────┘
+                                        │                         │                            │                                │
+                                        └────────────┬────────────┘                            │                                │
+                                                     ▼                                         │                                │
+                                  ┌──────────────────────────────┐                             │                                │
+                                  │ Sync Tokens (src/sync-tokens) │◄────────────────────────────┘                                │
+                                  │ Figma Variables → CSS/JSON     │  reads shared collection data                              │
+                                  │ (pure core; main.ts adapts)    │◄───────────────────────────────────────────────────────────┘
                                   └──────────────────────────────┘
 ```
 
@@ -137,12 +138,14 @@ public behavior, boundary, or invariants, update its `section-*.md`.
 - **Documentation** turns Figma Variable Collections and connected components into
   pixel-accurate canvas specifications using the Swiss Army Knife design system,
   supporting real-time in-place reconciliation when variables or component APIs evolve.
+- **Design Health** audits selected canvas frames/layers, identifying unbound raw colors/spacings/radii with token recommendations, planning component migrations, and batch-binding tokens with single-step undo.
 
 ## Related documentation
 
 - [Figma Editor Modes — Design vs Dev Mode](section-editor-modes.md) — the
   `figma.mode` gate, which surface each code path serves, and Dev Mode-only
   runtime APIs.
+- [Design Health — How It Works](section-design-health.md) — frame/canvas auditing, token linting, auto-binding, and component replacement.
 - [Development guide](development.md) — setup, build, project structure, test commands.
 - [Project brief](project-brief.md) — product scope and the runtime flow.
 - Per-feature depth docs (cited from each section guide):

@@ -14,7 +14,7 @@
     "src/ui-assets.tsx",
     "src/output-preferences.ts",
     "src/ui-controller.ts",
-    "src/ui.css.d.ts",
+    "src/styles/*.css.d.ts",
     "src/connection-health.ts",
     "src/external-url.ts",
     "src/prop-mappings.ts",
@@ -37,6 +37,7 @@
     "src/ui-download.ts",
     "src/sync-tokens/types.ts",
     "src/sync-tokens/serialize.ts",
+    "src/design-health/types.ts",
     "src/documentation/types.ts"
   ]
 }

@@ -10,7 +10,16 @@ import {
 import { emit } from '@create-figma-plugin/utilities';
 import { Fragment, h } from 'preact';
 import { useCallback, useEffect, useRef, useState } from 'preact/hooks';
-import '!./ui.css';
+import '!./styles/base.css';
+import '!./styles/common.css';
+import '!./styles/how-it-works.css';
+import '!./styles/inspect.css';
+import '!./styles/connect.css';
+import '!./styles/workbench.css';
+import '!./styles/sync-tokens.css';
+import '!./styles/settings.css';
+import '!./styles/docs.css';
+import '!./styles/design-health.css';
 import { useConnectionController } from './ui-controller';
 import {
   type ResizeWindowHandler,
@@ -23,12 +32,13 @@ import {
 import { InspectCodeView } from './views/InspectView';
 import { SyncTokensView } from './views/SyncTokensView';
 import { DocumentationView } from './views/DocsView';
+import { DesignHealthView } from './views/DesignHealthView';
 import { OutputSettingsView } from './views/SettingsView';
 import { HowItWorksView } from './views/HowItWorksView';
 
 export function Plugin(): h.JSX.Element {
   const [view, setView] = useState<'connect' | 'help'>('connect');
-  const [workflowTab, setWorkflowTab] = useState<'connect' | 'generate' | 'sync-tokens' | 'docs' | 'settings'>('connect');
+  const [workflowTab, setWorkflowTab] = useState<'connect' | 'generate' | 'sync-tokens' | 'docs' | 'design-health' | 'settings'>('connect');
   const [inventoryFilter, setInventoryFilter] = useState<
     'all' | 'not-connected' | 'connected'
   >('all');
@@ -102,6 +112,8 @@ export function Plugin(): h.JSX.Element {
     tokensPreviewStatus,
     tokensPreviewError,
     tokensPreviewFiles,
+    tokenExportPreferences,
+    saveTokenExportPreferences,
     loadTokenCollections,
     loadDocStyleSources,
     exportTokens,
@@ -119,6 +131,16 @@ export function Plugin(): h.JSX.Element {
     updateDocsInPlace,
     generateComponentDocs,
     generateStyleDocs,
+    designHealthScanResult,
+    designHealthStatus,
+    designHealthMessage,
+    compatibilityPlan,
+    compatibilityPlanStatus,
+    runDesignHealthScan,
+    applyTokenBindings,
+    loadCompatibilityPlan,
+    executeComponentReplacement,
+    focusNode,
   } = useConnectionController();
 
   function handleOpenInventoryTarget(targetToken: string): void {
@@ -162,11 +184,12 @@ export function Plugin(): h.JSX.Element {
 
   // WAI-ARIA tabs pattern: Arrow keys move between tabs, Home/End jump to the ends.
   function handleTabKeyDown(event: h.JSX.TargetedKeyboardEvent<HTMLDivElement>): void {
-    const tabs: Array<'connect' | 'generate' | 'sync-tokens' | 'docs' | 'settings'> = [
+    const tabs: Array<'connect' | 'generate' | 'sync-tokens' | 'docs' | 'design-health' | 'settings'> = [
       'connect',
       'generate',
       'sync-tokens',
       'docs',
+      'design-health',
       'settings',
     ];
     const tabIds: Record<typeof workflowTab, string> = {
@@ -174,6 +197,7 @@ export function Plugin(): h.JSX.Element {
       generate: 'tashil-tab-generate',
       'sync-tokens': 'tashil-tab-sync-tokens',
       docs: 'tashil-tab-docs',
+      'design-health': 'tashil-tab-design-health',
       settings: 'tashil-tab-settings',
     };
     const currentIndex = tabs.indexOf(workflowTab);
@@ -209,6 +233,12 @@ export function Plugin(): h.JSX.Element {
       document.getElementById('tashil-help-button')?.focus();
     }, 0);
   }
+
+  useEffect(() => {
+    if (workflowTab === 'design-health') {
+      runDesignHealthScan();
+    }
+  }, [workflowTab, inspectCodeState]);
 
   const hasFooter = view === 'connect'
     && workflowTab === 'connect'
@@ -281,6 +311,18 @@ export function Plugin(): h.JSX.Element {
                   type="button"
                 >
                   Docs
+                </button>
+                <button
+                  aria-controls="tashil-tabpanel-design-health"
+                  aria-selected={workflowTab === 'design-health'}
+                  class={workflowTab === 'design-health' ? 'reference-tab reference-tab-active' : 'reference-tab'}
+                  id="tashil-tab-design-health"
+                  onClick={() => setWorkflowTab('design-health')}
+                  role="tab"
+                  tabIndex={workflowTab === 'design-health' ? 0 : -1}
+                  type="button"
+                >
+                  Design Health
                 </button>
                 <button
                   aria-controls="tashil-tabpanel-settings"
@@ -457,12 +499,14 @@ export function Plugin(): h.JSX.Element {
             exportStatus={tokensExportStatus}
             exportError={tokensExportError}
             exportSuccess={tokensExportSuccess}
+            preferences={tokenExportPreferences}
             previewStatus={tokensPreviewStatus}
             previewError={tokensPreviewError}
             previewFiles={tokensPreviewFiles}
             onLoadCollections={loadTokenCollections}
             onExport={exportTokens}
             onPreview={previewTokens}
+            onSavePreferences={saveTokenExportPreferences}
           />
         </div>
       ) : null}
@@ -495,6 +539,27 @@ export function Plugin(): h.JSX.Element {
             selectedDocFrame={selectedDocFrame}
             tokenCollections={tokenCollections}
             tokenCollectionsStatus={tokenCollectionsStatus}
+          />
+        </div>
+      ) : null}
+      {view === 'connect' && workflowTab === 'design-health' ? (
+        <div
+          aria-labelledby="tashil-tab-design-health"
+          class="tabpanel"
+          id="tashil-tabpanel-design-health"
+          role="tabpanel"
+        >
+          <DesignHealthView
+            compatibilityPlan={compatibilityPlan}
+            compatibilityPlanStatus={compatibilityPlanStatus}
+            message={designHealthMessage}
+            onApplyTokenBindings={applyTokenBindings}
+            onExecuteReplacement={executeComponentReplacement}
+            onFocusNode={focusNode}
+            onLoadCompatibilityPlan={loadCompatibilityPlan}
+            onScan={() => runDesignHealthScan()}
+            scanResult={designHealthScanResult}
+            status={designHealthStatus}
           />
         </div>
       ) : null}

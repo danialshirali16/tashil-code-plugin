@@ -107,6 +107,7 @@ import {
   type ScanComponentsHandler,
   type SaveConnectionHandler,
   type SaveResultHandler,
+  type SaveTokenExportPreferencesHandler,
   type ScaffoldPropMappingsHandler,
   type ScaffoldResultHandler,
   type CanvasTargetStateHandler,
@@ -127,7 +128,22 @@ import {
   type GenerateComponentDocsHandler,
   type GenerateComponentDocsResultHandler,
   type DocGenerationProgressHandler,
+  type ApplyTokenBindingsHandler,
+  type ApplyTokenBindingsResultHandler,
+  type BuildCompatibilityPlanHandler,
+  type BuildCompatibilityPlanResultHandler,
+  type ExecuteComponentReplacementHandler,
+  type ExecuteComponentReplacementResultHandler,
+  type FocusNodeHandler,
+  type ScanDesignHealthHandler,
+  type ScanDesignHealthResultHandler,
 } from './types';
+import type {
+  CompatibilityPlan,
+  ComponentReplacementExecutionRequest,
+  DesignHealthScanResult,
+  TokenBindingRequest,
+} from './design-health/types';
 import type {
   DocDriftReport,
   DocFrameMetadata,
@@ -136,10 +152,12 @@ import type {
   DocStyleSourceSummary,
   TokenGroupingDepth,
 } from './documentation/types';
-import type {
-  ExportFile,
-  ExportOptions,
-  TokenCollectionSummary,
+import {
+  DEFAULT_TOKEN_EXPORT_PREFERENCES,
+  type ExportFile,
+  type ExportOptions,
+  type TokenCollectionSummary,
+  type TokenExportPreferences,
 } from './sync-tokens/types';
 import { downloadBlob } from './ui-download';
 import { DEFAULT_OUTPUT_PREFERENCES, type OutputPreferences } from './output-preferences';
@@ -219,6 +237,8 @@ export type ConnectionController = {
   tokensPreviewStatus: 'idle' | 'loading' | 'error';
   tokensPreviewError: string;
   tokensPreviewFiles: readonly ExportFile[];
+  tokenExportPreferences: TokenExportPreferences;
+  saveTokenExportPreferences: (preferences: Partial<TokenExportPreferences> | ExportOptions) => void;
   loadTokenCollections: () => void;
   loadDocStyleSources: () => void;
   exportTokens: (collectionIds: readonly string[], options: ExportOptions) => void;
@@ -264,6 +284,20 @@ export type ConnectionController = {
   updateDocsInPlace: (frameNodeId: string, tokenGroupingDepth?: TokenGroupingDepth) => void;
   generateComponentDocs: (targetToken: string, targetFormat?: 'canvas' | 'markdown') => void;
   generateStyleDocs: (styleKind: DocStyleKind, tokenGroupingDepth?: TokenGroupingDepth) => void;
+  designHealthScanResult: DesignHealthScanResult | null;
+  designHealthStatus: 'idle' | 'scanning' | 'scanned' | 'binding' | 'replacing' | 'error';
+  designHealthMessage: string;
+  compatibilityPlan: CompatibilityPlan | null;
+  compatibilityPlanStatus: 'idle' | 'loading' | 'loaded' | 'error';
+  runDesignHealthScan: (targetNodeId?: string) => void;
+  applyTokenBindings: (bindings: TokenBindingRequest[]) => void;
+  loadCompatibilityPlan: (
+    sourceComponentKey: string,
+    targetComponentKey: string,
+    instancesCount: number,
+  ) => void;
+  executeComponentReplacement: (request: ComponentReplacementExecutionRequest) => void;
+  focusNode: (nodeId: string) => void;
 };
 
 export function useConnectionController(): ConnectionController {
@@ -314,6 +348,8 @@ export function useConnectionController(): ConnectionController {
   const [tokenCollectionsStatus, setTokenCollectionsStatus] =
     useState<'idle' | 'loading' | 'error'>('idle');
   const [tokenCollectionsError, setTokenCollectionsError] = useState('');
+  const [tokenExportPreferences, setTokenExportPreferences] =
+    useState<TokenExportPreferences>(DEFAULT_TOKEN_EXPORT_PREFERENCES);
   const [docStyleSources, setDocStyleSources] = useState<readonly DocStyleSourceSummary[]>([]);
   const [docStyleSourcesStatus, setDocStyleSourcesStatus] =
     useState<'error' | 'idle' | 'loading'>('idle');
@@ -349,6 +385,21 @@ export function useConnectionController(): ConnectionController {
     useState<'error' | 'idle' | 'loading'>('idle');
   const docSourcePreviewSequenceRef = useRef(0);
   const latestDocSourcePreviewIdRef = useRef('');
+
+  // --- Design Health state ---
+  const [designHealthScanResult, setDesignHealthScanResult] = useState<DesignHealthScanResult | null>(null);
+  const [designHealthStatus, setDesignHealthStatus] = useState<'idle' | 'scanning' | 'scanned' | 'binding' | 'replacing' | 'error'>('idle');
+  const [designHealthMessage, setDesignHealthMessage] = useState<string>('');
+  const [compatibilityPlan, setCompatibilityPlan] = useState<CompatibilityPlan | null>(null);
+  const [compatibilityPlanStatus, setCompatibilityPlanStatus] = useState<'idle' | 'loading' | 'loaded' | 'error'>('idle');
+  const designHealthScanSequenceRef = useRef(0);
+  const currentDesignHealthScanIdRef = useRef('');
+  const designHealthTargetNodeIdRef = useRef<string>();
+  const designHealthPostScanMessageRef = useRef('');
+  const designHealthMutationSequenceRef = useRef(0);
+  const currentDesignHealthMutationIdRef = useRef('');
+  const compatibilityPlanSequenceRef = useRef(0);
+  const currentCompatibilityPlanRequestIdRef = useRef('');
 
   const isReady = targetState.status === 'ready';
   const targetStatusAnnouncement = getTargetStatusAnnouncement(targetState);
@@ -476,6 +527,9 @@ export function useConnectionController(): ConnectionController {
     const offTokenCollections = on<LoadTokenCollectionsResultHandler>('LOAD_TOKEN_COLLECTIONS_RESULT', (result) => {
       if (result.ok) {
         setTokenCollections(result.collections ?? []);
+        if (result.preferences) {
+          setTokenExportPreferences(result.preferences);
+        }
         setTokenCollectionsError('');
         setTokenCollectionsStatus('idle');
       } else {
@@ -570,6 +624,77 @@ export function useConnectionController(): ConnectionController {
       setDocProgress(null);
     });
 
+    const offDesignHealthScan = on<ScanDesignHealthResultHandler>('SCAN_DESIGN_HEALTH_RESULT', (result) => {
+      if (result.scanId !== currentDesignHealthScanIdRef.current) return;
+      if (result.ok) {
+        setDesignHealthScanResult(result.scanResult ?? null);
+        designHealthTargetNodeIdRef.current = result.scanResult?.targetNode.id;
+        setDesignHealthStatus(result.scanResult ? 'scanned' : 'idle');
+        setDesignHealthMessage(designHealthPostScanMessageRef.current || result.message || '');
+        designHealthPostScanMessageRef.current = '';
+      } else {
+        designHealthPostScanMessageRef.current = '';
+        setDesignHealthStatus('error');
+        setDesignHealthMessage(result.message || 'Scan failed.');
+      }
+    });
+
+    const offTokenBindings = on<ApplyTokenBindingsResultHandler>('APPLY_TOKEN_BINDINGS_RESULT', (result) => {
+      if (result.operationId !== currentDesignHealthMutationIdRef.current) return;
+      if (result.ok) {
+        designHealthPostScanMessageRef.current = result.message || `Bound ${result.boundCount} tokens.`;
+        if (designHealthTargetNodeIdRef.current) {
+          runDesignHealthScan(designHealthTargetNodeIdRef.current, true);
+        } else {
+          setDesignHealthStatus('scanned');
+          setDesignHealthMessage(designHealthPostScanMessageRef.current);
+          designHealthPostScanMessageRef.current = '';
+        }
+      } else {
+        const mutationMessage = result.message || 'Failed to bind tokens.';
+        if (result.boundCount > 0 && designHealthTargetNodeIdRef.current) {
+          designHealthPostScanMessageRef.current = mutationMessage;
+          runDesignHealthScan(designHealthTargetNodeIdRef.current, true);
+        } else {
+          setDesignHealthStatus('error');
+          setDesignHealthMessage(mutationMessage);
+        }
+      }
+    });
+
+    const offCompatibilityPlan = on<BuildCompatibilityPlanResultHandler>('BUILD_COMPATIBILITY_PLAN_RESULT', (result) => {
+      if (result.requestId !== currentCompatibilityPlanRequestIdRef.current) return;
+      if (result.ok && result.plan) {
+        setCompatibilityPlan(result.plan);
+        setCompatibilityPlanStatus('loaded');
+      } else {
+        setCompatibilityPlanStatus('error');
+      }
+    });
+
+    const offComponentReplacement = on<ExecuteComponentReplacementResultHandler>('EXECUTE_COMPONENT_REPLACEMENT_RESULT', (result) => {
+      if (result.operationId !== currentDesignHealthMutationIdRef.current) return;
+      if (result.ok) {
+        designHealthPostScanMessageRef.current = result.message || `Replaced ${result.replacedCount} instances.`;
+        if (designHealthTargetNodeIdRef.current) {
+          runDesignHealthScan(designHealthTargetNodeIdRef.current, true);
+        } else {
+          setDesignHealthStatus('scanned');
+          setDesignHealthMessage(designHealthPostScanMessageRef.current);
+          designHealthPostScanMessageRef.current = '';
+        }
+      } else {
+        const mutationMessage = result.message || 'Failed to replace components.';
+        if (result.replacedCount > 0 && designHealthTargetNodeIdRef.current) {
+          designHealthPostScanMessageRef.current = mutationMessage;
+          runDesignHealthScan(designHealthTargetNodeIdRef.current, true);
+        } else {
+          setDesignHealthStatus('error');
+          setDesignHealthMessage(mutationMessage);
+        }
+      }
+    });
+
     rescanComponents(false);
     emit<RefreshSelectionHandler>('REFRESH_SELECTION');
     emit<LoadOutputPreferencesHandler>('LOAD_OUTPUT_PREFERENCES');
@@ -599,6 +724,10 @@ export function useConnectionController(): ConnectionController {
       offUpdateDocsResult();
       offComponentDocsResult();
       offStyleDocsResult();
+      offDesignHealthScan();
+      offTokenBindings();
+      offCompatibilityPlan();
+      offComponentReplacement();
     };
   }, []);
 
@@ -1583,10 +1712,25 @@ export function useConnectionController(): ConnectionController {
     emit<LoadDocStyleSourcesHandler>('LOAD_DOC_STYLE_SOURCES');
   }
 
+  function saveTokenExportPreferences(
+    preferences: Partial<TokenExportPreferences> | ExportOptions,
+  ): void {
+    const normalized: TokenExportPreferences = {
+      colorFormat: preferences.colorFormat ?? tokenExportPreferences.colorFormat,
+      convertPxToRem: preferences.convertPxToRem ?? tokenExportPreferences.convertPxToRem,
+      nameStyle: preferences.nameStyle ?? tokenExportPreferences.nameStyle,
+      outputFormat: preferences.outputFormat ?? tokenExportPreferences.outputFormat,
+      rootFontSize: preferences.rootFontSize ?? tokenExportPreferences.rootFontSize,
+    };
+    setTokenExportPreferences(normalized);
+    emit<SaveTokenExportPreferencesHandler>('SAVE_TOKEN_EXPORT_PREFERENCES', { preferences: normalized });
+  }
+
   function exportTokensAction(
     collectionIds: readonly string[],
     options: ExportOptions,
   ): void {
+    saveTokenExportPreferences(options);
     if (collectionIds.length === 0) {
       setTokensExportError('Select at least one collection to export.');
       setTokensExportStatus('error');
@@ -1727,6 +1871,54 @@ export function useConnectionController(): ConnectionController {
     setDocGenerationMessage('');
   };
 
+  const runDesignHealthScan = (targetNodeId?: string, preserveMessage = false): void => {
+    const scanId = `design-health-scan-${++designHealthScanSequenceRef.current}`;
+    currentDesignHealthScanIdRef.current = scanId;
+    setDesignHealthStatus('scanning');
+    if (!preserveMessage) {
+      designHealthPostScanMessageRef.current = '';
+      setDesignHealthMessage('Scanning selection...');
+    }
+    emit<ScanDesignHealthHandler>('SCAN_DESIGN_HEALTH', { scanId, targetNodeId });
+  };
+
+  const applyTokenBindingsAction = (bindings: TokenBindingRequest[]): void => {
+    const operationId = `bind-tokens-${++designHealthMutationSequenceRef.current}`;
+    currentDesignHealthMutationIdRef.current = operationId;
+    setDesignHealthStatus('binding');
+    setDesignHealthMessage(`Binding ${bindings.length} token properties...`);
+    emit<ApplyTokenBindingsHandler>('APPLY_TOKEN_BINDINGS', { operationId, bindings });
+  };
+
+  const loadCompatibilityPlanAction = (
+    sourceComponentKey: string,
+    targetComponentKey: string,
+    instancesCount: number,
+  ): void => {
+    const requestId = `compatibility-plan-${++compatibilityPlanSequenceRef.current}`;
+    currentCompatibilityPlanRequestIdRef.current = requestId;
+    setCompatibilityPlan(null);
+    setCompatibilityPlanStatus('loading');
+    emit<BuildCompatibilityPlanHandler>('BUILD_COMPATIBILITY_PLAN', {
+      requestId,
+      sourceComponentKey,
+      targetComponentKey,
+      instancesCount,
+    });
+  };
+
+  const executeComponentReplacementAction = (request: ComponentReplacementExecutionRequest): void => {
+    const operationId = `replace-comp-${++designHealthMutationSequenceRef.current}`;
+    currentDesignHealthMutationIdRef.current = operationId;
+    setDesignHealthStatus('replacing');
+    setDesignHealthMessage(`Replacing ${request.instanceIds.length} instances...`);
+    emit<ExecuteComponentReplacementHandler>('EXECUTE_COMPONENT_REPLACEMENT', { operationId, request });
+  };
+
+  const focusNodeAction = (nodeId: string): void => {
+    emit<FocusNodeHandler>('FOCUS_NODE', { nodeId });
+  };
+
   return {
     activePendingOperation: activePendingMutation?.operation,
     cancelClear,
@@ -1783,6 +1975,8 @@ export function useConnectionController(): ConnectionController {
     tokensPreviewStatus,
     tokensPreviewError,
     tokensPreviewFiles,
+    tokenExportPreferences,
+    saveTokenExportPreferences,
     loadTokenCollections,
     loadDocStyleSources,
     exportTokens: exportTokensAction,
@@ -1810,5 +2004,15 @@ export function useConnectionController(): ConnectionController {
     updateDocsInPlace,
     generateComponentDocs,
     generateStyleDocs,
+    designHealthScanResult,
+    designHealthStatus,
+    designHealthMessage,
+    compatibilityPlan,
+    compatibilityPlanStatus,
+    runDesignHealthScan,
+    applyTokenBindings: applyTokenBindingsAction,
+    loadCompatibilityPlan: loadCompatibilityPlanAction,
+    executeComponentReplacement: executeComponentReplacementAction,
+    focusNode: focusNodeAction,
   };
 }

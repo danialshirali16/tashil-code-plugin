@@ -567,6 +567,200 @@ describe('Design mode plugin window', () => {
   });
 });
 
+describe('Design Health mutations', () => {
+  it('audits padding edges independently and resolves token values for the consuming node', async () => {
+    const resolveForConsumer = vi.fn(() => ({
+      resolvedType: 'FLOAT',
+      value: 8,
+    }));
+    const spacingVariable = {
+      id: 'spacing-token',
+      key: 'spacing-token-key',
+      name: 'spacing/8',
+      resolveForConsumer,
+      scopes: ['GAP'],
+    } as unknown as Variable;
+    const { selection } = await startPlugin({ variables: [spacingVariable] });
+    const frame = createFrame('audit-frame', 'Audit frame', [], {
+      paddingBottom: 0,
+      paddingLeft: 0,
+      paddingRight: 16,
+      paddingTop: 8,
+    });
+    selection.push(frame);
+
+    utilityMocks.handlers.get('SCAN_DESIGN_HEALTH')?.({ scanId: 'scan-padding' });
+
+    await vi.waitFor(() => {
+      expect(emittedPayloads('SCAN_DESIGN_HEALTH_RESULT')).toHaveLength(1);
+    });
+
+    const result = emittedPayloads<{
+      scanResult: {
+        tokenAudit: {
+          issues: Array<{
+            bindingTarget: { field: string };
+            suggestion?: { variableId: string };
+          }>;
+        };
+      };
+    }>('SCAN_DESIGN_HEALTH_RESULT')[0];
+    expect(result.scanResult.tokenAudit.issues).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        bindingTarget: { field: 'paddingTop' },
+        suggestion: expect.objectContaining({ variableId: spacingVariable.id }),
+      }),
+      expect.objectContaining({
+        bindingTarget: { field: 'paddingRight' },
+        suggestion: undefined,
+      }),
+    ]));
+    expect(resolveForConsumer).toHaveBeenCalledWith(frame);
+  });
+
+  it('binds only the requested paint index and reports partial failures accurately', async () => {
+    const variable = {
+      id: 'color-token',
+      name: 'color/brand',
+    } as unknown as Variable;
+    const { nodesById } = await startPlugin({ variables: [variable] });
+    const firstPaint = {
+      color: { b: 0, g: 0, r: 0 },
+      type: 'SOLID',
+      visible: true,
+    } as SolidPaint;
+    const secondPaint = {
+      color: { b: 1, g: 1, r: 1 },
+      type: 'SOLID',
+      visible: true,
+    } as SolidPaint;
+    const node = {
+      fills: [firstPaint, secondPaint],
+      id: 'paint-node',
+      name: 'Paint node',
+      type: 'RECTANGLE',
+    } as unknown as RectangleNode;
+    nodesById.set(node.id, node);
+
+    const boundPaint = {
+      ...secondPaint,
+      boundVariables: { color: { id: variable.id, type: 'VARIABLE_ALIAS' } },
+    } as SolidPaint;
+    const setBoundVariableForPaint = vi.fn(() => boundPaint);
+    const commitUndo = vi.fn();
+    Object.assign(figma.variables, { setBoundVariableForPaint });
+    Object.assign(figma, { commitUndo });
+
+    utilityMocks.handlers.get('APPLY_TOKEN_BINDINGS')?.({
+      operationId: 'bind-operation',
+      bindings: [
+        {
+          bindingTarget: { field: 'fills', paintIndex: 1 },
+          nodeId: node.id,
+          property: 'fill',
+          variableId: variable.id,
+        },
+        {
+          bindingTarget: { field: 'fills', paintIndex: 0 },
+          nodeId: 'missing-node',
+          property: 'fill',
+          variableId: variable.id,
+        },
+      ],
+    });
+
+    await vi.waitFor(() => {
+      expect(emittedPayloads('APPLY_TOKEN_BINDINGS_RESULT')).toHaveLength(1);
+    });
+
+    expect(setBoundVariableForPaint).toHaveBeenCalledWith(secondPaint, 'color', variable);
+    expect(node.fills).toEqual([firstPaint, boundPaint]);
+    expect(commitUndo).toHaveBeenCalledTimes(1);
+    expect(emittedPayloads('APPLY_TOKEN_BINDINGS_RESULT')[0]).toEqual(expect.objectContaining({
+      boundCount: 1,
+      failedCount: 1,
+      ok: false,
+      operationId: 'bind-operation',
+    }));
+  });
+
+  it('preserves a normalized text override and rejects instances whose source changed', async () => {
+    const { nodesById } = await startPlugin();
+    const source = createComponent('source-component', 'Legacy button');
+    const otherSource = createComponent('other-component', 'Other button');
+    const target = createComponent('target-component', 'New button', {
+      propertyDefinitions: {
+        'Label#target:1': {
+          defaultValue: 'Button',
+          type: 'TEXT',
+        },
+      } as ComponentNode['componentPropertyDefinitions'],
+    });
+    const matchingInstance = createInstance(
+      'matching-instance',
+      Promise.resolve(source),
+      {
+        'Label#source:1': { type: 'TEXT', value: 'Continue' },
+      } as InstanceNode['componentProperties'],
+    );
+    const changedInstance = createInstance(
+      'changed-instance',
+      Promise.resolve(otherSource),
+      {
+        'Label#source:1': { type: 'TEXT', value: 'Ignore me' },
+      } as InstanceNode['componentProperties'],
+    );
+    const matchingSwap = vi.fn();
+    const matchingSetProperties = vi.fn();
+    const changedSwap = vi.fn();
+    Object.assign(matchingInstance, {
+      removed: false,
+      setProperties: matchingSetProperties,
+      swapComponent: matchingSwap,
+    });
+    Object.assign(changedInstance, {
+      removed: false,
+      setProperties: vi.fn(),
+      swapComponent: changedSwap,
+    });
+    nodesById.set(matchingInstance.id, matchingInstance);
+    nodesById.set(changedInstance.id, changedInstance);
+
+    const commitUndo = vi.fn();
+    Object.assign(figma, {
+      commitUndo,
+      importComponentByKeyAsync: vi.fn(() => Promise.resolve(target)),
+    });
+
+    utilityMocks.handlers.get('EXECUTE_COMPONENT_REPLACEMENT')?.({
+      operationId: 'replace-operation',
+      request: {
+        instanceIds: [matchingInstance.id, changedInstance.id],
+        propertyMappings: { Label: 'Label' },
+        sourceComponentKey: source.key,
+        targetComponentKey: target.key,
+      },
+    });
+
+    await vi.waitFor(() => {
+      expect(emittedPayloads('EXECUTE_COMPONENT_REPLACEMENT_RESULT')).toHaveLength(1);
+    });
+
+    expect(matchingSwap).toHaveBeenCalledWith(target);
+    expect(matchingSetProperties).toHaveBeenCalledWith({
+      'Label#target:1': 'Continue',
+    });
+    expect(changedSwap).not.toHaveBeenCalled();
+    expect(commitUndo).toHaveBeenCalledTimes(1);
+    expect(emittedPayloads('EXECUTE_COMPONENT_REPLACEMENT_RESULT')[0]).toEqual(expect.objectContaining({
+      failedCount: 1,
+      ok: false,
+      replacedCount: 1,
+      warningCount: 0,
+    }));
+  });
+});
+
 describe('output preference persistence', () => {
   it('round-trips user settings through clientStorage', async () => {
     const { clientStorage } = await startPlugin();
@@ -584,6 +778,25 @@ describe('output preference persistence', () => {
     utilityMocks.handlers.get('LOAD_OUTPUT_PREFERENCES')?.(undefined);
     await vi.waitFor(() => expect(emittedPayloads('LOAD_OUTPUT_PREFERENCES_RESULT')).toHaveLength(1));
     expect(emittedPayloads('LOAD_OUTPUT_PREFERENCES_RESULT')[0]).toEqual({ preferences });
+  });
+
+  it('round-trips token export preferences through clientStorage', async () => {
+    const { clientStorage } = await startPlugin();
+    const preferences = {
+      colorFormat: 'rgba' as const,
+      convertPxToRem: false,
+      nameStyle: 'title-underscore' as const,
+      outputFormat: 'json-dtcg' as const,
+      rootFontSize: 14,
+    };
+    utilityMocks.handlers.get('SAVE_TOKEN_EXPORT_PREFERENCES')?.({ preferences });
+    await vi.waitFor(() => expect(clientStorage.size).toBe(1));
+    utilityMocks.handlers.get('LOAD_TOKEN_COLLECTIONS')?.(undefined);
+    await vi.waitFor(() => expect(emittedPayloads('LOAD_TOKEN_COLLECTIONS_RESULT')).toHaveLength(1));
+    expect(emittedPayloads('LOAD_TOKEN_COLLECTIONS_RESULT')[0]).toMatchObject({
+      ok: true,
+      preferences,
+    });
   });
 });
 
@@ -863,6 +1076,147 @@ describe('Sync Tokens export', () => {
       'unknown-number-scope',
       'unresolved-alias',
     ]);
+  });
+
+  it('exports collections with Opacity tokens and Alpha colors accurately without rem conversion on opacity', async () => {
+    const opacityCollection = {
+      id: 'foundations-coll',
+      name: 'Foundations',
+      modes: [{ modeId: 'default', name: 'Default' }],
+      defaultModeId: 'default',
+      variableIds: ['var-spacing', 'var-opacity', 'var-color-translucent'],
+    } as unknown as VariableCollection;
+
+    const spacingVar = {
+      id: 'var-spacing',
+      name: 'spacing/md',
+      resolvedType: 'FLOAT',
+      scopes: ['WIDTH_HEIGHT', 'GAP'],
+      valuesByMode: { default: 16 },
+      variableCollectionId: opacityCollection.id,
+    } as unknown as Variable;
+
+    const opacityVar = {
+      id: 'var-opacity',
+      name: 'opacity/disabled',
+      resolvedType: 'FLOAT',
+      scopes: ['OPACITY'],
+      valuesByMode: { default: 0.38 },
+      variableCollectionId: opacityCollection.id,
+    } as unknown as Variable;
+
+    const translucentColorVar = {
+      id: 'var-color-translucent',
+      name: 'surface/overlay',
+      resolvedType: 'COLOR',
+      scopes: ['ALL_FILLS'],
+      valuesByMode: { default: { r: 0, g: 0.2, b: 0.8, a: 0.5 } },
+      variableCollectionId: opacityCollection.id,
+    } as unknown as Variable;
+
+    await startPlugin({
+      variableCollections: [opacityCollection],
+      variables: [spacingVar, opacityVar, translucentColorVar],
+    });
+
+    const options: ExportOptions = {
+      colorFormat: 'rgba',
+      convertPxToRem: true,
+      modesByCollection: { 'foundations-coll': ['default'] },
+      nameStyle: 'lower-hyphen',
+      rootFontSize: 16,
+    };
+
+    utilityMocks.handlers.get('EXPORT_TOKENS')?.({
+      collectionIds: ['foundations-coll'],
+      operationId: 'export-opacity-test',
+      options,
+    });
+
+    await vi.waitFor(() => {
+      expect(emittedPayloads<
+        Parameters<ExportTokensResultHandler['handler']>[0]
+      >('EXPORT_TOKENS_RESULT')).toHaveLength(1);
+    });
+
+    const result = emittedPayloads<
+      Parameters<ExportTokensResultHandler['handler']>[0]
+    >('EXPORT_TOKENS_RESULT')[0];
+    expect(result.ok).toBe(true);
+    const css = result.files?.[0]?.css ?? '';
+    expect(css).toContain('--spacing-md: 1rem;');
+    expect(css).toContain('--opacity-disabled: 0.38;');
+    expect(css).not.toContain('--opacity-disabled: 0.38rem;');
+    expect(css).toContain('--surface-overlay: rgba(0, 51, 204, 0.5);');
+    expect(result.files?.[0]?.warnings).toEqual([]);
+  });
+
+  it('exports W3C DTCG JSON tokens with $description from Figma variable descriptions', async () => {
+    const descCollection = {
+      id: 'desc-coll',
+      name: 'Tokens',
+      modes: [{ modeId: 'default', name: 'Default' }],
+      defaultModeId: 'default',
+      variableIds: ['var-brand-primary', 'var-brand-ghost'],
+    } as unknown as VariableCollection;
+
+    const brandPrimaryVar = {
+      id: 'var-brand-primary',
+      name: 'color/primary',
+      description: 'Used on high-contrast primary call-to-action buttons',
+      resolvedType: 'COLOR',
+      scopes: ['ALL_FILLS'],
+      valuesByMode: { default: { r: 0.1, g: 0.2, b: 0.9 } },
+      variableCollectionId: descCollection.id,
+    } as unknown as Variable;
+
+    const brandGhostVar = {
+      id: 'var-brand-ghost',
+      name: 'color/ghost',
+      description: '   ', // whitespace only, should be treated as empty
+      resolvedType: 'COLOR',
+      scopes: ['ALL_FILLS'],
+      valuesByMode: { default: { r: 1, g: 1, b: 1 } },
+      variableCollectionId: descCollection.id,
+    } as unknown as Variable;
+
+    await startPlugin({
+      variableCollections: [descCollection],
+      variables: [brandPrimaryVar, brandGhostVar],
+    });
+
+    const exportOptions: ExportOptions = {
+      colorFormat: 'hex',
+      convertPxToRem: true,
+      modesByCollection: { [descCollection.id]: ['default'] },
+      nameStyle: 'lower-hyphen',
+      outputFormat: 'json-dtcg',
+      rootFontSize: 16,
+    };
+
+    utilityMocks.handlers.get('EXPORT_TOKENS')?.({
+      collectionIds: [descCollection.id],
+      operationId: 'export-dtcg-desc',
+      options: exportOptions,
+    });
+
+    await vi.waitFor(() => expect(emittedPayloads('EXPORT_TOKENS_RESULT')).toHaveLength(1));
+    const result = emittedPayloads<
+      Parameters<ExportTokensResultHandler['handler']>[0]
+    >('EXPORT_TOKENS_RESULT')[0];
+    expect(result.ok).toBe(true);
+    const jsonStr = result.files?.[0]?.css ?? '';
+    const parsed = JSON.parse(jsonStr);
+    expect(parsed.color.primary).toEqual({
+      $description: 'Used on high-contrast primary call-to-action buttons',
+      $type: 'color',
+      $value: '#1a33e6',
+    });
+    expect(parsed.color.ghost).toEqual({
+      $type: 'color',
+      $value: '#ffffff',
+    });
+    expect(parsed.color.ghost.$description).toBeUndefined();
   });
 });
 

@@ -45,6 +45,7 @@ export function serializeDtcg(collection: TokenCollection, options: ExportOption
     target[segments[segments.length - 1] ?? 'unnamed'] = {
       $type: dtcgType(token),
       $value: formatTokenValue(token, jsonOptions),
+      ...(token.description ? { $description: token.description } : {}),
     };
   }
   return `${JSON.stringify(root, null, 2)}\n`;

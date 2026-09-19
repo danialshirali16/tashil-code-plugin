@@ -1,11 +1,15 @@
 import { on, showUI } from '@create-figma-plugin/utilities';
 import {
   type ApplyConnectionImportHandler,
+  type ApplyTokenBindingsHandler,
+  type BuildCompatibilityPlanHandler,
   type CancelDocGenerationHandler,
   type ClearConnectionHandler,
   type CloseHandler,
+  type ExecuteComponentReplacementHandler,
   type ExportConnectionsHandler,
   type ExportTokensHandler,
+  type FocusNodeHandler,
   type GenerateCodeConnectHandler,
   type GenerateComponentDocsHandler,
   type GenerateStoriesHandler,
@@ -23,7 +27,9 @@ import {
   type ResizeWindowHandler,
   type SaveConnectionHandler,
   type SaveOutputPreferencesHandler,
+  type SaveTokenExportPreferencesHandler,
   type ScanComponentsHandler,
+  type ScanDesignHealthHandler,
   type ScaffoldPropMappingsHandler,
   type UpdateDocsInPlaceHandler,
 } from './types';
@@ -39,6 +45,7 @@ import {
   exportTokens,
   loadTokenCollections,
   previewTokens,
+  saveTokenExportPreferences,
 } from './main/token-adapter';
 import {
   cancelDocumentationGeneration,
@@ -62,6 +69,13 @@ import {
   scanComponents,
   sendComponentTargetState,
 } from './main/connection-adapter';
+import {
+  applyTokenBindings,
+  buildCompatibilityPlanForComponents,
+  executeComponentReplacement,
+  focusNodeOnCanvas,
+  scanDesignHealth,
+} from './main/design-health-adapter';
 import {
   sendSelectionState,
 } from './main/selection-adapter';
@@ -121,6 +135,10 @@ export default function (): void {
     void loadTokenCollections();
   });
 
+  on<SaveTokenExportPreferencesHandler>('SAVE_TOKEN_EXPORT_PREFERENCES', (payload) => {
+    void saveTokenExportPreferences(payload.preferences);
+  });
+
   on<ExportTokensHandler>('EXPORT_TOKENS', (payload) => {
     void exportTokens(payload.operationId, payload.collectionIds, payload.options);
   });
@@ -167,6 +185,31 @@ export default function (): void {
 
   on<ResizeWindowHandler>('RESIZE_WINDOW', (size) => {
     figma.ui.resize(size.width, size.height);
+  });
+
+  on<ScanDesignHealthHandler>('SCAN_DESIGN_HEALTH', (payload) => {
+    void scanDesignHealth(payload.scanId, payload.targetNodeId);
+  });
+
+  on<ApplyTokenBindingsHandler>('APPLY_TOKEN_BINDINGS', (payload) => {
+    void applyTokenBindings(payload.operationId, payload.bindings);
+  });
+
+  on<BuildCompatibilityPlanHandler>('BUILD_COMPATIBILITY_PLAN', (payload) => {
+    void buildCompatibilityPlanForComponents(
+      payload.requestId,
+      payload.sourceComponentKey,
+      payload.targetComponentKey,
+      payload.instancesCount,
+    );
+  });
+
+  on<ExecuteComponentReplacementHandler>('EXECUTE_COMPONENT_REPLACEMENT', (payload) => {
+    void executeComponentReplacement(payload.operationId, payload.request);
+  });
+
+  on<FocusNodeHandler>('FOCUS_NODE', (payload) => {
+    void focusNodeOnCanvas(payload.nodeId);
   });
 
   on<CloseHandler>('CLOSE', () => {

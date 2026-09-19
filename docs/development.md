@@ -82,6 +82,9 @@ jsdom; plugin-side tests cover Figma API behavior with local test doubles.
 | `src/codegen.ts` | TSX generation, legacy metadata migration, and diagnostics. |
 | `src/inspect/` | Dev-Mode-parity selected-layer CSS partitioning and connected-component enumeration. |
 | `src/layout/` | Full selected-tree styled-components React generation, token-aware Figma CSS extraction, atomic component resolution, naming, per-request caches, and bounded traversal/concurrency. |
+| `src/sync-tokens/` | Pure serialization of Figma variable collections to CSS, JSON, Tailwind, Markdown, and Nested TypeScript. |
+| `src/documentation/` | Automated documentation frame generation, style sources, markdown docs, and in-place canvas reconciliation. |
+| `src/design-health/` | Pure token linting, confidence ranking, component compatibility planning, and replacement execution models. |
 | `src/types.ts` | Shared messages, persisted schema, and domain types. |
 | `docs/` | Product and contributor documentation. |
 
@@ -141,8 +144,9 @@ When a user-facing mapping or maintenance behavior changes, update the relevant
 guide in the same change. When a section's module map, boundary, or invariants
 change, update its section guide too:
 
-- [Section guide index](sections-index.md) and the five `section-*.md` guides
+- [Section guide index](sections-index.md) and the seven `section-*.md` guides
   for module-level architecture and the rules each section enforces.
+- [Design Health — How It Works](section-design-health.md) for canvas auditing, token linting, auto-binding, and component replacement.
 
 When a user-facing mapping or maintenance behavior changes, update the relevant
 guide in the same change:

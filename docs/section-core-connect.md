@@ -47,6 +47,7 @@ simple subset.
 | `src/main/selection-adapter.ts` | Canvas selection resolution, component property extraction, instance swap resolution, and inspect code state dispatch. |
 | `src/main/token-adapter.ts` | Variable collection scanning, raw collection loading, token export, and token export history in `clientStorage`. |
 | `src/main/doc-adapter.ts` | Design system documentation frame generation, style source extraction, markdown docs emission, and in-place frame updating. |
+| `src/main/design-health-adapter.ts` | Design health evaluation: in-memory token harvesting, recursive variable alias unwrapping, node traversal, token binding, and component replacement. |
 | `src/main/preferences.ts` | Per-user output preferences reading/saving via Figma `clientStorage`. |
 | `src/main/types.ts` | Internal main-thread types, helper formatters, and error creators. |
 | `src/ui.tsx` | **Preact UI root coordinator.** Hosts the top navigation tab bar, window resize handling, and workflow tab dispatching. |
@@ -54,7 +55,9 @@ simple subset.
 | `src/views/InspectView.tsx` | Inspect Code view: React layout preview, CSS layout and style partitions, accessibility badges, and connected component snippets. |
 | `src/views/SyncTokensView.tsx` | Sync Tokens view: variable collection selection, mode toggles, format picker, unit/naming options, and token export diffs. |
 | `src/views/DocsView.tsx` | Documentation view: tokens/styles/components documentation frame generation, search filters, grouping depth selector, and in-place reconciliation. |
-| `src/views/SettingsView.tsx` | Output settings view: quote style, indentation, semicolons, trailing commas, styled-component pattern, and copy mode preferences. |
+| `src/views/DesignHealthView.tsx` | Design Health view: live token coverage score ring, unbound token suggestions with confidence badges, component replacement planner, and library deprecation cards. |
+| `src/views/DesignHealthView.test.tsx` | Design Health view unit tests: badge synchronization, property filtering, and alternative token selection. |
+| `src/views/SettingsView.tsx` | Output settings view: modern Bento Grid layout for code formatting, styled-component naming presets, workspace preferences, real-time code preview, and clientStorage reset. |
 | `src/views/HowItWorksView.tsx` | How it works view: workflow guide, field glossary, and maintenance walkthrough. |
 | `src/components/common.tsx` | Reusable UI widgets: `CodeBlock`, `CopyButton`, `ConnectionReferencesPanel`, `AccessibilityBadges`, `Field`, and syntax highlighting. |
 | `src/ui-controller.ts` | Wires Preact hooks to the typed message handlers; owns source upload, mapping edits, save/clear, reconciliation, portability downloads, Storybook results, and Sync Tokens packaging/download. |

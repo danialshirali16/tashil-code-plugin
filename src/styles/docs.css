@@ -1,0 +1,423 @@
+.docs-library-view {
+  background: var(--figma-color-bg);
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  grid-row: 2;
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+  width: 100%;
+}
+
+.docs-library-scroll {
+  box-sizing: border-box;
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: 12px;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 16px;
+  width: 100%;
+}
+
+.docs-library-header {
+  align-items: end;
+  display: flex;
+  gap: 16px;
+  justify-content: space-between;
+}
+
+.docs-library-header h1 {
+  color: var(--figma-color-text);
+  font-size: 16px;
+  font-weight: 600;
+  line-height: 22px;
+  margin: 0;
+}
+
+.docs-library-header p {
+  color: var(--figma-color-text-secondary);
+  font-size: 11px;
+  line-height: 16px;
+  margin: 2px 0 0;
+}
+
+.docs-library-toolbar {
+  align-items: center;
+  display: grid;
+  gap: 8px;
+  grid-template-columns: minmax(160px, 1fr);
+  width: 100%;
+}
+
+.docs-library-hidden-filter {
+  min-width: 0;
+}
+
+.docs-library-hidden-filter > div {
+  margin: 0;
+}
+
+.docs-library-scope > div {
+  width: 100%;
+}
+
+.docs-library-scope > div > label {
+  flex: 1 1 0;
+}
+
+.docs-library-scope > div > label > div {
+  width: 100%;
+}
+
+.docs-library-scope-option {
+  align-items: center;
+  display: inline-flex;
+  gap: 6px;
+  justify-content: center;
+}
+
+.docs-library-reconcile {
+  background: var(--figma-color-bg);
+  border: 1px solid var(--figma-color-border);
+  border-radius: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 10px;
+}
+
+.docs-library-reconcile > div[class*="banner"] {
+  width: 100%;
+}
+
+.docs-library-change-list {
+  color: var(--figma-color-text-secondary);
+  display: grid;
+  font-size: 11px;
+  gap: 4px 16px;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  line-height: 16px;
+  margin: 0;
+  padding: 0 4px 0 20px;
+}
+
+.docs-library-change-list li {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.docs-library-reconcile-footer {
+  align-items: center;
+  display: flex;
+  gap: 12px;
+  justify-content: space-between;
+}
+
+.docs-library-selected-meta {
+  color: var(--figma-color-text-secondary);
+  font-size: 11px;
+  line-height: 16px;
+  margin: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.docs-library-row-actions {
+  align-items: center;
+  display: flex;
+  flex: 0 0 auto;
+  gap: 8px;
+  margin-left: auto;
+}
+
+.docs-library-list {
+  background: var(--figma-color-bg);
+  border: 1px solid var(--figma-color-border);
+  border-radius: 6px;
+  flex: 0 0 auto;
+  overflow: hidden;
+}
+
+.docs-library-source-options > div > div > div {
+  margin-top: 0 !important;
+}
+
+.docs-library-source-options label {
+  align-items: center;
+  border-bottom: 1px solid var(--figma-color-border);
+  box-sizing: border-box;
+  flex-direction: row-reverse;
+  min-height: 52px;
+  padding: 8px 12px;
+  width: 100%;
+}
+
+.docs-library-source-options > div > div > div:last-child > label {
+  border-bottom: 0;
+}
+
+.docs-library-source-options label:has(input:checked) {
+  background: var(--figma-color-bg-selected-secondary, var(--figma-color-bg-brand-tertiary));
+}
+
+.docs-library-source-options label:hover {
+  background: var(--figma-color-bg-hover);
+}
+
+.docs-library-source-options label > div:last-child {
+  min-width: 0;
+  padding-top: 0;
+}
+
+.docs-library-source-copy {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.docs-library-source-copy strong {
+  color: var(--figma-color-text);
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 16px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.docs-library-source-copy > span {
+  color: var(--figma-color-text-secondary);
+  font-size: 10px;
+  line-height: 14px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.docs-library-empty {
+  color: var(--figma-color-text-secondary);
+  font-size: 11px;
+  min-height: 72px;
+  padding: 26px 12px;
+  text-align: center;
+}
+
+.docs-library-grouping-depth {
+  background: var(--figma-color-bg);
+  border: 1px solid var(--figma-color-border);
+  border-radius: 6px;
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+}
+
+.docs-library-grouping-depth > div:last-child {
+  width: 100%;
+}
+
+.docs-library-grouping-depth > div:last-child > label {
+  flex: 1 1 0;
+}
+
+.docs-library-grouping-depth-heading {
+  align-items: start;
+  display: flex;
+  gap: 12px;
+  justify-content: space-between;
+}
+
+.docs-library-grouping-depth-heading h2 {
+  color: var(--figma-color-text);
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 16px;
+  margin: 0;
+}
+
+.docs-library-grouping-depth-heading p {
+  color: var(--figma-color-text-secondary);
+  font-size: 10px;
+  line-height: 14px;
+  margin: 0;
+}
+
+.docs-library-grouping-depth-heading > span {
+  color: var(--figma-color-text-brand);
+  font-size: 9px;
+  line-height: 14px;
+  white-space: nowrap;
+}
+
+.docs-library-preview {
+  background: var(--figma-color-bg);
+  border: 1px solid var(--figma-color-border);
+  border-radius: 8px;
+  display: flex;
+  flex-direction: column;
+  padding: 12px 14px;
+}
+
+.docs-library-preview-card {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.docs-library-preview-header {
+  align-items: center;
+  display: flex;
+  gap: 10px;
+  justify-content: space-between;
+}
+
+.docs-library-preview-header h3 {
+  color: var(--figma-color-text);
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 16px;
+  margin: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.docs-library-preview-badge {
+  background: var(--figma-color-bg-secondary, rgba(255, 255, 255, 0.06));
+  border: 1px solid var(--figma-color-border);
+  border-radius: 4px;
+  color: var(--figma-color-text-secondary);
+  flex: 0 0 auto;
+  font-family: var(--figma-font-code, monospace);
+  font-size: 10px;
+  font-weight: 500;
+  line-height: 14px;
+  padding: 2px 6px;
+}
+
+.docs-library-preview-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.docs-library-preview-row {
+  align-items: center;
+  color: var(--figma-color-text-secondary);
+  display: flex;
+  font-size: 11px;
+  gap: 8px;
+  line-height: 16px;
+}
+
+.docs-library-preview-row strong {
+  color: var(--figma-color-text);
+  font-weight: 600;
+}
+
+.docs-library-preview-more {
+  color: var(--figma-color-text-secondary);
+  font-weight: 400;
+}
+
+.docs-library-preview-icon {
+  align-items: center;
+  color: var(--figma-color-icon-secondary);
+  display: inline-flex;
+  flex: 0 0 auto;
+  justify-content: center;
+}
+
+.docs-icon-tokens {
+  color: var(--figma-color-icon-brand, var(--figma-color-text-brand, #38bdf8));
+}
+
+.docs-icon-styles {
+  color: var(--figma-color-icon-component, #c084fc);
+}
+
+.docs-icon-components {
+  color: var(--figma-color-icon-brand, var(--figma-color-text-brand, #38bdf8));
+}
+
+.docs-icon-layout {
+  color: var(--figma-color-icon-success, #34d399);
+}
+
+.docs-icon-sections {
+  color: var(--figma-color-icon-secondary, #9a9a9a);
+}
+
+.docs-library-preview-loading {
+  align-items: center;
+  color: var(--figma-color-text-secondary);
+  display: flex;
+  font-size: 11px;
+  gap: 8px;
+  line-height: 16px;
+}
+
+.docs-library-preview-error {
+  color: var(--figma-color-text-danger, #f87171);
+  font-size: 11px;
+  line-height: 16px;
+  margin: 0;
+}
+
+.docs-library-footer-progress {
+  align-items: center;
+  display: grid;
+  flex: 1 1 auto;
+  gap: 10px;
+  grid-template-columns: auto minmax(120px, 1fr) auto;
+  min-width: 0;
+}
+
+.docs-library-progress-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  min-width: 0;
+}
+
+.docs-library-progress-copy strong {
+  color: var(--figma-color-text);
+  font-size: 10px;
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.docs-library-progress-copy progress {
+  accent-color: var(--figma-color-bg-brand, #0d99ff);
+  height: 4px;
+  width: 100%;
+}
+
+.docs-library-progress-percent {
+  color: var(--figma-color-text-secondary);
+  font-family: var(--figma-font-mono, monospace);
+  font-size: 10px;
+}
+
+.docs-library-result {
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+@media (max-width: 520px) {
+  .docs-library-toolbar {
+    grid-template-columns: 1fr;
+  }
+
+  .docs-library-banner-row,
+  .docs-library-change-list {
+    grid-template-columns: 1fr;
+  }
+
+}
