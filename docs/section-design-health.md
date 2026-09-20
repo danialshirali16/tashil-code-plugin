@@ -24,19 +24,24 @@ Triggers (explicit UI subscription in ui.tsx)
    │   after figma.loadAllPagesAsync() as dynamic-page access requires)
    ▼
 Backend (src/main/design-health-adapter.ts)
-   │  ui.tsx emits SCAN_DESIGN_HEALTH with a monotonic scanId, then:
-   │  1. In-memory variable harvest: local variables plus referenced
-   │     collections' sister tokens (parallel chunked fetches)
-   │  2. Resolves all token candidates once for the audit root's mode
-   │     context; exact matches are verified per node with
-   │     variable.resolveForConsumer(node) (max 3 checks per issue); values
+   │  ui.tsx emits SCAN_DESIGN_HEALTH with a monotonic scanId; a single
+   │  last-request-wins worker keeps at most one active and one pending scan:
+   │  1. Single subtree snapshot (BFS, 800-node cap, instances atomic):
+   │     reads each property group once and harvests variable references
+   │  2. Expands referenced collections through cancellable parallel chunks,
+   │     resolves all
+   │     token candidates once for the audit root's mode context, and builds
+   │     one scan-local index for exact/scope/proximity ranking; exact
+   │     matches are verified through a per-node resolution cache (each
+   │     node/variable pair resolves once; at most 3 new candidates per
+   │     issue); values
    │     without an exact token get near-value/name-ranked suggestions
-   │  3. Traverses subtree (BFS, 800-node cap, isolated node try/catch,
-   │     never descends into non-root component instances)
-   │  4. Evaluates individual fills/strokes, radius, gap, each padding
-   │     edge, and opacity (one bridge read per property group per node)
-   │  5. Detects library deprecation tags and counts instance statistics
-   │  6. Emits scan honesty fields: nodesVisited, capReached, selectionCount
+   │  3. Resolves instance main components in cancellable parallel chunks
+   │  4. Evaluates the retained snapshots with isolated node try/catch:
+   │     individual fills/strokes, radius, gap, each padding
+   │     edge, and opacity (one bridge read per property group per node), then
+   │     detects library deprecation tags and counts instance statistics
+   │  5. Emits scan honesty fields: nodesVisited, capReached, selectionCount
    │  emit SCAN_DESIGN_HEALTH_RESULT (monotonic scanId drops stale refreshes)
    ▼
 UI View (src/views/DesignHealthView.tsx)
@@ -74,6 +79,14 @@ User triggers Action:
 Every supported visual property (fill, stroke, corner radius, gap, each
 padding edge, and opacity) is evaluated against the available design system
 tokens:
+
+The adapter builds one `TokenCandidateIndex` per scan. Exact strings use
+normalized value buckets, fuzzy numeric matches use a sorted range lookup,
+and scope/type-compatible lists, parsed colors, lowercase names, and property
+affinity scores are retained for reuse. Ranking therefore does not rescan and
+reparse the complete variable list for every audited property; the unindexed
+`rankTokenSuggestion({availableTokens})` call remains available for isolated
+pure-core consumers and produces the same result.
 
 - **High Confidence:** a Figma inferred-variable match exists.
 - **Medium Confidence:** an exact value match with a compatible scope, or
@@ -142,19 +155,26 @@ document-access restrictions:
 - Pulls local variables via `figma.variables.getLocalVariablesAsync()` — one
   call that already covers every local collection's tokens (a per-collection
   `variableIds` walk would only re-fetch the same variables).
-- Scans `boundVariables` and `inferredVariables` across the inspected
-  selection tree. For any referenced external collection, retrieves its
-  sister tokens locally via `figma.variables.getVariableCollectionByIdAsync()`.
-  Variable fetches run in parallel chunks (25 at a time); sequential
-  per-variable awaits were the dominant scan cost once a library holds
-  hundreds of tokens.
+- Scans `boundVariables` and `inferredVariables` while creating the same
+  800-node subtree snapshot that the audit later consumes. For any referenced
+  external collection, retrieves its sister tokens locally via
+  `figma.variables.getVariableCollectionByIdAsync()`. Collection metadata and
+  variable fetches both run in deduplicated parallel chunks (25 at a time);
+  sequential bridge awaits were the dominant scan cost once a library holds
+  hundreds of tokens. The current `scanId` is checked before and after every
+  chunk, so a superseded scan stops scheduling further Figma API work instead
+  of finishing stale collection expansion in the background.
 - Resolves candidates with `variable.resolveForConsumer(auditRoot)` **once per
-  scan** (the full candidate list is then ranked purely in JS). Resolving
+  scan**, seeds a per-node/per-variable resolution cache, then builds one
+  scan-local candidate index for exact values, scope/type compatibility,
+  parsed colors, and name affinity. Resolving
   every variable for every node would cost nodes × variables bridge calls.
   Because a mode switch inside the selection could make the root's context
   wrong for a nested layer, each emitted **exact-match** suggestion is
   verified with `resolveForConsumer(node)` for its actual consumer (at most 3
-  candidates per issue); a suggestion that fails verification falls back to
+  new candidates per issue). A cached `(node, variable)` result — including a
+  failed/unsupported resolution — is reused by sibling paints and spacing
+  properties; a suggestion that fails verification falls back to
   its near/name alternatives or renders as "No token match" instead of a
   binding that would change the layer's value. Inferred-variable matches skip
   verification — Figma resolved those for the exact node already — and so do
@@ -171,15 +191,23 @@ document-access restrictions:
   (flagged `isEditableHere: false`). Library statistics still count every
   instance at its atomic position.
 - **One bridge read per property group:** `fills`, `strokes`,
-  `boundVariables`, and `inferredVariables` are each read once per node and
-  reused by every paint index and padding edge evaluated on that node.
-- **Node budget:** 800 nodes per scan. The result carries `nodesVisited` and
+  `boundVariables`, and `inferredVariables` are each snapshotted once per node
+  and reused for variable discovery, every paint index, and every padding edge
+  evaluated on that node. There is no separate pre-audit tree walk.
+- **Node budget:** one 800-node traversal per scan covers both reference
+  discovery and auditing. The result carries `nodesVisited` and
   `capReached` so the UI can label a partial audit instead of presenting it
   as complete.
-- **Protected calls:** `getMainComponentAsync()` is wrapped in `try…catch`;
-  per-node failures are isolated.
+- **Protected calls:** instance `getMainComponentAsync()` lookups are
+  deduplicated by node ID and run in parallel chunks of 25. Each lookup is
+  wrapped in `try…catch`, so one unavailable component cannot block the other
+  instance statistics or the token audit. Results are consumed later in
+  traversal order, keeping deprecated-instance output deterministic.
 - **Stale scan cancellation:** every scan carries a monotonic `scanId`; stale
-  completions are discarded, including between variable-fetch chunks.
+  completions are discarded, including between variable, collection, and
+  main-component fetch chunks. The backend never overlaps full scan pipelines:
+  while one scan is winding down, repeated refreshes overwrite a single
+  pending slot, so only the newest request runs next.
 - **Multi-selection honesty:** `selectionCount` reports how many layers were
   selected; only the first is audited and the UI says so.
 
@@ -187,9 +215,11 @@ document-access restrictions:
 
 - `applyTokenBindings`: carries an explicit binding target for every finding.
   Fill/stroke requests update one paint index; padding requests update one
-  edge; radius, gap, and opacity update one node field. Each request is
-  isolated, partial failures are counted, and `figma.commitUndo()` is called
-  only when at least one binding changed.
+  edge; radius, gap, and opacity update one node field. Before mutation, node
+  and variable IDs are deduplicated and the unique targets are resolved in
+  bounded chunks of 25; requests are then applied in their original order.
+  Each request is isolated, partial failures are counted, and
+  `figma.commitUndo()` is called only when at least one binding changed.
 - `focusNodeOnCanvas`: scrolls and zooms to a node **without re-pointing
   `figma.currentPage.selection`**. The audit is anchored to the user's
   selection; "focus" must not silently replace the audit subject with a child
@@ -281,8 +311,10 @@ for empty/loading/error states):
    reset. Batch bind respects the flag unconditionally.
 8. **Consumer-mode token resolution:** candidate values are resolved once for
    the audit root with `Variable.resolveForConsumer`; every exact-match
-   suggestion is then verified against its actual consuming node (max 3
-   checks), so suggestions respect explicit and inherited variable modes.
+   suggestion is then verified against its actual consuming node (max 3 new
+   candidates per issue). Results are cached per `(SceneNode, Variable)` for
+   the lifetime of one scan, so modes never leak across nodes while sibling
+   properties never repeat the same resolution.
    Near-value and name-match suggestions are exempt (their values differ from
    the raw value by design) and are decision-only — never auto-bound.
 9. **Precise binding targets:** findings and mutation requests retain paint

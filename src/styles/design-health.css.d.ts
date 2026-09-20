@@ -28,10 +28,8 @@ declare const styles: {
   readonly "health-group-heading-row": string;
   readonly "health-header": string;
   readonly "health-header-actions": string;
-  readonly "health-header-badge": string;
+  readonly "health-header-description": string;
   readonly "health-header-info": string;
-  readonly "health-header-name": string;
-  readonly "health-header-subject": string;
   readonly "health-heading": string;
   readonly "health-issue-action": string;
   readonly "health-issue-content": string;

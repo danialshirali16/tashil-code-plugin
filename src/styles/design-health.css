@@ -43,35 +43,12 @@
   margin: 0;
 }
 
-.health-header-subject {
-  align-items: center;
+.health-header-description {
   color: var(--figma-color-text-secondary);
-  display: flex;
   font-size: 11px;
-  gap: 6px;
+  font-weight: 400;
+  line-height: 16px;
   margin: 0;
-  min-width: 0;
-}
-
-.health-header-name {
-  color: var(--figma-color-text);
-  font-weight: 600;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.health-header-badge {
-  background: var(--figma-color-bg-secondary);
-  border: 1px solid var(--figma-color-border);
-  border-radius: 3px;
-  color: var(--figma-color-text-secondary);
-  flex-shrink: 0;
-  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  font-size: 9px;
-  line-height: 12px;
-  padding: 0 4px;
-  white-space: nowrap;
 }
 
 .health-header-actions {
@@ -153,6 +130,7 @@
   display: flex;
   flex-direction: column;
   gap: 8px;
+  padding: 12px 0;
 }
 
 .health-coverage-ring {

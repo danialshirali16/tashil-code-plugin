@@ -15,14 +15,43 @@ export interface TokenCandidateInput {
   value: string | number;
 }
 
+type NumericTokenEntry = {
+  token: TokenCandidateInput;
+  value: number;
+};
+
+type ParsedHexColor = { r: number; g: number; b: number; a: number };
+
+export interface TokenCandidateIndex {
+  tokens: readonly TokenCandidateInput[];
+  compatibleByProperty: Record<TokenPropertyKind, readonly TokenCandidateInput[]>;
+  exactStringTokens: ReadonlyMap<string, readonly TokenCandidateInput[]>;
+  rawStringTokens: ReadonlyMap<string, readonly TokenCandidateInput[]>;
+  numericTokens: readonly NumericTokenEntry[];
+  numericTokensByString: ReadonlyMap<string, readonly TokenCandidateInput[]>;
+  originalOrder: ReadonlyMap<TokenCandidateInput, number>;
+  affinityByProperty: Record<TokenPropertyKind, ReadonlyMap<TokenCandidateInput, number>>;
+  lowercaseNameByToken: ReadonlyMap<TokenCandidateInput, string>;
+  parsedColorByToken: ReadonlyMap<TokenCandidateInput, ParsedHexColor | undefined>;
+}
+
 export function rankTokenSuggestion(params: {
   property: TokenPropertyKind;
   currentValue: string | number;
   inferredVariable?: { id: string; name: string; key?: string };
   availableTokens?: TokenCandidateInput[];
+  candidateIndex?: TokenCandidateIndex;
   nodeName?: string;
 }): { suggestion?: TokenSuggestion; alternatives?: TokenSuggestion[] } {
-  const { property, currentValue, inferredVariable, availableTokens = [], nodeName } = params;
+  const {
+    property,
+    currentValue,
+    inferredVariable,
+    availableTokens = [],
+    candidateIndex = createTokenCandidateIndex(availableTokens),
+    nodeName,
+  } = params;
+  const matchingTokens = exactCandidatesForValue(candidateIndex, currentValue);
 
   // 1. High Confidence: Figma inferredVariable
   if (inferredVariable) {
@@ -36,8 +65,8 @@ export function rankTokenSuggestion(params: {
     };
 
     // Find other candidate tokens with same value as alternatives
-    const alternatives = availableTokens
-      .filter((t) => t.variableId !== inferredVariable.id && isValueEqual(t.value, currentValue))
+    const alternatives = matchingTokens
+      .filter((t) => t.variableId !== inferredVariable.id)
       .map((t): TokenSuggestion => ({
         variableId: t.variableId,
         variableName: t.variableName,
@@ -51,7 +80,6 @@ export function rankTokenSuggestion(params: {
   }
 
   // 2. Exact Value + Scope Compatibility matching
-  const matchingTokens = availableTokens.filter((token) => isValueEqual(token.value, currentValue));
   // Variable scopes are binding constraints, not hints: a token scoped away
   // from this property (a radius-only token offered for a gap) is never a
   // candidate, even when its value matches exactly.
@@ -62,7 +90,12 @@ export function rankTokenSuggestion(params: {
     // alternatives instead of a dead end — nearest scale step / nearest shade
     // first, then tokens named like the layer. Decision-only suggestions
     // (never auto-bound).
-    return suggestByProximityAndName({ property, currentValue, availableTokens, nodeName });
+    return suggestByProximityAndName({
+      property,
+      currentValue,
+      candidateIndex,
+      nodeName,
+    });
   }
   const candidateTokens = scopeMatchingTokens;
 
@@ -95,9 +128,13 @@ export function rankTokenSuggestion(params: {
   const contextWords = nodeName ? tokenizeWords(nodeName) : [];
   const keywordTierCount = PROPERTY_KEYWORD_TIERS[property].length;
   const rankOf = (token: TokenCandidateInput): number =>
-    nodeNameAffinity(token.variableName, contextWords)
+    nodeNameAffinityLower(
+      candidateIndex.lowercaseNameByToken.get(token) ?? token.variableName.toLowerCase(),
+      contextWords,
+    )
       ? 0
-      : propertyAffinityTier(property, token.variableName);
+      : candidateIndex.affinityByProperty[property].get(token)
+        ?? propertyAffinityTier(property, token.variableName);
 
   const prioritized = candidateTokens.slice().sort((a, b) => rankOf(a) - rankOf(b));
 
@@ -249,6 +286,144 @@ const PROPERTY_KEYWORD_TIERS: Record<TokenPropertyKind, string[][]> = {
   ],
 };
 
+const TOKEN_PROPERTY_KINDS: readonly TokenPropertyKind[] = [
+  'fill',
+  'stroke',
+  'cornerRadius',
+  'gap',
+  'padding',
+  'opacity',
+];
+
+/**
+ * Builds the scan-local lookup tables reused by every issue in one audit.
+ * Callers that rank only one value can omit this and keep using
+ * `rankTokenSuggestion({ availableTokens })` directly.
+ */
+export function createTokenCandidateIndex(
+  tokens: readonly TokenCandidateInput[],
+): TokenCandidateIndex {
+  const tokenList = [...tokens];
+  const exactStringTokens = new Map<string, TokenCandidateInput[]>();
+  const rawStringTokens = new Map<string, TokenCandidateInput[]>();
+  const numericTokens: NumericTokenEntry[] = [];
+  const numericTokensByString = new Map<string, TokenCandidateInput[]>();
+  const originalOrder = new Map<TokenCandidateInput, number>();
+  const lowercaseNameByToken = new Map<TokenCandidateInput, string>();
+  const parsedColorByToken = new Map<TokenCandidateInput, ParsedHexColor | undefined>();
+  const compatibleByProperty = {} as Record<TokenPropertyKind, readonly TokenCandidateInput[]>;
+  const affinityByProperty = {} as Record<
+    TokenPropertyKind,
+    ReadonlyMap<TokenCandidateInput, number>
+  >;
+
+  for (let index = 0; index < tokenList.length; index++) {
+    const token = tokenList[index];
+    originalOrder.set(token, index);
+    lowercaseNameByToken.set(token, token.variableName.toLowerCase());
+
+    if (typeof token.value === 'number') {
+      if (Number.isFinite(token.value)) {
+        numericTokens.push({ token, value: token.value });
+      }
+      appendTokenBucket(numericTokensByString, String(token.value).toLowerCase(), token);
+    } else {
+      appendTokenBucket(exactStringTokens, token.value.trim().toLowerCase(), token);
+      appendTokenBucket(rawStringTokens, token.value.toLowerCase(), token);
+    }
+
+    parsedColorByToken.set(
+      token,
+      token.resolvedType === 'COLOR' && typeof token.value === 'string'
+        ? parseHexColor(token.value)
+        : undefined,
+    );
+  }
+
+  numericTokens.sort((a, b) => a.value - b.value);
+  for (const property of TOKEN_PROPERTY_KINDS) {
+    const compatible = typeCompatibleCandidates(property, tokenList);
+    compatibleByProperty[property] = compatible;
+    affinityByProperty[property] = new Map(
+      compatible.map((token) => [
+        token,
+        propertyAffinityTier(property, token.variableName),
+      ]),
+    );
+  }
+
+  return {
+    tokens: tokenList,
+    compatibleByProperty,
+    exactStringTokens,
+    rawStringTokens,
+    numericTokens,
+    numericTokensByString,
+    originalOrder,
+    affinityByProperty,
+    lowercaseNameByToken,
+    parsedColorByToken,
+  };
+}
+
+function appendTokenBucket(
+  map: Map<string, TokenCandidateInput[]>,
+  key: string,
+  token: TokenCandidateInput,
+): void {
+  const bucket = map.get(key);
+  if (bucket) {
+    bucket.push(token);
+  } else {
+    map.set(key, [token]);
+  }
+}
+
+function exactCandidatesForValue(
+  index: TokenCandidateIndex,
+  currentValue: string | number,
+): TokenCandidateInput[] {
+  const candidates: TokenCandidateInput[] = [];
+
+  if (typeof currentValue === 'number') {
+    if (Number.isFinite(currentValue)) {
+      const start = lowerBoundNumericTokens(index.numericTokens, currentValue - 0.001);
+      for (let position = start; position < index.numericTokens.length; position++) {
+        const entry = index.numericTokens[position];
+        if (entry.value >= currentValue + 0.001) break;
+        if (isValueEqual(entry.value, currentValue)) {
+          candidates.push(entry.token);
+        }
+      }
+    }
+    candidates.push(...(index.rawStringTokens.get(String(currentValue).toLowerCase()) ?? []));
+  } else {
+    candidates.push(...(index.exactStringTokens.get(currentValue.trim().toLowerCase()) ?? []));
+    candidates.push(...(index.numericTokensByString.get(currentValue.toLowerCase()) ?? []));
+  }
+
+  return Array.from(new Set(candidates)).sort(
+    (a, b) => (index.originalOrder.get(a) ?? 0) - (index.originalOrder.get(b) ?? 0),
+  );
+}
+
+function lowerBoundNumericTokens(
+  entries: readonly NumericTokenEntry[],
+  target: number,
+): number {
+  let low = 0;
+  let high = entries.length;
+  while (low < high) {
+    const middle = Math.floor((low + high) / 2);
+    if (entries[middle].value < target) {
+      low = middle + 1;
+    } else {
+      high = middle;
+    }
+  }
+  return low;
+}
+
 /**
  * Path-segment words that mark an interaction state. A raw audited fill is in
  * its resting state, so a hover/active/… variant of the same value is not the
@@ -310,12 +485,14 @@ function hasInteractionStateSegment(tokenNameLower: string): boolean {
  * what it is better than any naming convention does, so this signal outranks
  * every keyword tier.
  */
-function nodeNameAffinity(tokenName: string, contextWords: readonly string[]): boolean {
+function nodeNameAffinityLower(
+  tokenNameLower: string,
+  contextWords: readonly string[],
+): boolean {
   if (contextWords.length === 0) {
     return false;
   }
-  const nameLower = tokenName.toLowerCase();
-  return contextWords.some((word) => nameLower.includes(word));
+  return contextWords.some((word) => tokenNameLower.includes(word));
 }
 
 function tokenizeWords(raw: string): string[] {
@@ -362,7 +539,7 @@ function proximitySuggestion(
 function suggestByProximityAndName(params: {
   property: TokenPropertyKind;
   currentValue: string | number;
-  availableTokens: TokenCandidateInput[];
+  candidateIndex: TokenCandidateIndex;
   nodeName?: string;
 }): { suggestion?: TokenSuggestion; alternatives?: TokenSuggestion[] } {
   const near = rankNearValueSuggestions(params);
@@ -380,10 +557,10 @@ function suggestByProximityAndName(params: {
 function rankNearValueSuggestions(params: {
   property: TokenPropertyKind;
   currentValue: string | number;
-  availableTokens: TokenCandidateInput[];
+  candidateIndex: TokenCandidateIndex;
 }): TokenSuggestion[] {
-  const { property, currentValue, availableTokens } = params;
-  const candidates = typeCompatibleCandidates(property, availableTokens);
+  const { property, currentValue, candidateIndex } = params;
+  const candidates = candidateIndex.compatibleByProperty[property];
   if (candidates.length === 0) {
     return [];
   }
@@ -395,7 +572,7 @@ function rankNearValueSuggestions(params: {
     }
     const withDistance: Array<{ token: TokenCandidateInput; distance: number }> = [];
     for (const token of candidates) {
-      const tokenColor = typeof token.value === 'string' ? parseHexColor(token.value) : undefined;
+      const tokenColor = candidateIndex.parsedColorByToken.get(token);
       if (!tokenColor) continue;
       if (current.r === tokenColor.r && current.g === tokenColor.g && current.b === tokenColor.b) {
         // Same RGB, different alpha: binding keeps the paint's own opacity,
@@ -431,7 +608,8 @@ function rankNearValueSuggestions(params: {
         withDistance.push({
           token,
           distance: diff,
-          affinity: propertyAffinityTier(property, token.variableName),
+          affinity: candidateIndex.affinityByProperty[property].get(token)
+            ?? propertyAffinityTier(property, token.variableName),
         });
       }
     }
@@ -449,24 +627,27 @@ function rankNearValueSuggestions(params: {
 
 function rankNameMatchSuggestions(params: {
   property: TokenPropertyKind;
-  availableTokens: TokenCandidateInput[];
+  candidateIndex: TokenCandidateIndex;
   nodeName?: string;
 }): TokenSuggestion[] {
-  const { property, availableTokens, nodeName } = params;
+  const { property, candidateIndex, nodeName } = params;
   const contextWords = nodeName ? tokenizeWords(nodeName) : [];
   if (contextWords.length === 0) {
     // Property keywords alone ("color", "bg", …) match almost every token
     // name; without a layer-name signal a name suggestion would be noise.
     return [];
   }
-  const candidates = typeCompatibleCandidates(property, availableTokens);
+  const candidates = candidateIndex.compatibleByProperty[property];
   const keywordTierCount = PROPERTY_KEYWORD_TIERS[property].length;
   const scored: Array<{ token: TokenCandidateInput; score: number; matchedWord: string }> = [];
   for (const token of candidates) {
-    const nameLower = token.variableName.toLowerCase();
+    const nameLower = candidateIndex.lowercaseNameByToken.get(token)
+      ?? token.variableName.toLowerCase();
     const matchedWord = contextWords.find((word) => nameLower.includes(word));
     if (!matchedWord) continue;
-    const score = 3 + (propertyAffinityTier(property, nameLower) <= keywordTierCount ? 2 : 0);
+    const affinity = candidateIndex.affinityByProperty[property].get(token)
+      ?? propertyAffinityTier(property, nameLower);
+    const score = 3 + (affinity <= keywordTierCount ? 2 : 0);
     scored.push({ token, score, matchedWord });
   }
   if (scored.length === 0) {

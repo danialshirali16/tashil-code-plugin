@@ -616,6 +616,360 @@ describe('Design Health mutations', () => {
       }),
     ]));
     expect(resolveForConsumer).toHaveBeenCalledWith(frame);
+    expect(resolveForConsumer).toHaveBeenCalledTimes(1);
+  });
+
+  it('resolves a token at most once for each consuming node during one scan', async () => {
+    const resolveForConsumer = vi.fn(() => ({
+      resolvedType: 'FLOAT',
+      value: 8,
+    }));
+    const spacingVariable = {
+      id: 'shared-spacing-token',
+      key: 'shared-spacing-token-key',
+      name: 'spacing/8',
+      resolveForConsumer,
+      scopes: ['GAP'],
+    } as unknown as Variable;
+    const { selection } = await startPlugin({ variables: [spacingVariable] });
+    const child = createFrame('cached-child', 'Cached child', [], {
+      paddingRight: 8,
+      paddingTop: 8,
+    });
+    const root = createFrame('cached-root', 'Cached root', [child]);
+    selection.push(root);
+
+    utilityMocks.handlers.get('SCAN_DESIGN_HEALTH')?.({ scanId: 'cached-resolution-scan' });
+
+    await vi.waitFor(() => {
+      expect(emittedPayloads('SCAN_DESIGN_HEALTH_RESULT')).toHaveLength(1);
+    });
+
+    const result = emittedPayloads<{
+      scanResult: {
+        tokenAudit: {
+          issues: Array<{
+            nodeId: string;
+            suggestion?: { variableId: string };
+          }>;
+        };
+      };
+    }>('SCAN_DESIGN_HEALTH_RESULT')[0];
+    expect(result.scanResult.tokenAudit.issues.filter((issue) => issue.nodeId === child.id))
+      .toHaveLength(2);
+    expect(result.scanResult.tokenAudit.issues
+      .filter((issue) => issue.nodeId === child.id)
+      .every((issue) => issue.suggestion?.variableId === spacingVariable.id)).toBe(true);
+    expect(resolveForConsumer).toHaveBeenCalledTimes(2);
+    expect(resolveForConsumer).toHaveBeenNthCalledWith(1, root);
+    expect(resolveForConsumer).toHaveBeenNthCalledWith(2, child);
+  });
+
+  it('snapshots each property group once for variable discovery and auditing', async () => {
+    const { selection } = await startPlugin();
+    const frame = createFrame('single-pass-frame', 'Single pass frame', []);
+    const reads = {
+      boundVariables: 0,
+      children: 0,
+      fills: 0,
+      inferredVariables: 0,
+      strokes: 0,
+    };
+    const fill = {
+      color: { b: 0.5, g: 0.5, r: 0.5 },
+      type: 'SOLID',
+      visible: true,
+    } as SolidPaint;
+    Object.defineProperties(frame, {
+      boundVariables: {
+        configurable: true,
+        get: () => {
+          reads.boundVariables++;
+          return {};
+        },
+      },
+      children: {
+        configurable: true,
+        get: () => {
+          reads.children++;
+          return [];
+        },
+      },
+      fills: {
+        configurable: true,
+        get: () => {
+          reads.fills++;
+          return [fill];
+        },
+      },
+      inferredVariables: {
+        configurable: true,
+        get: () => {
+          reads.inferredVariables++;
+          return {};
+        },
+      },
+      strokes: {
+        configurable: true,
+        get: () => {
+          reads.strokes++;
+          return [];
+        },
+      },
+    });
+    selection.push(frame);
+
+    utilityMocks.handlers.get('SCAN_DESIGN_HEALTH')?.({ scanId: 'single-pass-scan' });
+
+    await vi.waitFor(() => {
+      expect(emittedPayloads('SCAN_DESIGN_HEALTH_RESULT')).toHaveLength(1);
+    });
+
+    expect(reads).toEqual({
+      boundVariables: 1,
+      children: 1,
+      fills: 1,
+      inferredVariables: 1,
+      strokes: 1,
+    });
+  });
+
+  it('coalesces a scan burst into one active scan and the latest pending request', async () => {
+    const firstLookupGate = createDeferred<void>();
+    const { selection } = await startPlugin();
+    const getLocalVariables = vi.mocked(figma.variables.getLocalVariablesAsync);
+    let activeLookups = 0;
+    let maxActiveLookups = 0;
+    let startedLookups = 0;
+    getLocalVariables.mockImplementation(async () => {
+      const lookupIndex = startedLookups++;
+      activeLookups++;
+      maxActiveLookups = Math.max(maxActiveLookups, activeLookups);
+      try {
+        if (lookupIndex === 0) {
+          await firstLookupGate.promise;
+        }
+        return [];
+      } finally {
+        activeLookups--;
+      }
+    });
+    selection.push(createFrame('coalesced-scan-frame', 'Coalesced scan', []));
+
+    utilityMocks.handlers.get('SCAN_DESIGN_HEALTH')?.({ scanId: 'burst-scan-1' });
+    await vi.waitFor(() => {
+      expect(getLocalVariables).toHaveBeenCalledTimes(1);
+    });
+
+    utilityMocks.handlers.get('SCAN_DESIGN_HEALTH')?.({ scanId: 'burst-scan-2' });
+    utilityMocks.handlers.get('SCAN_DESIGN_HEALTH')?.({ scanId: 'burst-scan-3' });
+    await flushPromises();
+
+    expect(getLocalVariables).toHaveBeenCalledTimes(1);
+    expect(maxActiveLookups).toBe(1);
+
+    firstLookupGate.resolve(undefined);
+    await vi.waitFor(() => {
+      expect(emittedPayloads<{ scanId: string }>('SCAN_DESIGN_HEALTH_RESULT'))
+        .toEqual([expect.objectContaining({ scanId: 'burst-scan-3' })]);
+    });
+
+    expect(getLocalVariables).toHaveBeenCalledTimes(2);
+    expect(maxActiveLookups).toBe(1);
+  });
+
+  it('expands external collections concurrently and deduplicates shared sister tokens', async () => {
+    const makeVariable = (
+      id: string,
+      collectionId: string,
+      value: number,
+    ): Variable => ({
+      id,
+      key: `${id}-key`,
+      name: `spacing/${value}`,
+      resolveForConsumer: vi.fn(() => ({ resolvedType: 'FLOAT', value })),
+      scopes: ['GAP'],
+      variableCollectionId: collectionId,
+    } as unknown as Variable);
+    const externalA = makeVariable('external-a', 'collection-a', 8);
+    const externalB = makeVariable('external-b', 'collection-b', 16);
+    const sharedSister = makeVariable('shared-sister', 'collection-a', 24);
+    const variablesById = new Map([
+      [externalA.id, externalA],
+      [externalB.id, externalB],
+      [sharedSister.id, sharedSister],
+    ]);
+    const collectionA = {
+      id: 'collection-a',
+      variableIds: [externalA.id, sharedSister.id],
+    } as unknown as VariableCollection;
+    const collectionB = {
+      id: 'collection-b',
+      variableIds: [externalB.id, sharedSister.id],
+    } as unknown as VariableCollection;
+    const deferredCollectionA = createDeferred<VariableCollection | null>();
+    const deferredCollectionB = createDeferred<VariableCollection | null>();
+    const { selection } = await startPlugin();
+    vi.mocked(figma.variables.getVariableByIdAsync).mockImplementation(
+      (id) => Promise.resolve(variablesById.get(id) ?? null),
+    );
+    vi.mocked(figma.variables.getVariableCollectionByIdAsync).mockImplementation((id) => {
+      if (id === collectionA.id) return deferredCollectionA.promise;
+      if (id === collectionB.id) return deferredCollectionB.promise;
+      return Promise.resolve(null);
+    });
+    const frame = createFrame('external-collections-frame', 'External collections', []);
+    Object.assign(frame, {
+      boundVariables: {
+        paddingRight: { id: externalB.id, type: 'VARIABLE_ALIAS' },
+        paddingTop: { id: externalA.id, type: 'VARIABLE_ALIAS' },
+      },
+    });
+    selection.push(frame);
+
+    utilityMocks.handlers.get('SCAN_DESIGN_HEALTH')?.({ scanId: 'external-collections-scan' });
+
+    await vi.waitFor(() => {
+      expect(figma.variables.getVariableCollectionByIdAsync).toHaveBeenCalledTimes(2);
+    });
+    deferredCollectionA.resolve(collectionA);
+    deferredCollectionB.resolve(collectionB);
+    await vi.waitFor(() => {
+      expect(emittedPayloads('SCAN_DESIGN_HEALTH_RESULT')).toHaveLength(1);
+    });
+
+    expect(vi.mocked(figma.variables.getVariableByIdAsync).mock.calls
+      .filter(([id]) => id === sharedSister.id)).toHaveLength(1);
+  });
+
+  it('stops scheduling variable lookup chunks when a scan is superseded', async () => {
+    const externalVariables = Array.from({ length: 26 }, (_, index) => ({
+      id: `stale-external-${index}`,
+      key: `stale-external-${index}-key`,
+      name: `spacing/${index}`,
+      resolveForConsumer: vi.fn(() => ({ resolvedType: 'FLOAT', value: index })),
+      scopes: ['GAP'],
+      variableCollectionId: 'stale-collection',
+    } as unknown as Variable));
+    const variablesById = new Map(externalVariables.map((variable) => [variable.id, variable]));
+    const lookupGate = createDeferred<void>();
+    const { selection } = await startPlugin();
+    vi.mocked(figma.variables.getVariableByIdAsync).mockImplementation(async (id) => {
+      await lookupGate.promise;
+      return variablesById.get(id) ?? null;
+    });
+    const frame = createFrame('stale-scan-frame', 'Stale scan', []);
+    Object.assign(frame, {
+      boundVariables: Object.fromEntries(externalVariables.map((variable, index) => [
+        `field-${index}`,
+        { id: variable.id, type: 'VARIABLE_ALIAS' },
+      ])),
+    });
+    selection.push(frame);
+
+    utilityMocks.handlers.get('SCAN_DESIGN_HEALTH')?.({ scanId: 'stale-scan' });
+    await vi.waitFor(() => {
+      expect(figma.variables.getVariableByIdAsync).toHaveBeenCalledTimes(25);
+    });
+
+    selection.splice(0);
+    utilityMocks.handlers.get('SCAN_DESIGN_HEALTH')?.({ scanId: 'replacement-scan' });
+    lookupGate.resolve(undefined);
+    await vi.waitFor(() => {
+      expect(emittedPayloads<{ scanId: string }>('SCAN_DESIGN_HEALTH_RESULT'))
+        .toEqual([expect.objectContaining({ scanId: 'replacement-scan' })]);
+    });
+    await flushPromises();
+
+    expect(figma.variables.getVariableByIdAsync).toHaveBeenCalledTimes(25);
+    expect(figma.variables.getVariableByIdAsync).not.toHaveBeenCalledWith('stale-external-25');
+  });
+
+  it('resolves instance main components concurrently while preserving library health order', async () => {
+    const localDeprecated = createComponent('local-deprecated', '_Deprecated Button');
+    Object.assign(localDeprecated, {
+      description: '[Deprecated] Use Button v2.',
+      remote: false,
+    });
+    const remoteCurrent = createComponent('remote-current', 'Current Card');
+    Object.assign(remoteCurrent, {
+      description: 'Current library component.',
+      remote: true,
+    });
+    const deferredLocal = createDeferred<ComponentNode | null>();
+    const deferredRemote = createDeferred<ComponentNode | null>();
+    const localInstance = createInstance('local-instance', deferredLocal.promise);
+    const remoteInstance = createInstance('remote-instance', deferredRemote.promise);
+    const { selection } = await startPlugin();
+    selection.push(createFrame(
+      'instance-health-frame',
+      'Instance health',
+      [localInstance, remoteInstance],
+    ));
+
+    utilityMocks.handlers.get('SCAN_DESIGN_HEALTH')?.({ scanId: 'parallel-instance-scan' });
+
+    await vi.waitFor(() => {
+      expect(localInstance.getMainComponentAsync).toHaveBeenCalledTimes(1);
+      expect(remoteInstance.getMainComponentAsync).toHaveBeenCalledTimes(1);
+    });
+    deferredRemote.resolve(remoteCurrent);
+    deferredLocal.resolve(localDeprecated);
+    await vi.waitFor(() => {
+      expect(emittedPayloads('SCAN_DESIGN_HEALTH_RESULT')).toHaveLength(1);
+    });
+
+    const result = emittedPayloads<{
+      scanResult: {
+        libraryHealth: {
+          deprecatedInstances: Array<{ nodeId: string }>;
+          localInstancesCount: number;
+          remoteInstancesCount: number;
+          totalInstances: number;
+          uniqueComponentsCount: number;
+        };
+      };
+    }>('SCAN_DESIGN_HEALTH_RESULT')[0];
+    expect(result.scanResult.libraryHealth).toEqual(expect.objectContaining({
+      deprecatedInstances: [expect.objectContaining({ nodeId: localInstance.id })],
+      localInstancesCount: 1,
+      remoteInstancesCount: 1,
+      totalInstances: 2,
+      uniqueComponentsCount: 2,
+    }));
+  });
+
+  it('stops scheduling main-component chunks when an instance scan is superseded', async () => {
+    const lookupGate = createDeferred<ComponentNode | null>();
+    const instances = Array.from({ length: 26 }, (_, index) => createInstance(
+      `stale-instance-${index}`,
+      lookupGate.promise,
+    ));
+    const { selection } = await startPlugin();
+    selection.push(createFrame('stale-instance-frame', 'Stale instances', instances));
+
+    utilityMocks.handlers.get('SCAN_DESIGN_HEALTH')?.({ scanId: 'stale-instance-scan' });
+    await vi.waitFor(() => {
+      expect(instances.reduce(
+        (count, instance) => count + instance.getMainComponentAsync.mock.calls.length,
+        0,
+      )).toBe(25);
+    });
+
+    selection.splice(0);
+    utilityMocks.handlers.get('SCAN_DESIGN_HEALTH')?.({ scanId: 'replacement-instance-scan' });
+    lookupGate.resolve(null);
+    await vi.waitFor(() => {
+      expect(emittedPayloads<{ scanId: string }>('SCAN_DESIGN_HEALTH_RESULT'))
+        .toEqual([expect.objectContaining({ scanId: 'replacement-instance-scan' })]);
+    });
+    await flushPromises();
+
+    expect(instances.reduce(
+      (count, instance) => count + instance.getMainComponentAsync.mock.calls.length,
+      0,
+    )).toBe(25);
+    expect(instances[25].getMainComponentAsync).not.toHaveBeenCalled();
   });
 
   it('binds only the requested paint index and reports partial failures accurately', async () => {
@@ -676,6 +1030,8 @@ describe('Design Health mutations', () => {
     expect(setBoundVariableForPaint).toHaveBeenCalledWith(secondPaint, 'color', variable);
     expect(node.fills).toEqual([firstPaint, boundPaint]);
     expect(commitUndo).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(figma.variables.getVariableByIdAsync).mock.calls
+      .filter(([id]) => id === variable.id)).toHaveLength(1);
     expect(emittedPayloads('APPLY_TOKEN_BINDINGS_RESULT')[0]).toEqual(expect.objectContaining({
       boundCount: 1,
       failedCount: 1,
@@ -683,6 +1039,61 @@ describe('Design Health mutations', () => {
       operationId: 'bind-operation',
     }));
   });
+
+  it('deduplicates node and variable lookups across a binding batch', async () => {
+    const variable = {
+      id: 'spacing-token',
+      name: 'spacing/medium',
+    } as unknown as Variable;
+    const { nodesById } = await startPlugin({ variables: [variable] });
+    const setBoundVariable = vi.fn();
+    const node = {
+      id: 'spacing-node',
+      name: 'Spacing node',
+      setBoundVariable,
+      type: 'FRAME',
+    } as unknown as FrameNode;
+    nodesById.set(node.id, node);
+    const commitUndo = vi.fn();
+    Object.assign(figma, { commitUndo });
+
+    utilityMocks.handlers.get('APPLY_TOKEN_BINDINGS')?.({
+      operationId: 'deduplicated-bind-operation',
+      bindings: [
+        {
+          bindingTarget: { field: 'paddingTop' },
+          nodeId: node.id,
+          property: 'spacing',
+          variableId: variable.id,
+        },
+        {
+          bindingTarget: { field: 'paddingRight' },
+          nodeId: node.id,
+          property: 'spacing',
+          variableId: variable.id,
+        },
+      ],
+    });
+
+    await vi.waitFor(() => {
+      expect(emittedPayloads('APPLY_TOKEN_BINDINGS_RESULT')).toHaveLength(1);
+    });
+
+    expect(vi.mocked(figma.getNodeByIdAsync).mock.calls
+      .filter(([id]) => id === node.id)).toHaveLength(1);
+    expect(vi.mocked(figma.variables.getVariableByIdAsync).mock.calls
+      .filter(([id]) => id === variable.id)).toHaveLength(1);
+    expect(setBoundVariable).toHaveBeenNthCalledWith(1, 'paddingTop', variable);
+    expect(setBoundVariable).toHaveBeenNthCalledWith(2, 'paddingRight', variable);
+    expect(commitUndo).toHaveBeenCalledTimes(1);
+    expect(emittedPayloads('APPLY_TOKEN_BINDINGS_RESULT')[0]).toEqual(expect.objectContaining({
+      boundCount: 2,
+      failedCount: 0,
+      ok: true,
+      operationId: 'deduplicated-bind-operation',
+    }));
+  });
+
   it('round-trips user settings through clientStorage', async () => {
     const { clientStorage } = await startPlugin();
     const preferences = {

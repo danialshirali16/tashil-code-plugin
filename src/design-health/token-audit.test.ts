@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   calculateTokenAuditSummary,
+  createTokenCandidateIndex,
   filterHighConfidenceIssues,
   rankTokenSuggestion,
   type TokenCandidateInput,
@@ -68,6 +69,51 @@ describe('token-audit', () => {
     expect(radiusResult.suggestion?.confidence).toBe('medium');
     expect(radiusResult.suggestion?.variableId).toBe('var:radius-md');
     expect(radiusResult.suggestion?.source).toBe('scope-match');
+  });
+
+  it('reuses a candidate index without changing exact, near, inferred, or name ranking', () => {
+    const tokens: TokenCandidateInput[] = [
+      ...sampleTokens,
+      {
+        variableId: 'var:primary-bg',
+        variableName: 'background/primary/default',
+        resolvedType: 'COLOR',
+        scopes: ['FRAME_FILL'],
+        value: '#2563EB',
+      },
+      {
+        variableId: 'var:spacing-sm',
+        variableName: 'spacing/sm',
+        resolvedType: 'FLOAT',
+        scopes: ['GAP'],
+        value: 12,
+      },
+    ];
+    const candidateIndex = createTokenCandidateIndex(tokens);
+    const cases = [
+      { property: 'fill' as const, currentValue: '#2563eb', nodeName: 'Card' },
+      { property: 'gap' as const, currentValue: 15.9995, nodeName: 'Stack' },
+      { property: 'gap' as const, currentValue: 11, nodeName: 'Stack' },
+      {
+        property: 'fill' as const,
+        currentValue: '#123456',
+        nodeName: 'Primary Button',
+      },
+      {
+        property: 'fill' as const,
+        currentValue: '#2563EB',
+        inferredVariable: {
+          id: 'var:primary-600',
+          name: 'color/primary/600',
+        },
+      },
+    ];
+
+    for (const params of cases) {
+      expect(rankTokenSuggestion({ ...params, candidateIndex })).toEqual(
+        rankTokenSuggestion({ ...params, availableTokens: tokens }),
+      );
+    }
   });
 
   it('calculates audit summary correctly', () => {

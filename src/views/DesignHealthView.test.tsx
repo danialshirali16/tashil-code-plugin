@@ -129,14 +129,13 @@ describe('DesignHealthView', () => {
   it('renders the header with an honest status, node subject, and coverage meter', () => {
     renderView({ scanResult: mockScanResult, status: 'scanned' });
 
-    expect(screen.getByRole('heading', { name: 'Design health' })).toBeTruthy();
-    expect(screen.getByText('Checkout Card')).toBeTruthy();
-    expect(screen.getByText('FRAME')).toBeTruthy();
+    expect(screen.getByRole('heading', { name: 'Design Health' })).toBeTruthy();
+    expect(screen.getByText(/Audit layer token coverage, batch-bind recommended tokens/)).toBeTruthy();
     expect(screen.getByText(/Up to date/)).toBeTruthy();
     expect(screen.queryByText('Auto-Audited')).toBeNull();
-    expect(screen.getByText('8 of 10 properties bound')).toBeTruthy();
+    expect(screen.getByText('8 of 11 items bound')).toBeTruthy();
     const meter = document.querySelector('[role="meter"]');
-    expect(meter?.getAttribute('aria-valuetext')).toBe('80 percent — 8 of 10 properties bound');
+    expect(meter?.getAttribute('aria-valuetext')).toBe('73 percent — 8 of 11 items bound');
   });
 
   it('warns about partial audits and multi-selection instead of hiding them', () => {

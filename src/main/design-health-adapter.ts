@@ -1,9 +1,11 @@
 import { emit } from '@create-figma-plugin/utilities';
 import {
   calculateTokenAuditSummary,
+  createTokenCandidateIndex,
   isValueEqual,
   rankTokenSuggestion,
   type TokenCandidateInput,
+  type TokenCandidateIndex,
 } from '../design-health/token-audit';
 import type {
   DeprecatedInstanceNotice,
@@ -19,13 +21,77 @@ import type {
 } from '../types';
 
 let latestScanId = '';
+const MAX_SCAN_NODES = 800;
+const FIGMA_LOOKUP_CHUNK_SIZE = 25;
 
-export async function scanDesignHealth(
+type DesignHealthScanRequest = {
+  scanId: string;
+  targetNodeId?: string;
+};
+
+let pendingDesignHealthScan: DesignHealthScanRequest | undefined;
+let designHealthScanWorker: Promise<void> | undefined;
+
+type AuditNodeSnapshot = {
+  node: SceneNode;
+  isInsideInstance: boolean;
+  parentInstanceId?: string;
+  fills?: readonly Paint[];
+  strokes?: readonly Paint[];
+  boundVariables?: Record<string, VariableAlias | VariableAlias[]>;
+  inferredVariables?: Record<string, unknown>;
+};
+
+type AuditTraversalSnapshot = {
+  nodes: AuditNodeSnapshot[];
+  referencedVariableIds: Set<string>;
+  nodesVisited: number;
+  capReached: boolean;
+};
+
+type ConsumerResolution = {
+  resolvedType?: VariableResolvedDataType;
+  value?: string | number;
+};
+
+type ConsumerResolutionCache = WeakMap<
+  SceneNode,
+  Map<string, ConsumerResolution>
+>;
+
+export function scanDesignHealth(
   scanId: string,
   targetNodeId?: string,
 ): Promise<void> {
   latestScanId = scanId;
+  pendingDesignHealthScan = { scanId, targetNodeId };
+  if (!designHealthScanWorker) {
+    designHealthScanWorker = drainDesignHealthScans();
+  }
+  return designHealthScanWorker;
+}
 
+async function drainDesignHealthScans(): Promise<void> {
+  try {
+    while (pendingDesignHealthScan) {
+      const request = pendingDesignHealthScan;
+      pendingDesignHealthScan = undefined;
+      await runDesignHealthScan(request.scanId, request.targetNodeId);
+    }
+  } finally {
+    designHealthScanWorker = undefined;
+    // Defensive restart for a request that arrived as the current worker was
+    // settling. In ordinary event-loop ordering the loop above consumes it.
+    if (pendingDesignHealthScan) {
+      designHealthScanWorker = drainDesignHealthScans();
+    }
+  }
+}
+
+async function runDesignHealthScan(
+  scanId: string,
+  targetNodeId?: string,
+): Promise<void> {
   try {
     let targetNode: SceneNode | null = null;
     const currentSel = figma.currentPage.selection;
@@ -69,18 +135,22 @@ export async function scanDesignHealth(
     } catch {
       // ignore
     }
+    if (scanId !== latestScanId) {
+      return;
+    }
 
-    // Fast-scan bound and inferred variables in target subtree to discover referenced collections
-    const referencedVarIds = new Set<string>();
-    collectVariableReferences(targetNode, referencedVarIds, 400);
+    // Traverse once and retain the property-group snapshots used by both
+    // variable discovery and the audit. This avoids reading the same Figma
+    // fields again after external collections have loaded.
+    const traversal = collectAuditTraversal(targetNode);
+    const referencedVarIds = traversal.referencedVariableIds;
 
     // Fetch referenced variables that are not local, then expand their full
     // collections so the complete library token set is available in memory.
     // Fetches run in parallel chunks — sequential per-variable awaits are the
     // dominant scan cost once a library holds hundreds of tokens.
     const referencedMissing = Array.from(referencedVarIds).filter((id) => !variableMap.has(id));
-    await fetchVariablesChunked(referencedMissing, variableMap);
-    if (scanId !== latestScanId) {
+    if (!await fetchVariablesChunked(referencedMissing, variableMap, scanId)) {
       return;
     }
 
@@ -92,23 +162,25 @@ export async function scanDesignHealth(
       }
     }
 
-    const sisterVarIds: string[] = [];
-    for (const colId of collectionIdsToExpand) {
-      try {
-        const col = await figma.variables.getVariableCollectionByIdAsync(colId);
-        if (col && Array.isArray(col.variableIds)) {
-          for (const varId of col.variableIds) {
-            if (!variableMap.has(varId)) {
-              sisterVarIds.push(varId);
-            }
+    const collections = await fetchVariableCollectionsChunked(
+      Array.from(collectionIdsToExpand),
+      scanId,
+    );
+    if (!collections) {
+      return;
+    }
+
+    const sisterVarIds = new Set<string>();
+    for (const collection of collections) {
+      if (Array.isArray(collection.variableIds)) {
+        for (const varId of collection.variableIds) {
+          if (!variableMap.has(varId)) {
+            sisterVarIds.add(varId);
           }
         }
-      } catch {
-        // ignore
       }
     }
-    await fetchVariablesChunked(sisterVarIds, variableMap);
-    if (scanId !== latestScanId) {
+    if (!await fetchVariablesChunked(Array.from(sisterVarIds), variableMap, scanId)) {
       return;
     }
 
@@ -118,7 +190,20 @@ export async function scanDesignHealth(
     // handled by verifying each exact-match suggestion against its consuming
     // node (see rankAndVerifySuggestions).
     const variableList = Array.from(variableMap.values());
-    const tokenCandidates = createTokenCandidatesForConsumer(variableList, targetNode);
+    const consumerResolutionCache: ConsumerResolutionCache = new WeakMap();
+    const tokenCandidates = createTokenCandidatesForConsumer(
+      variableList,
+      targetNode,
+      consumerResolutionCache,
+    );
+    const tokenCandidateIndex = createTokenCandidateIndex(tokenCandidates);
+    const mainComponentsByInstanceId = await fetchMainComponentsChunked(
+      traversal.nodes,
+      scanId,
+    );
+    if (!mainComponentsByInstanceId) {
+      return;
+    }
 
     // Traverse the subtree
     const issues: TokenPropertyIssue[] = [];
@@ -129,22 +214,12 @@ export async function scanDesignHealth(
     let localInstancesCount = 0;
     let totalInstances = 0;
 
-    // BFS/DFS walk with depth limit
-    const nodesToWalk: Array<{ node: SceneNode; isInsideInstance: boolean; parentInstanceId?: string }> = [
-      { node: targetNode, isInsideInstance: targetNode.type === 'INSTANCE', parentInstanceId: targetNode.type === 'INSTANCE' ? targetNode.id : undefined },
-    ];
-
-    let visitedCount = 0;
-    const MAX_NODES = 800; // Safeguard against massive documents
-
-    while (nodesToWalk.length > 0 && visitedCount < MAX_NODES) {
+    for (const current of traversal.nodes) {
       if (scanId !== latestScanId) {
         // Cancelled by a newer scan
         return;
       }
 
-      visitedCount++;
-      const current = nodesToWalk.shift()!;
       const n = current.node;
 
       if ('removed' in n && n.removed) {
@@ -153,17 +228,7 @@ export async function scanDesignHealth(
 
       try {
         const isEditableHere = !current.isInsideInstance || n.id === current.parentInstanceId;
-
-        // One bridge read per property group; the loops below reuse these
-        // snapshots instead of re-reading node fields per paint/edge.
-        const fills = 'fills' in n && Array.isArray(n.fills) ? n.fills : undefined;
-        const strokes = 'strokes' in n && Array.isArray(n.strokes) ? n.strokes : undefined;
-        const boundVariables = 'boundVariables' in n
-          ? (n.boundVariables as Record<string, VariableAlias | VariableAlias[]> | undefined)
-          : undefined;
-        const inferredVariables = 'inferredVariables' in n && n.inferredVariables
-          ? (n.inferredVariables as Record<string, unknown>)
-          : undefined;
+        const { fills, strokes, boundVariables, inferredVariables } = current;
         const hasBoundVariable = (field: string): boolean => Boolean(
           boundVariables && field in boundVariables,
         );
@@ -171,15 +236,7 @@ export async function scanDesignHealth(
         // Check Component Instances
         if (n.type === 'INSTANCE') {
           totalInstances++;
-          let mainComp: ComponentNode | null = null;
-          try {
-            mainComp = await n.getMainComponentAsync();
-          } catch {
-            mainComp = null;
-          }
-          if (scanId !== latestScanId) {
-            return;
-          }
+          const mainComp = mainComponentsByInstanceId.get(n.id) ?? null;
           if (mainComp) {
             if (mainComp.remote) {
               remoteInstancesCount++;
@@ -223,8 +280,9 @@ export async function scanDesignHealth(
                 property: 'fill',
                 currentValue: hex,
                 inferredVariable: inferred,
-                availableTokens: tokenCandidates,
+                candidateIndex: tokenCandidateIndex,
                 nodeName: n.name,
+                resolutionCache: consumerResolutionCache,
                 variableMap,
               });
 
@@ -263,8 +321,9 @@ export async function scanDesignHealth(
                 property: 'stroke',
                 currentValue: hex,
                 inferredVariable: inferred,
-                availableTokens: tokenCandidates,
+                candidateIndex: tokenCandidateIndex,
                 nodeName: n.name,
+                resolutionCache: consumerResolutionCache,
                 variableMap,
               });
 
@@ -299,8 +358,9 @@ export async function scanDesignHealth(
             property: 'cornerRadius',
             currentValue: cornerRadius,
             inferredVariable: inferred,
-            availableTokens: tokenCandidates,
+            candidateIndex: tokenCandidateIndex,
             nodeName: n.name,
+            resolutionCache: consumerResolutionCache,
             variableMap,
           });
 
@@ -334,8 +394,9 @@ export async function scanDesignHealth(
               property: 'gap',
               currentValue: itemSpacing,
               inferredVariable: inferred,
-              availableTokens: tokenCandidates,
+              candidateIndex: tokenCandidateIndex,
               nodeName: n.name,
+              resolutionCache: consumerResolutionCache,
               variableMap,
             });
 
@@ -377,8 +438,9 @@ export async function scanDesignHealth(
             property: 'padding',
             currentValue: paddingValue,
             inferredVariable: inferred,
-            availableTokens: tokenCandidates,
+            candidateIndex: tokenCandidateIndex,
             nodeName: n.name,
+            resolutionCache: consumerResolutionCache,
             variableMap,
           });
 
@@ -411,8 +473,9 @@ export async function scanDesignHealth(
             property: 'opacity',
             currentValue: opacity,
             inferredVariable: inferred,
-            availableTokens: tokenCandidates,
+            candidateIndex: tokenCandidateIndex,
             nodeName: n.name,
+            resolutionCache: consumerResolutionCache,
             variableMap,
           });
           issues.push({
@@ -430,22 +493,6 @@ export async function scanDesignHealth(
         }
       }
 
-        // Recurse children. Component instances stay atomic: their internals
-        // belong to the main component, auditing them would only surface
-        // read-only rows, and skipping them keeps large frames inside the
-        // node budget. The audit root itself may be an instance — selecting
-        // one is an explicit request to audit that component's own layers.
-        if ('children' in n && Array.isArray(n.children)) {
-          if (n.type !== 'INSTANCE' || n.id === targetNode.id) {
-            for (const child of n.children) {
-              nodesToWalk.push({
-                node: child,
-                isInsideInstance: current.isInsideInstance || n.type === 'INSTANCE',
-                parentInstanceId: current.parentInstanceId || (n.type === 'INSTANCE' ? n.id : undefined),
-              });
-            }
-          }
-        }
       } catch {
         // Continue scanning remaining nodes even if one node fails
       }
@@ -468,8 +515,8 @@ export async function scanDesignHealth(
         remoteInstancesCount,
         localInstancesCount,
       },
-      nodesVisited: visitedCount,
-      capReached: nodesToWalk.length > 0,
+      nodesVisited: traversal.nodesVisited,
+      capReached: traversal.capReached,
       selectionCount,
       scannedAt: Date.now(),
     };
@@ -502,10 +549,14 @@ export async function applyTokenBindings(
   let boundCount = 0;
   let failedCount = 0;
 
+  const nodeMap = new Map<string, BaseNode>();
+  const variableMap = new Map<string, Variable>();
+  await prefetchBindingTargets(bindings, nodeMap, variableMap);
+
   for (const req of bindings) {
     try {
-      const node = await figma.getNodeByIdAsync(req.nodeId);
-      const variable = await figma.variables.getVariableByIdAsync(req.variableId);
+      const node = nodeMap.get(req.nodeId);
+      const variable = variableMap.get(req.variableId);
 
       if (!node || !variable || !('type' in node) || ('removed' in node && node.removed)) {
         throw new Error('Binding target or variable is no longer available.');
@@ -532,6 +583,48 @@ export async function applyTokenBindings(
       ? `Successfully bound ${boundCount} properties to design tokens.`
       : `Bound ${boundCount} properties; ${failedCount} could not be updated. Review the remaining findings.`,
   });
+}
+
+const BINDING_LOOKUP_CHUNK_SIZE = 25;
+
+async function prefetchBindingTargets(
+  bindings: readonly TokenBindingRequest[],
+  nodeMap: Map<string, BaseNode>,
+  variableMap: Map<string, Variable>,
+): Promise<void> {
+  const tasks: Array<
+    | {kind: 'node'; id: string}
+    | {kind: 'variable'; id: string}
+  > = [
+    ...Array.from(new Set(bindings.map((binding) => binding.nodeId))).map((id) => ({
+      kind: 'node' as const,
+      id,
+    })),
+    ...Array.from(new Set(bindings.map((binding) => binding.variableId))).map((id) => ({
+      kind: 'variable' as const,
+      id,
+    })),
+  ];
+
+  for (let start = 0; start < tasks.length; start += BINDING_LOOKUP_CHUNK_SIZE) {
+    const chunk = tasks.slice(start, start + BINDING_LOOKUP_CHUNK_SIZE);
+    await Promise.all(
+      chunk.map(async (task) => {
+        try {
+          if (task.kind === 'node') {
+            const node = await figma.getNodeByIdAsync(task.id);
+            if (node) nodeMap.set(task.id, node);
+            return;
+          }
+
+          const variable = await figma.variables.getVariableByIdAsync(task.id);
+          if (variable) variableMap.set(task.id, variable);
+        } catch {
+          // A failed lookup is counted per binding while the batch is applied below.
+        }
+      }),
+    );
+  }
 }
 
 function applyTokenBindingToTarget(
@@ -606,88 +699,153 @@ export async function focusNodeOnCanvas(nodeId: string): Promise<void> {
   }
 }
 
-function collectVariableReferences(
+function collectAuditTraversal(
   root: SceneNode,
-  idSet: Set<string>,
-  maxNodes = 400,
-): void {
-  const stack: SceneNode[] = [root];
-  let visited = 0;
+  maxNodes = MAX_SCAN_NODES,
+): AuditTraversalSnapshot {
+  const pending: Array<{
+    node: SceneNode;
+    isInsideInstance: boolean;
+    parentInstanceId?: string;
+  }> = [{
+    node: root,
+    isInsideInstance: root.type === 'INSTANCE',
+    parentInstanceId: root.type === 'INSTANCE' ? root.id : undefined,
+  }];
+  const nodes: AuditNodeSnapshot[] = [];
+  const referencedVariableIds = new Set<string>();
+  let cursor = 0;
+  let nodesVisited = 0;
 
-  while (stack.length > 0 && visited < maxNodes) {
-    const node = stack.pop()!;
+  while (cursor < pending.length && nodesVisited < maxNodes) {
+    const current = pending[cursor++];
+    const node = current.node;
+    nodesVisited++;
+
     if ('removed' in node && node.removed) continue;
-    visited++;
 
+    const fills = readPaints(node, 'fills');
+    const strokes = readPaints(node, 'strokes');
+    const boundVariables = readBoundVariables(node);
+    const inferredVariables = readInferredVariables(node);
+    collectVariableIds(boundVariables, referencedVariableIds);
+    collectPaintVariableIds(fills, referencedVariableIds);
+    collectPaintVariableIds(strokes, referencedVariableIds);
+    collectVariableIds(inferredVariables, referencedVariableIds);
+
+    nodes.push({
+      ...current,
+      fills,
+      strokes,
+      boundVariables,
+      inferredVariables,
+    });
+
+    // Component instances stay atomic. The selected root instance is the one
+    // exception because selecting it explicitly requests its own subtree.
     try {
-      // 1. node.boundVariables
-      if ('boundVariables' in node && node.boundVariables) {
-        for (const val of Object.values(node.boundVariables)) {
-          if (val && typeof val === 'object') {
-            if ('id' in val && typeof (val as { id: unknown }).id === 'string') {
-              idSet.add((val as { id: string }).id);
-            } else if (Array.isArray(val)) {
-              for (const item of val) {
-                if (item && typeof item === 'object' && 'id' in item && typeof item.id === 'string') {
-                  idSet.add(item.id);
-                }
-              }
-            }
-          }
-        }
-      }
-
-      // 2. fills
-      if ('fills' in node && Array.isArray(node.fills)) {
-        for (const p of node.fills) {
-          if (p.boundVariables?.color?.id) {
-            idSet.add(p.boundVariables.color.id);
-          }
-        }
-      }
-
-      // 3. strokes
-      if ('strokes' in node && Array.isArray(node.strokes)) {
-        for (const p of node.strokes) {
-          if (p.boundVariables?.color?.id) {
-            idSet.add(p.boundVariables.color.id);
-          }
-        }
-      }
-
-      // 4. inferredVariables
-      if ('inferredVariables' in node && node.inferredVariables) {
-        const map = node.inferredVariables as Record<string, unknown>;
-        for (const val of Object.values(map)) {
-          if (Array.isArray(val)) {
-            for (const item of val) {
-              if (Array.isArray(item)) {
-                for (const sub of item) {
-                  if (sub && typeof sub === 'object' && 'id' in sub && typeof sub.id === 'string') {
-                    idSet.add(sub.id);
-                  }
-                }
-              } else if (item && typeof item === 'object' && 'id' in item && typeof item.id === 'string') {
-                idSet.add(item.id);
-              }
-            }
-          } else if (val && typeof val === 'object' && 'id' in val && typeof (val as { id: unknown }).id === 'string') {
-            idSet.add((val as { id: string }).id);
-          }
-        }
-      }
-
-      // 5. Children — same atomicity rule as the audit walk: never descend
-      // into a non-root instance's internals.
-      if ('children' in node && Array.isArray(node.children)) {
-        if (node.type !== 'INSTANCE' || node.id === root.id) {
-          for (const child of node.children) {
-            stack.push(child);
+      if ('children' in node) {
+        const children = node.children;
+        if (Array.isArray(children) && (node.type !== 'INSTANCE' || node.id === root.id)) {
+          for (const child of children) {
+            pending.push({
+              node: child,
+              isInsideInstance: current.isInsideInstance || node.type === 'INSTANCE',
+              parentInstanceId: current.parentInstanceId
+                || (node.type === 'INSTANCE' ? node.id : undefined),
+            });
           }
         }
       }
     } catch {
-      // ignore
+      // A node whose children are unavailable remains auditable on its own.
+    }
+  }
+
+  return {
+    nodes,
+    referencedVariableIds,
+    nodesVisited,
+    capReached: cursor < pending.length,
+  };
+}
+
+function readPaints(
+  node: SceneNode,
+  field: 'fills' | 'strokes',
+): readonly Paint[] | undefined {
+  try {
+    if (field === 'fills' && 'fills' in node) {
+      const fills = node.fills;
+      return Array.isArray(fills) ? fills : undefined;
+    }
+    if (field === 'strokes' && 'strokes' in node) {
+      const strokes = node.strokes;
+      return Array.isArray(strokes) ? strokes : undefined;
+    }
+  } catch {
+    // The remaining property groups and descendants can still be audited.
+  }
+  return undefined;
+}
+
+function readBoundVariables(
+  node: SceneNode,
+): Record<string, VariableAlias | VariableAlias[]> | undefined {
+  try {
+    if ('boundVariables' in node) {
+      return node.boundVariables as Record<string, VariableAlias | VariableAlias[]> | undefined;
+    }
+  } catch {
+    // The remaining property groups and descendants can still be audited.
+  }
+  return undefined;
+}
+
+function readInferredVariables(node: SceneNode): Record<string, unknown> | undefined {
+  try {
+    if ('inferredVariables' in node) {
+      return node.inferredVariables as Record<string, unknown> | undefined;
+    }
+  } catch {
+    // The remaining property groups and descendants can still be audited.
+  }
+  return undefined;
+}
+
+function collectPaintVariableIds(
+  paints: readonly Paint[] | undefined,
+  idSet: Set<string>,
+): void {
+  if (!paints) return;
+  for (const paint of paints) {
+    if ('boundVariables' in paint && paint.boundVariables?.color?.id) {
+      idSet.add(paint.boundVariables.color.id);
+    }
+  }
+}
+
+function collectVariableIds(
+  values: Record<string, unknown> | undefined,
+  idSet: Set<string>,
+): void {
+  if (!values) return;
+  for (const value of Object.values(values)) {
+    collectVariableIdsFromValue(value, idSet);
+  }
+}
+
+function collectVariableIdsFromValue(value: unknown, idSet: Set<string>): void {
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      collectVariableIdsFromValue(item, idSet);
+    }
+    return;
+  }
+  if (value && typeof value === 'object' && 'id' in value) {
+    const id = (value as { id?: unknown }).id;
+    if (typeof id === 'string') {
+      idSet.add(id);
     }
   }
 }
@@ -770,25 +928,35 @@ function getBoundPaintVariable(
 /**
  * Rank same-value token candidates and verify the top suggestions against the
  * consuming node. Candidate values come from the audit root's variable-mode
- * context; the per-issue `resolveForConsumer` check keeps a mode switch inside
- * the selection from ever offering a token whose value on this node differs
- * from the layer's raw value.
+ * context; cached per-consumer verification keeps a mode switch inside the
+ * selection from ever offering a token whose value on this node differs from
+ * the layer's raw value.
  */
 async function rankAndVerifySuggestions(params: {
   node: SceneNode;
   property: TokenPropertyKind;
   currentValue: string | number;
   inferredVariable?: { id: string; name: string; key?: string };
-  availableTokens: TokenCandidateInput[];
+  candidateIndex: TokenCandidateIndex;
   nodeName?: string;
+  resolutionCache: ConsumerResolutionCache;
   variableMap: Map<string, Variable>;
 }): Promise<{ suggestion?: TokenSuggestion; alternatives?: TokenSuggestion[] }> {
-  const { node, property, currentValue, inferredVariable, availableTokens, nodeName, variableMap } = params;
+  const {
+    node,
+    property,
+    currentValue,
+    inferredVariable,
+    candidateIndex,
+    nodeName,
+    resolutionCache,
+    variableMap,
+  } = params;
   const ranked = rankTokenSuggestion({
     property,
     currentValue,
     inferredVariable,
-    availableTokens,
+    candidateIndex,
     nodeName,
   });
   const isExactMatch = ranked.suggestion?.source === 'exact-value'
@@ -807,15 +975,10 @@ async function rankAndVerifySuggestions(params: {
   for (const candidate of all.slice(0, 3)) {
     const variable = variableMap.get(candidate.variableId);
     if (!variable) continue;
-    try {
-      const resolved = variable.resolveForConsumer(node);
-      const value = normalizeResolvedTokenValue(resolved.value, resolved.resolvedType);
-      if (value !== undefined && isValueEqual(value, currentValue)) {
-        verified = candidate;
-        break;
-      }
-    } catch {
-      // A variable that cannot resolve for this consumer is not a safe suggestion.
+    const resolved = resolveVariableForConsumerCached(variable, node, resolutionCache);
+    if (resolved.value !== undefined && isValueEqual(resolved.value, currentValue)) {
+      verified = candidate;
+      break;
     }
   }
   if (!verified) {
@@ -844,10 +1007,14 @@ async function rankAndVerifySuggestions(params: {
 async function fetchVariablesChunked(
   variableIds: readonly string[],
   variableMap: Map<string, Variable>,
-): Promise<void> {
-  const CHUNK_SIZE = 25;
-  for (let start = 0; start < variableIds.length; start += CHUNK_SIZE) {
-    const slice = variableIds.slice(start, start + CHUNK_SIZE);
+  scanId: string,
+): Promise<boolean> {
+  const uniqueVariableIds = Array.from(new Set(variableIds));
+  for (let start = 0; start < uniqueVariableIds.length; start += FIGMA_LOOKUP_CHUNK_SIZE) {
+    if (scanId !== latestScanId) {
+      return false;
+    }
+    const slice = uniqueVariableIds.slice(start, start + FIGMA_LOOKUP_CHUNK_SIZE);
     const variables = await Promise.all(slice.map(async (id) => {
       try {
         return await figma.variables.getVariableByIdAsync(id);
@@ -855,37 +1022,132 @@ async function fetchVariablesChunked(
         return null;
       }
     }));
+    if (scanId !== latestScanId) {
+      return false;
+    }
     for (const v of variables) {
       if (v) {
         variableMap.set(v.id, v);
       }
     }
   }
+  return true;
+}
+
+async function fetchVariableCollectionsChunked(
+  collectionIds: readonly string[],
+  scanId: string,
+): Promise<VariableCollection[] | undefined> {
+  const uniqueCollectionIds = Array.from(new Set(collectionIds));
+  const collections: VariableCollection[] = [];
+  for (let start = 0; start < uniqueCollectionIds.length; start += FIGMA_LOOKUP_CHUNK_SIZE) {
+    if (scanId !== latestScanId) {
+      return undefined;
+    }
+    const slice = uniqueCollectionIds.slice(start, start + FIGMA_LOOKUP_CHUNK_SIZE);
+    const fetched = await Promise.all(slice.map(async (id) => {
+      try {
+        return await figma.variables.getVariableCollectionByIdAsync(id);
+      } catch {
+        return null;
+      }
+    }));
+    if (scanId !== latestScanId) {
+      return undefined;
+    }
+    for (const collection of fetched) {
+      if (collection) {
+        collections.push(collection);
+      }
+    }
+  }
+  return collections;
+}
+
+async function fetchMainComponentsChunked(
+  snapshots: readonly AuditNodeSnapshot[],
+  scanId: string,
+): Promise<Map<string, ComponentNode | null> | undefined> {
+  const instancesById = new Map<string, InstanceNode>();
+  for (const snapshot of snapshots) {
+    if (snapshot.node.type === 'INSTANCE') {
+      instancesById.set(snapshot.node.id, snapshot.node);
+    }
+  }
+
+  const instances = Array.from(instancesById.values());
+  const mainComponents = new Map<string, ComponentNode | null>();
+  for (let start = 0; start < instances.length; start += FIGMA_LOOKUP_CHUNK_SIZE) {
+    if (scanId !== latestScanId) {
+      return undefined;
+    }
+    const chunk = instances.slice(start, start + FIGMA_LOOKUP_CHUNK_SIZE);
+    const fetched = await Promise.all(chunk.map(async (instance) => {
+      try {
+        return [instance.id, await instance.getMainComponentAsync()] as const;
+      } catch {
+        return [instance.id, null] as const;
+      }
+    }));
+    if (scanId !== latestScanId) {
+      return undefined;
+    }
+    for (const [instanceId, mainComponent] of fetched) {
+      mainComponents.set(instanceId, mainComponent);
+    }
+  }
+  return mainComponents;
 }
 
 function createTokenCandidatesForConsumer(
   variables: readonly Variable[],
   consumer: SceneNode,
+  resolutionCache: ConsumerResolutionCache,
 ): TokenCandidateInput[] {
   const candidates: TokenCandidateInput[] = [];
   for (const variable of variables) {
-    try {
-      const resolved = variable.resolveForConsumer(consumer);
-      const value = normalizeResolvedTokenValue(resolved.value, resolved.resolvedType);
-      if (value === undefined) continue;
-      candidates.push({
-        variableId: variable.id,
-        variableName: variable.name,
-        variableKey: variable.key,
-        resolvedType: resolved.resolvedType,
-        scopes: variable.scopes,
-        value,
-      });
-    } catch {
-      // A variable that cannot resolve for this consumer is not a safe suggestion.
-    }
+    const resolved = resolveVariableForConsumerCached(variable, consumer, resolutionCache);
+    if (resolved.value === undefined || resolved.resolvedType === undefined) continue;
+    candidates.push({
+      variableId: variable.id,
+      variableName: variable.name,
+      variableKey: variable.key,
+      resolvedType: resolved.resolvedType,
+      scopes: variable.scopes,
+      value: resolved.value,
+    });
   }
   return candidates;
+}
+
+function resolveVariableForConsumerCached(
+  variable: Variable,
+  consumer: SceneNode,
+  cache: ConsumerResolutionCache,
+): ConsumerResolution {
+  let nodeCache = cache.get(consumer);
+  if (!nodeCache) {
+    nodeCache = new Map();
+    cache.set(consumer, nodeCache);
+  }
+
+  const cached = nodeCache.get(variable.id);
+  if (cached) {
+    return cached;
+  }
+
+  let resolution: ConsumerResolution = {};
+  try {
+    const resolved = variable.resolveForConsumer(consumer);
+    resolution = {
+      resolvedType: resolved.resolvedType,
+      value: normalizeResolvedTokenValue(resolved.value, resolved.resolvedType),
+    };
+  } catch {
+    // Failed resolutions are cached too so sibling properties do not retry.
+  }
+  nodeCache.set(variable.id, resolution);
+  return resolution;
 }
 
 function normalizeResolvedTokenValue(

@@ -413,12 +413,10 @@ export function DesignHealthView(props: DesignHealthViewProps): h.JSX.Element {
     <main aria-labelledby="tashil-design-health-heading" class="design-health-view">
       <header class="health-header">
         <div class="health-header-info">
-          <h1 class="health-heading" id="tashil-design-health-heading">Design health</h1>
-          <p class="health-header-subject">
-            <span class="health-header-name" title={scanResult.targetNode.name}>
-              {scanResult.targetNode.name}
-            </span>
-            <span class="health-header-badge">{scanResult.targetNode.type}</span>
+          <h1 class="health-heading" id="tashil-design-health-heading">Design Health</h1>
+          <p class="health-header-description">
+            Audit layer token coverage, batch-bind recommended tokens, and track
+            deprecated library instances.
           </p>
         </div>
         <div class="health-header-actions">
@@ -454,6 +452,45 @@ export function DesignHealthView(props: DesignHealthViewProps): h.JSX.Element {
           Multiple layers are selected — only the first one was audited.
         </Banner>
       ) : null}
+
+      {/* Coverage spans both tabs: token properties plus library findings
+          (deprecated instances) — the ring sits above the sub-tab bar for
+          that reason. */}
+      <div
+        aria-valuenow={coveragePercent}
+        aria-valuemin={0}
+        aria-valuemax={100}
+        aria-valuetext={`${coveragePercent} percent — ${tokenAudit.boundPropertiesCount} of ${healthTotal} items bound`}
+        class="health-coverage"
+        role="meter"
+      >
+        <div class="health-coverage-ring">
+          <svg
+            aria-hidden="true"
+            class="health-coverage-svg"
+            viewBox="0 0 72 72"
+          >
+            <circle
+              class="health-coverage-track"
+              cx="36"
+              cy="36"
+              r="30"
+            />
+            <circle
+              class={`health-coverage-fill health-tone-${tone}-stroke`}
+              cx="36"
+              cy="36"
+              r="30"
+              strokeDasharray={COVERAGE_CIRCUMFERENCE}
+              strokeDashoffset={COVERAGE_CIRCUMFERENCE * (1 - Math.min(100, Math.max(0, coveragePercent)) / 100)}
+            />
+          </svg>
+          <span class={`health-coverage-pct health-tone-${tone}-text`}>{coveragePercent}%</span>
+        </div>
+        <p class="health-coverage-caption">
+          {tokenAudit.boundPropertiesCount} of {healthTotal} items bound
+        </p>
+      </div>
 
       {/* Tab labels carry their related library icon. The children are JSX
           (icons require it), so `.health-tab-option` reproduces the library
@@ -494,42 +531,6 @@ export function DesignHealthView(props: DesignHealthViewProps): h.JSX.Element {
             </div>
           ) : (
             <Fragment>
-              <div
-                aria-valuenow={coveragePercent}
-                aria-valuemin={0}
-                aria-valuemax={100}
-                aria-valuetext={`${coveragePercent} percent — ${tokenAudit.boundPropertiesCount} of ${tokenAudit.totalPropertiesScanned} properties bound`}
-                class="health-coverage"
-                role="meter"
-              >
-                <div class="health-coverage-ring">
-                  <svg
-                    aria-hidden="true"
-                    class="health-coverage-svg"
-                    viewBox="0 0 72 72"
-                  >
-                    <circle
-                      class="health-coverage-track"
-                      cx="36"
-                      cy="36"
-                      r="30"
-                    />
-                    <circle
-                      class={`health-coverage-fill health-tone-${tone}-stroke`}
-                      cx="36"
-                      cy="36"
-                      r="30"
-                      strokeDasharray={COVERAGE_CIRCUMFERENCE}
-                      strokeDashoffset={COVERAGE_CIRCUMFERENCE * (1 - Math.min(100, Math.max(0, coveragePercent)) / 100)}
-                    />
-                  </svg>
-                  <span class={`health-coverage-pct health-tone-${tone}-text`}>{coveragePercent}%</span>
-                </div>
-                <p class="health-coverage-caption">
-                  {tokenAudit.boundPropertiesCount} of {tokenAudit.totalPropertiesScanned} properties bound
-                </p>
-              </div>
-
               {tokenAudit.unboundPropertiesCount === 0 ? (
                 <div class="health-empty-note health-empty-note-success">
                   <h3 class="health-empty-heading">All properties bound</h3>
