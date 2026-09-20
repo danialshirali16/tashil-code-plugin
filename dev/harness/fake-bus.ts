@@ -13,6 +13,7 @@
  */
 
 import { createRecipeDraft } from '../../src/semantic/authoring';
+import type { DesignHealthScanResult, TokenPropertyIssue, TokenSuggestion } from '../../src/design-health/types';
 import type { TokenGroupingDepth } from '../../src/documentation/types';
 import { extractFigmaSemanticSnapshot } from '../../src/semantic/figma-extractor';
 import { extractSourceContract } from '../../src/semantic/source-contract';
@@ -400,6 +401,151 @@ function createPreviewFiles(payload: {
   return files;
 }
 
+// ---------------------------------------------------------------------------
+// Fixture: a Design Health audit of a small checkout screen, covering all
+// three groups (auto-fix / needs-decision / no-match), a multi-property node
+// cluster, an in-instance finding, and a deprecated library instance.
+// ---------------------------------------------------------------------------
+
+function suggestion(
+  variableId: string,
+  variableName: string,
+  confidence: TokenSuggestion['confidence'],
+): TokenSuggestion {
+  return {
+    confidence,
+    reason: confidence === 'high' ? 'Inferred variable match' : 'Value and scope match',
+    source: confidence === 'high' ? 'inferred' : 'scope-match',
+    variableId,
+    variableName,
+  };
+}
+
+function spacingIssue(
+  nodeId: string,
+  nodeName: string,
+  field: TokenPropertyIssue['bindingTarget']['field'],
+  value: number,
+): TokenPropertyIssue {
+  const tokenName = `Spacing/${value}`;
+  return {
+    bindingTarget: { field },
+    currentValue: value,
+    id: `${nodeId}:${field}`,
+    isEditableHere: true,
+    nodeName,
+    nodeId,
+    property: field === 'itemSpacing' ? 'gap' : 'padding',
+    suggestion: suggestion(`var-spacing-${value}`, tokenName, 'high'),
+  };
+}
+
+function designHealthScanResult(scanId: string): DesignHealthScanResult {
+  const issues: TokenPropertyIssue[] = [
+    {
+      bindingTarget: { field: 'fills', paintIndex: 0 },
+      currentValue: '#F9FAFB',
+      id: 'root-frame:fill:0',
+      isEditableHere: true,
+      nodeName: 'Pre-sales / Orders / Full',
+      nodeId: 'root-frame',
+      property: 'fill',
+      suggestion: suggestion('var-bg-neutral', 'background/neutral/transparent', 'high'),
+    },
+    spacingIssue('header-1', 'Header', 'itemSpacing', 4),
+    spacingIssue('header-1', 'Header', 'paddingTop', 16),
+    spacingIssue('header-1', 'Header', 'paddingRight', 24),
+    spacingIssue('header-1', 'Header', 'paddingBottom', 16),
+    spacingIssue('header-1', 'Header', 'paddingLeft', 24),
+    spacingIssue('body-1', 'body_container', 'itemSpacing', 16),
+    spacingIssue('body-1', 'body_container', 'paddingTop', 24),
+    spacingIssue('body-1', 'body_container', 'paddingRight', 24),
+    {
+      bindingTarget: { field: 'cornerRadius' },
+      currentValue: 8,
+      id: 'card-1:cornerRadius',
+      isEditableHere: true,
+      nodeName: 'Order Card',
+      nodeId: 'card-1',
+      property: 'cornerRadius',
+      suggestion: suggestion('var-radius-md', 'radius/md', 'medium'),
+    },
+    {
+      alternativeSuggestions: [
+        {
+          confidence: 'low',
+          reason: 'Alternative exact match',
+          source: 'exact-value',
+          variableId: 'var-color-white',
+          variableName: 'color/neutral/white',
+        },
+      ],
+      bindingTarget: { field: 'fills', paintIndex: 0 },
+      currentValue: '#FFFFFF',
+      id: 'badge-1:fill:0',
+      isEditableHere: true,
+      nodeName: 'Status Badge',
+      nodeId: 'badge-1',
+      property: 'fill',
+      suggestion: suggestion('var-surface-primary', 'surface/primary', 'medium'),
+    },
+    {
+      bindingTarget: { field: 'fills', paintIndex: 0 },
+      currentValue: '#123456',
+      id: 'overlay-1:fill:0',
+      isEditableHere: true,
+      nodeName: 'Overlay',
+      nodeId: 'overlay-1',
+      property: 'fill',
+    },
+    {
+      bindingTarget: { field: 'strokes', paintIndex: 0 },
+      currentValue: '#ABCDEF',
+      id: 'inst-text-1:stroke:0',
+      isEditableHere: false,
+      containerInstanceId: 'inst-text-1',
+      nodeName: 'Order Status Label',
+      nodeId: 'inst-text-1',
+      property: 'stroke',
+      suggestion: suggestion('var-border-strong', 'border/strong', 'high'),
+    },
+  ];
+
+  return {
+    capReached: false,
+    libraryHealth: {
+      deprecatedInstances: [
+        {
+          componentName: 'LegacyIcon',
+          deprecationNotice: 'Use TashilIcon instead — LegacyIcon is removed in v3.',
+          instanceName: 'Trash Icon',
+          nodeId: 'inst-dep-1',
+        },
+      ],
+      localInstancesCount: 2,
+      remoteInstancesCount: 3,
+      totalInstances: 5,
+      uniqueComponentsCount: 2,
+    },
+    nodesVisited: 214,
+    scanId,
+    scannedAt: Date.now(),
+    selectionCount: 1,
+    targetNode: { id: 'root-frame', name: 'Pre-sales / Orders / Full', type: 'FRAME' },
+    tokenAudit: {
+      audited: true,
+      boundPropertiesCount: 42,
+      highConfidenceCount: 10,
+      issues,
+      lowConfidenceCount: 0,
+      mediumConfidenceCount: 2,
+      tokenCoveragePercent: 76,
+      totalPropertiesScanned: 55,
+      unboundPropertiesCount: issues.length,
+    },
+  };
+}
+
 function respond(name: string, payload: unknown): void {
   const request = (payload ?? {}) as Record<string, string>;
 
@@ -537,6 +683,28 @@ function respond(name: string, payload: unknown): void {
         targetState: targetState(),
         targetToken: request.targetToken,
       });
+      break;
+    case 'SCAN_DESIGN_HEALTH':
+      send('SCAN_DESIGN_HEALTH_RESULT', {
+        ok: true,
+        scanId: request.scanId,
+        scanResult: designHealthScanResult(String(request.scanId)),
+      });
+      break;
+    case 'APPLY_TOKEN_BINDINGS': {
+      const bindRequest = (payload ?? {}) as { bindings?: unknown[]; operationId?: string };
+      const boundCount = bindRequest.bindings?.length ?? 0;
+      send('APPLY_TOKEN_BINDINGS_RESULT', {
+        boundCount,
+        failedCount: 0,
+        ok: true,
+        operationId: bindRequest.operationId,
+        message: `Successfully bound ${boundCount} properties to design tokens.`,
+      });
+      break;
+    }
+    case 'FOCUS_NODE':
+      // Visual focus happens on the real canvas; nothing to do here.
       break;
     case 'CLEAR_CONNECTION':
       send('SAVE_RESULT', {

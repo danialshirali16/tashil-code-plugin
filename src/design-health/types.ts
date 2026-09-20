@@ -3,7 +3,6 @@ export type TokenConfidence = 'high' | 'medium' | 'low';
 export type TokenPropertyKind =
   | 'fill'
   | 'stroke'
-  | 'spacing'
   | 'gap'
   | 'padding'
   | 'cornerRadius'
@@ -31,7 +30,12 @@ export interface TokenSuggestion {
   variableKey?: string;
   confidence: TokenConfidence;
   reason: string;
-  source: 'inferred' | 'exact-value' | 'scope-match';
+  source: 'inferred' | 'exact-value' | 'scope-match' | 'near-value' | 'name-match';
+  /**
+   * The candidate's resolved value, populated only for near-value/name-match
+   * suggestions whose value intentionally differs from the layer's raw value.
+   */
+  suggestedValue?: string | number;
 }
 
 export interface TokenPropertyIssue {
@@ -48,6 +52,11 @@ export interface TokenPropertyIssue {
 }
 
 export interface TokenAuditSummary {
+  /**
+   * False when the scan traversed a selection with zero auditable properties
+   * ("nothing to audit" must never render as 100% coverage).
+   */
+  audited: boolean;
   totalPropertiesScanned: number;
   boundPropertiesCount: number;
   unboundPropertiesCount: number;
@@ -56,38 +65,6 @@ export interface TokenAuditSummary {
   mediumConfidenceCount: number;
   lowConfidenceCount: number;
   issues: TokenPropertyIssue[];
-}
-
-export interface ComponentReplacementCandidate {
-  sourceComponentKey: string;
-  sourceComponentName: string;
-  instancesCount: number;
-  instanceIds: string[];
-}
-
-export type PropertyCompatibilityStatus = 'preserved' | 'needs-review' | 'unmapped';
-
-export interface PropertyCompatibility {
-  name: string;
-  normalizedName: string;
-  sourceType: string;
-  targetType?: string;
-  targetName?: string;
-  status: PropertyCompatibilityStatus;
-  details?: string;
-}
-
-export interface CompatibilityPlan {
-  sourceComponentKey: string;
-  sourceComponentName: string;
-  targetComponentKey: string;
-  targetComponentName: string;
-  instancesCount: number;
-  properties: PropertyCompatibility[];
-  preservedCount: number;
-  needsReviewCount: number;
-  atRiskCount: number;
-  canAutoMigrate: boolean;
 }
 
 export interface DeprecatedInstanceNotice {
@@ -113,8 +90,13 @@ export interface DesignHealthScanResult {
     type: string;
   };
   tokenAudit: TokenAuditSummary;
-  componentCandidates: ComponentReplacementCandidate[];
   libraryHealth: LibraryHealthSummary;
+  /** Number of layers actually visited by the scan traversal. */
+  nodesVisited: number;
+  /** True when the node budget (800) cut the traversal short. */
+  capReached: boolean;
+  /** Size of the Figma selection at scan time; >1 means only the first layer was audited. */
+  selectionCount: number;
   scannedAt: number;
 }
 
@@ -123,19 +105,4 @@ export interface TokenBindingRequest {
   property: TokenPropertyKind;
   variableId: string;
   bindingTarget: TokenBindingTarget;
-}
-
-export interface ComponentReplacementExecutionRequest {
-  sourceComponentKey: string;
-  targetComponentKey: string;
-  instanceIds: string[];
-  propertyMappings: Record<string, string>; // sourceNormalizedName -> targetNormalizedName
-}
-
-export interface ComponentReplacementExecutionResult {
-  ok: boolean;
-  replacedCount: number;
-  failedCount: number;
-  warningCount: number;
-  message?: string;
 }

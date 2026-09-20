@@ -130,17 +130,12 @@ import {
   type DocGenerationProgressHandler,
   type ApplyTokenBindingsHandler,
   type ApplyTokenBindingsResultHandler,
-  type BuildCompatibilityPlanHandler,
-  type BuildCompatibilityPlanResultHandler,
-  type ExecuteComponentReplacementHandler,
-  type ExecuteComponentReplacementResultHandler,
+  type DesignHealthDocumentChangedHandler,
   type FocusNodeHandler,
   type ScanDesignHealthHandler,
   type ScanDesignHealthResultHandler,
 } from './types';
 import type {
-  CompatibilityPlan,
-  ComponentReplacementExecutionRequest,
   DesignHealthScanResult,
   TokenBindingRequest,
 } from './design-health/types';
@@ -285,18 +280,14 @@ export type ConnectionController = {
   generateComponentDocs: (targetToken: string, targetFormat?: 'canvas' | 'markdown') => void;
   generateStyleDocs: (styleKind: DocStyleKind, tokenGroupingDepth?: TokenGroupingDepth) => void;
   designHealthScanResult: DesignHealthScanResult | null;
-  designHealthStatus: 'idle' | 'scanning' | 'scanned' | 'binding' | 'replacing' | 'error';
+  designHealthStatus: 'idle' | 'scanning' | 'scanned' | 'binding' | 'error';
   designHealthMessage: string;
-  compatibilityPlan: CompatibilityPlan | null;
-  compatibilityPlanStatus: 'idle' | 'loading' | 'loaded' | 'error';
-  runDesignHealthScan: (targetNodeId?: string) => void;
+  /** Increments on every selection-state push from the plugin main thread. */
+  designHealthSelectionSequence: number;
+  /** Increments when the document changes (debounced by the main thread). */
+  designHealthDocumentChangedSeq: number;
+  runDesignHealthScan: (targetNodeId?: string, preserveMessage?: boolean) => void;
   applyTokenBindings: (bindings: TokenBindingRequest[]) => void;
-  loadCompatibilityPlan: (
-    sourceComponentKey: string,
-    targetComponentKey: string,
-    instancesCount: number,
-  ) => void;
-  executeComponentReplacement: (request: ComponentReplacementExecutionRequest) => void;
   focusNode: (nodeId: string) => void;
 };
 
@@ -388,18 +379,16 @@ export function useConnectionController(): ConnectionController {
 
   // --- Design Health state ---
   const [designHealthScanResult, setDesignHealthScanResult] = useState<DesignHealthScanResult | null>(null);
-  const [designHealthStatus, setDesignHealthStatus] = useState<'idle' | 'scanning' | 'scanned' | 'binding' | 'replacing' | 'error'>('idle');
+  const [designHealthStatus, setDesignHealthStatus] = useState<'idle' | 'scanning' | 'scanned' | 'binding' | 'error'>('idle');
   const [designHealthMessage, setDesignHealthMessage] = useState<string>('');
-  const [compatibilityPlan, setCompatibilityPlan] = useState<CompatibilityPlan | null>(null);
-  const [compatibilityPlanStatus, setCompatibilityPlanStatus] = useState<'idle' | 'loading' | 'loaded' | 'error'>('idle');
+  const [designHealthSelectionSequence, setDesignHealthSelectionSequence] = useState(0);
+  const [designHealthDocumentChangedSeq, setDesignHealthDocumentChangedSeq] = useState(0);
   const designHealthScanSequenceRef = useRef(0);
   const currentDesignHealthScanIdRef = useRef('');
   const designHealthTargetNodeIdRef = useRef<string>();
   const designHealthPostScanMessageRef = useRef('');
   const designHealthMutationSequenceRef = useRef(0);
   const currentDesignHealthMutationIdRef = useRef('');
-  const compatibilityPlanSequenceRef = useRef(0);
-  const currentCompatibilityPlanRequestIdRef = useRef('');
 
   const isReady = targetState.status === 'ready';
   const targetStatusAnnouncement = getTargetStatusAnnouncement(targetState);
@@ -499,6 +488,9 @@ export function useConnectionController(): ConnectionController {
 
     const offInspectCodeState = on<InspectCodeStateHandler>('INSPECT_CODE_STATE', (state) => {
       setInspectCodeState(state);
+      // Explicit subscription signal for the Design Health tab: rescan on
+      // selection change instead of piggybacking on inspectCodeState updates.
+      setDesignHealthSelectionSequence((sequence) => sequence + 1);
     });
 
     const offScaffoldResult = on<ScaffoldResultHandler>('SCAFFOLD_RESULT', (result) => {
@@ -662,37 +654,8 @@ export function useConnectionController(): ConnectionController {
       }
     });
 
-    const offCompatibilityPlan = on<BuildCompatibilityPlanResultHandler>('BUILD_COMPATIBILITY_PLAN_RESULT', (result) => {
-      if (result.requestId !== currentCompatibilityPlanRequestIdRef.current) return;
-      if (result.ok && result.plan) {
-        setCompatibilityPlan(result.plan);
-        setCompatibilityPlanStatus('loaded');
-      } else {
-        setCompatibilityPlanStatus('error');
-      }
-    });
-
-    const offComponentReplacement = on<ExecuteComponentReplacementResultHandler>('EXECUTE_COMPONENT_REPLACEMENT_RESULT', (result) => {
-      if (result.operationId !== currentDesignHealthMutationIdRef.current) return;
-      if (result.ok) {
-        designHealthPostScanMessageRef.current = result.message || `Replaced ${result.replacedCount} instances.`;
-        if (designHealthTargetNodeIdRef.current) {
-          runDesignHealthScan(designHealthTargetNodeIdRef.current, true);
-        } else {
-          setDesignHealthStatus('scanned');
-          setDesignHealthMessage(designHealthPostScanMessageRef.current);
-          designHealthPostScanMessageRef.current = '';
-        }
-      } else {
-        const mutationMessage = result.message || 'Failed to replace components.';
-        if (result.replacedCount > 0 && designHealthTargetNodeIdRef.current) {
-          designHealthPostScanMessageRef.current = mutationMessage;
-          runDesignHealthScan(designHealthTargetNodeIdRef.current, true);
-        } else {
-          setDesignHealthStatus('error');
-          setDesignHealthMessage(mutationMessage);
-        }
-      }
+    const offDesignHealthDocumentChanged = on<DesignHealthDocumentChangedHandler>('DESIGN_HEALTH_DOCUMENT_CHANGED', () => {
+      setDesignHealthDocumentChangedSeq((sequence) => sequence + 1);
     });
 
     rescanComponents(false);
@@ -726,8 +689,7 @@ export function useConnectionController(): ConnectionController {
       offStyleDocsResult();
       offDesignHealthScan();
       offTokenBindings();
-      offCompatibilityPlan();
-      offComponentReplacement();
+      offDesignHealthDocumentChanged();
     };
   }, []);
 
@@ -1890,31 +1852,6 @@ export function useConnectionController(): ConnectionController {
     emit<ApplyTokenBindingsHandler>('APPLY_TOKEN_BINDINGS', { operationId, bindings });
   };
 
-  const loadCompatibilityPlanAction = (
-    sourceComponentKey: string,
-    targetComponentKey: string,
-    instancesCount: number,
-  ): void => {
-    const requestId = `compatibility-plan-${++compatibilityPlanSequenceRef.current}`;
-    currentCompatibilityPlanRequestIdRef.current = requestId;
-    setCompatibilityPlan(null);
-    setCompatibilityPlanStatus('loading');
-    emit<BuildCompatibilityPlanHandler>('BUILD_COMPATIBILITY_PLAN', {
-      requestId,
-      sourceComponentKey,
-      targetComponentKey,
-      instancesCount,
-    });
-  };
-
-  const executeComponentReplacementAction = (request: ComponentReplacementExecutionRequest): void => {
-    const operationId = `replace-comp-${++designHealthMutationSequenceRef.current}`;
-    currentDesignHealthMutationIdRef.current = operationId;
-    setDesignHealthStatus('replacing');
-    setDesignHealthMessage(`Replacing ${request.instanceIds.length} instances...`);
-    emit<ExecuteComponentReplacementHandler>('EXECUTE_COMPONENT_REPLACEMENT', { operationId, request });
-  };
-
   const focusNodeAction = (nodeId: string): void => {
     emit<FocusNodeHandler>('FOCUS_NODE', { nodeId });
   };
@@ -2007,12 +1944,10 @@ export function useConnectionController(): ConnectionController {
     designHealthScanResult,
     designHealthStatus,
     designHealthMessage,
-    compatibilityPlan,
-    compatibilityPlanStatus,
+    designHealthSelectionSequence,
+    designHealthDocumentChangedSeq,
     runDesignHealthScan,
     applyTokenBindings: applyTokenBindingsAction,
-    loadCompatibilityPlan: loadCompatibilityPlanAction,
-    executeComponentReplacement: executeComponentReplacementAction,
     focusNode: focusNodeAction,
   };
 }

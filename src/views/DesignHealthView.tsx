@@ -1,108 +1,225 @@
 import {
+  Banner,
   Button,
-  Checkbox,
   Dropdown,
   IconButton,
-  IconComponent16,
-  IconFrame16,
+  IconApprovedCheckmark24,
+  IconAutoLayoutPaddingAll24,
+  IconAutoLayoutSpacingHorizontal24,
+  IconCorners24,
+  IconLibrary16,
+  IconOpacity24,
   IconRefresh16,
+  IconVariable16,
   IconWarningSmall24,
   LoadingIndicator,
-  Textbox,
+  SegmentedControl,
+  Tabs,
 } from '@create-figma-plugin/ui';
 import { Fragment, h } from 'preact';
-import { useEffect, useState } from 'preact/hooks';
+import { useEffect, useMemo, useState } from 'preact/hooks';
 import type {
-  CompatibilityPlan,
-  ComponentReplacementExecutionRequest,
   DesignHealthScanResult,
   TokenBindingRequest,
   TokenPropertyIssue,
   TokenSuggestion,
 } from '../design-health/types';
 import { filterHighConfidenceIssues } from '../design-health/token-audit';
-import {
-  EmptyInspectState,
-  Field,
-} from '../components/common';
+import { EmptyInspectState } from '../components/common';
 import { IconInteractionClickSmall48 } from '../ui-assets';
 
 export interface DesignHealthViewProps {
   scanResult: DesignHealthScanResult | null;
-  status: 'idle' | 'scanning' | 'scanned' | 'binding' | 'replacing' | 'error';
+  status: 'idle' | 'scanning' | 'scanned' | 'binding' | 'error';
   message: string;
-  compatibilityPlan: CompatibilityPlan | null;
-  compatibilityPlanStatus: 'idle' | 'loading' | 'loaded' | 'error';
   onScan: () => void;
   onApplyTokenBindings: (bindings: TokenBindingRequest[]) => void;
-  onLoadCompatibilityPlan: (sourceKey: string, targetKey: string, instancesCount: number) => void;
-  onExecuteReplacement: (request: ComponentReplacementExecutionRequest) => void;
   onFocusNode: (nodeId: string) => void;
 }
 
+type PropertyFilter = 'all' | 'fill' | 'stroke' | 'cornerRadius' | 'spacing' | 'opacity';
+type SubTab = 'tokens' | 'library';
+
+const PROPERTY_FILTERS: Array<{ label: string; value: PropertyFilter }> = [
+  { label: 'All', value: 'all' },
+  { label: 'Fills', value: 'fill' },
+  { label: 'Strokes', value: 'stroke' },
+  { label: 'Radius', value: 'cornerRadius' },
+  { label: 'Spacing', value: 'spacing' },
+  { label: 'Opacity', value: 'opacity' },
+];
+
+function matchesPropertyFilter(issue: TokenPropertyIssue, filter: PropertyFilter): boolean {
+  if (filter === 'all') return true;
+  if (filter === 'spacing') {
+    return issue.property === 'gap' || issue.property === 'padding';
+  }
+  return issue.property === filter;
+}
+
+/** Sub-tab label format: "Name (N)"; a zero count renders the bare name. */
+function withCount(label: string, count: number): string {
+  return count > 0 ? `${label} (${count})` : label;
+}
+
+/** Neutral wording for a relative "updated" stamp. */
+function formatRelativeTime(timestamp: number, now: number): string {
+  const elapsedSeconds = Math.max(0, Math.round((now - timestamp) / 1000));
+  if (elapsedSeconds < 60) return 'just now';
+  const elapsedMinutes = Math.round(elapsedSeconds / 60);
+  if (elapsedMinutes < 60) return `${elapsedMinutes} min ago`;
+  const elapsedHours = Math.round(elapsedMinutes / 60);
+  return `${elapsedHours} h ago`;
+}
+
+/**
+ * Near/name suggestions intentionally propose a different value than the
+ * layer's raw one — surface it next to the token name so the trade-off is
+ * visible before binding.
+ */
+function suggestedValueSuffix(suggestion: TokenSuggestion, currentValue: string | number): string {
+  if (suggestion.suggestedValue === undefined) return '';
+  const suggested = String(suggestion.suggestedValue);
+  return suggested === String(currentValue) ? '' : ` — ${suggested}`;
+}
+
+type CoverageTone = 'success' | 'neutral' | 'warning' | 'danger';
+
+const COVERAGE_RING_RADIUS = 30;
+const COVERAGE_CIRCUMFERENCE = 2 * Math.PI * COVERAGE_RING_RADIUS;
+
+/**
+ * Graded so a decent score never reads as a failure: 50-79% is neutral
+ * (brand), warning only kicks in below 50%, danger below 25%.
+ */
+function coverageTone(coveragePercent: number): CoverageTone {
+  if (coveragePercent >= 80) return 'success';
+  if (coveragePercent >= 50) return 'neutral';
+  if (coveragePercent >= 25) return 'warning';
+  return 'danger';
+}
+
+interface IssueCluster {
+  nodeId: string;
+  nodeName: string;
+  issues: TokenPropertyIssue[];
+}
+
+/**
+ * Consecutive audits of one node (itemSpacing + four padding edges) produce
+ * near-identical rows; clustering by node keeps the list scannable. Order of
+ * first appearance is preserved.
+ */
+function clusterByNode(issues: TokenPropertyIssue[]): IssueCluster[] {
+  const clusters: IssueCluster[] = [];
+  const byNodeId = new Map<string, IssueCluster>();
+  for (const issue of issues) {
+    const existing = byNodeId.get(issue.nodeId);
+    if (existing) {
+      existing.issues.push(issue);
+      continue;
+    }
+    const cluster: IssueCluster = {
+      nodeId: issue.nodeId,
+      nodeName: issue.nodeName,
+      issues: [issue],
+    };
+    byNodeId.set(issue.nodeId, cluster);
+    clusters.push(cluster);
+  }
+  return clusters;
+}
+
+function issueIcon(issue: TokenPropertyIssue): h.JSX.Element {
+  if (issue.property === 'fill' || issue.property === 'stroke') {
+    return (
+      <span
+        aria-hidden="true"
+        class="health-issue-swatch"
+        title={`Color: ${String(issue.currentValue)}`}
+      >
+        <span class="health-issue-swatch-color" style={{ backgroundColor: String(issue.currentValue) }} />
+      </span>
+    );
+  }
+  const icon = issue.property === 'cornerRadius'
+    ? <IconCorners24 />
+    : issue.property === 'gap'
+      ? <IconAutoLayoutSpacingHorizontal24 />
+      : issue.property === 'padding'
+        ? <IconAutoLayoutPaddingAll24 />
+        : <IconOpacity24 />;
+  return (
+    <span
+      aria-hidden="true"
+      class="health-issue-icon"
+      title={issue.property === 'cornerRadius'
+        ? 'Corner radius'
+        : issue.property === 'gap'
+          ? 'Layout gap'
+          : issue.property === 'padding'
+            ? 'Padding'
+            : 'Opacity'}
+    >
+      {icon}
+    </span>
+  );
+}
+
 export function DesignHealthView(props: DesignHealthViewProps): h.JSX.Element {
-  const [subTab, setSubTab] = useState<'tokens' | 'replacement' | 'library'>('tokens');
-  const [propertyFilter, setPropertyFilter] = useState<'all' | 'fill' | 'stroke' | 'cornerRadius' | 'spacing' | 'opacity'>('all');
-  const [selectedSourceKey, setSelectedSourceKey] = useState<string>('');
-  const [targetComponentKey, setTargetComponentKey] = useState<string>('');
-  const [editableOnlyFilter, setEditableOnlyFilter] = useState<boolean>(true);
+  const [subTab, setSubTab] = useState<SubTab>('tokens');
+  const [propertyFilter, setPropertyFilter] = useState<PropertyFilter>('all');
   const [selectedSuggestions, setSelectedSuggestions] = useState<Record<string, TokenSuggestion>>({});
-  const [analyzedSourceKey, setAnalyzedSourceKey] = useState('');
-  const [analyzedTargetKey, setAnalyzedTargetKey] = useState('');
+  const [now, setNow] = useState<number>(() => Date.now());
 
   const { scanResult, status, message } = props;
 
   const isScanning = status === 'scanning';
   const isBinding = status === 'binding';
-  const isReplacing = status === 'replacing';
 
+  const allIssues = scanResult?.tokenAudit.issues ?? [];
+
+  // Rescans must not eat user work: background rescans (selection changes,
+  // documentchange) fire while the user may be mid-decision. Chosen tokens
+  // survive as long as their issue still exists; the property filter and the
+  // analysis context persist until the thing they refer to actually changes.
+  const effectiveSuggestions = useMemo(() => {
+    const next: Record<string, TokenSuggestion> = {};
+    for (const issue of allIssues) {
+      const chosen = selectedSuggestions[issue.id];
+      if (chosen) {
+        next[issue.id] = chosen;
+      }
+    }
+    return next;
+  }, [allIssues, selectedSuggestions]);
+
+  // Keep the relative "updated" stamp honest.
   useEffect(() => {
-    setSelectedSuggestions({});
-    setAnalyzedSourceKey('');
-    setAnalyzedTargetKey('');
-  }, [scanResult?.scanId]);
+    const timer = window.setInterval(() => setNow(Date.now()), 30_000);
+    return () => window.clearInterval(timer);
+  }, []);
 
-  // If scan failed with an error and no result yet
+  // If the scan failed with no previous result, offer a retry.
   if (status === 'error' && !scanResult) {
     return (
-      <div class="health-empty-container">
-        <div
-          class="health-error-banner"
-          style={{
-            margin: '24px 16px',
-            padding: '16px',
-            background: 'var(--figma-color-bg-danger-tertiary, #fff0f0)',
-            borderRadius: '6px',
-            border: '1px solid var(--figma-color-border-danger, #fca5a5)',
-            display: 'flex',
-            flexDirection: 'column',
-            gap: '8px',
-          }}
-        >
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: 'var(--figma-color-text-danger, #b91c1c)', fontWeight: 600 }}>
-            <IconWarningSmall24 />
-            <span>Inspection Error</span>
-          </div>
-          <div style={{ fontSize: '11px', color: 'var(--figma-color-text, #333)', lineHeight: '16px' }}>
-            {message || 'Unable to inspect the selected layer. Select another layer or retry the audit.'}
-          </div>
-          <div>
-            <Button onClick={props.onScan} secondary>
-              Retry Audit
-            </Button>
-          </div>
-        </div>
-      </div>
+      <EmptyInspectState
+        actionLabel="Retry Audit"
+        icon={<IconWarningSmall24 />}
+        label={message || 'Unable to audit the selected layer. Select another layer or retry.'}
+        onAction={props.onScan}
+      />
     );
   }
 
-  // If initial scan is in flight and no result yet
   if (!scanResult && isScanning) {
     return (
-      <div class="health-loading-container">
+      <main aria-labelledby="tashil-design-health-loading" class="health-loading-container">
         <LoadingIndicator />
-        <span class="health-loading-text">Auditing layer design health…</span>
-      </div>
+        <span class="health-loading-text" id="tashil-design-health-loading">
+          Auditing layer design health…
+        </span>
+      </main>
     );
   }
 
@@ -115,610 +232,462 @@ export function DesignHealthView(props: DesignHealthViewProps): h.JSX.Element {
     );
   }
 
-  const allIssues = scanResult.tokenAudit.issues || [];
-  const editableFilteredIssues = allIssues.filter((issue) => (editableOnlyFilter ? issue.isEditableHere : true));
-  const displayedIssues = editableFilteredIssues.filter((issue) => {
-    if (propertyFilter === 'all') return true;
-    if (propertyFilter === 'fill') return issue.property === 'fill';
-    if (propertyFilter === 'stroke') return issue.property === 'stroke';
-    if (propertyFilter === 'cornerRadius') return issue.property === 'cornerRadius';
-    if (propertyFilter === 'spacing') return issue.property === 'spacing' || issue.property === 'gap' || issue.property === 'padding';
-    if (propertyFilter === 'opacity') return issue.property === 'opacity';
-    return true;
-  });
+  const tokenAudit = scanResult.tokenAudit;
+  // Every finding is always visible: rows inside component instances render
+  // with a "Fix in the main component" marker instead of a Bind button, so
+  // nothing needs hiding and every count reconciles with the full audit.
+  const displayedIssues = allIssues.filter((issue) => matchesPropertyFilter(issue, propertyFilter));
+  const autoFixableIssues = filterHighConfidenceIssues(allIssues).filter(
+    (issue) => matchesPropertyFilter(issue, propertyFilter),
+  );
+  const needsDecisionIssues = displayedIssues.filter(
+    (issue) => issue.isEditableHere && issue.suggestion && issue.suggestion.confidence !== 'high',
+  );
+  const noMatchIssues = displayedIssues.filter((issue) => issue.isEditableHere && !issue.suggestion);
+  const mainComponentIssues = displayedIssues.filter((issue) => !issue.isEditableHere);
 
-  const highConfidenceIssues = filterHighConfidenceIssues(editableFilteredIssues);
+  // Coverage spans both tabs: token properties AND library findings
+  // (deprecated instances count as unresolved problems).
+  const deprecatedCount = scanResult.libraryHealth.deprecatedInstances.length;
+  const healthTotal = tokenAudit.totalPropertiesScanned + deprecatedCount;
+  const coveragePercent = healthTotal > 0
+    ? Math.min(100, Math.max(0, Math.round((tokenAudit.boundPropertiesCount / healthTotal) * 100)))
+    : 0;
+  const tone = coverageTone(coveragePercent);
 
-  const handleBindAllHighConfidence = () => {
-    const bindings: TokenBindingRequest[] = highConfidenceIssues
-      .map((i) => {
-        const suggestion = selectedSuggestions[i.id] || i.suggestion;
-        return suggestion
-          ? {
-              nodeId: i.nodeId,
-              property: i.property,
-              bindingTarget: i.bindingTarget,
-              variableId: suggestion.variableId,
-            }
-          : null;
-      })
-      .filter((b): b is TokenBindingRequest => b !== null);
+  const headerStatus = isScanning
+    ? 'Auditing…'
+    : isBinding
+      ? 'Binding tokens…'
+      : status === 'error'
+        ? 'Update failed — Retry'
+        : `Up to date · ${formatRelativeTime(scanResult.scannedAt, now)}`;
+
+  const handleChooseSuggestion = (
+    issue: TokenPropertyIssue,
+    candidates: TokenSuggestion[],
+    variableId: string,
+  ): void => {
+    const matched = candidates.find((candidate) => candidate.variableId === variableId);
+    if (matched) {
+      setSelectedSuggestions((previous) => ({ ...previous, [issue.id]: matched }));
+    }
+  };
+
+  const buildBinding = (issue: TokenPropertyIssue): TokenBindingRequest | null => {
+    const suggestion = effectiveSuggestions[issue.id] || issue.suggestion;
+    return suggestion
+      ? {
+          nodeId: issue.nodeId,
+          property: issue.property,
+          bindingTarget: issue.bindingTarget,
+          variableId: suggestion.variableId,
+        }
+      : null;
+  };
+
+  const handleBindAllHighConfidence = (): void => {
+    const bindings = autoFixableIssues
+      .map(buildBinding)
+      .filter((binding): binding is TokenBindingRequest => binding !== null);
     if (bindings.length > 0) {
       props.onApplyTokenBindings(bindings);
     }
   };
 
-  const handleBindSingle = (issue: TokenPropertyIssue) => {
-    const suggestion = selectedSuggestions[issue.id] || issue.suggestion;
-    if (!suggestion) return;
-    props.onApplyTokenBindings([
-      {
-        nodeId: issue.nodeId,
-        property: issue.property,
-        bindingTarget: issue.bindingTarget,
-        variableId: suggestion.variableId,
-      },
-    ]);
+  const handleBindSingle = (issue: TokenPropertyIssue): void => {
+    const binding = buildBinding(issue);
+    if (binding) {
+      props.onApplyTokenBindings([binding]);
+    }
   };
 
-  const handleRequestPlan = () => {
-    if (!selectedSourceKey || !targetComponentKey) return;
-    const candidate = scanResult.componentCandidates.find(
-      (item) => item.sourceComponentKey === selectedSourceKey,
+  const renderIssueContent = (issue: TokenPropertyIssue, showNode: boolean): h.JSX.Element => {
+    const chosenSuggestion = effectiveSuggestions[issue.id] || issue.suggestion;
+    const alternativeCandidates: TokenSuggestion[] = [
+      ...(issue.suggestion ? [issue.suggestion] : []),
+      ...(issue.alternativeSuggestions || []),
+    ];
+
+    return (
+      <div class="health-issue-content">
+        {showNode ? (
+          <button
+            class="health-node-link"
+            onClick={() => props.onFocusNode(issue.nodeId)}
+            title="Show on canvas — the audited selection stays unchanged"
+            type="button"
+          >
+            {issue.nodeName}
+          </button>
+        ) : null}
+        <span class="health-issue-key">
+          <span class="health-issue-field">{issue.bindingTarget.field}</span>
+          <span class="health-issue-value">{String(issue.currentValue)}</span>
+        </span>
+        {chosenSuggestion ? (
+          <Fragment>
+            {alternativeCandidates.length > 1 && issue.isEditableHere ? (
+              <span
+                class="health-issue-picker"
+                title={chosenSuggestion.reason || chosenSuggestion.variableName}
+              >
+                <Dropdown
+                  aria-label={`Token for ${issue.nodeName} ${issue.property}`}
+                  onValueChange={(variableId) => handleChooseSuggestion(issue, alternativeCandidates, variableId)}
+                  options={alternativeCandidates.map((candidate) => ({
+                    text: `${candidate.variableName}${suggestedValueSuffix(candidate, issue.currentValue)}`,
+                    value: candidate.variableId,
+                  }))}
+                  value={chosenSuggestion.variableId}
+                />
+              </span>
+            ) : (
+              <strong
+                class="health-issue-token"
+                title={chosenSuggestion.reason || chosenSuggestion.variableName}
+              >
+                {`${chosenSuggestion.variableName}${suggestedValueSuffix(chosenSuggestion, issue.currentValue)}`}
+              </strong>
+            )}
+            {chosenSuggestion.confidence !== 'high' ? (
+              <span
+                class={`confidence-chip confidence-${chosenSuggestion.confidence}`}
+                title={chosenSuggestion.reason}
+              >
+                {chosenSuggestion.confidence}
+              </span>
+            ) : null}
+          </Fragment>
+        ) : (
+          <span class="health-issue-nomatch">No matching token found</span>
+        )}
+      </div>
     );
-    if (!candidate) return;
-
-    const normalizedTargetKey = targetComponentKey.trim();
-    setAnalyzedSourceKey(selectedSourceKey);
-    setAnalyzedTargetKey(normalizedTargetKey);
-    props.onLoadCompatibilityPlan(selectedSourceKey, normalizedTargetKey, candidate.instancesCount);
   };
 
-  const isCompatibilityPlanCurrent = Boolean(
-    props.compatibilityPlan
-    && analyzedSourceKey === selectedSourceKey
-    && analyzedTargetKey === targetComponentKey.trim()
-    && props.compatibilityPlan.sourceComponentKey === selectedSourceKey,
+  const renderIssueAction = (issue: TokenPropertyIssue): h.JSX.Element => (
+    <div class="health-issue-action">
+      {issue.isEditableHere && (effectiveSuggestions[issue.id] || issue.suggestion) ? (
+        <Button
+          disabled={isBinding}
+          onClick={() => handleBindSingle(issue)}
+        >
+          Bind
+        </Button>
+      ) : null}
+    </div>
   );
 
-  const handleExecuteReplacement = () => {
-    if (!props.compatibilityPlan || !isCompatibilityPlanCurrent || !selectedSourceKey || !scanResult) return;
-
-    const candidate = scanResult.componentCandidates.find(
-      (c) => c.sourceComponentKey === selectedSourceKey,
-    );
-    if (!candidate) return;
-
-    const propertyMappings: Record<string, string> = {};
-    for (const prop of props.compatibilityPlan.properties) {
-      if (prop.status === 'preserved' && prop.targetName) {
-        propertyMappings[prop.normalizedName] = prop.targetName;
-      }
-    }
-
-    props.onExecuteReplacement({
-      sourceComponentKey: selectedSourceKey,
-      targetComponentKey: targetComponentKey.trim(),
-      instanceIds: candidate.instanceIds,
-      propertyMappings,
-    });
-  };
-
-  // Score gauge calculation
-  const gaugeRadius = 26;
-  const gaugeCircumference = 2 * Math.PI * gaugeRadius; // ~163.36
-  const coveragePct = Math.round(scanResult.tokenAudit.tokenCoveragePercent);
-  const strokeDashoffset = gaugeCircumference * (1 - Math.min(100, Math.max(0, coveragePct)) / 100);
-  const strokeColor = coveragePct >= 80 ? '#14ae5c' : coveragePct >= 50 ? '#ffaa00' : '#f24822';
-
-  const isComponentOrInstance = scanResult.targetNode.type === 'COMPONENT' || scanResult.targetNode.type === 'INSTANCE';
+  // Every node renders as the same cluster card — header (node name + unbound
+  // count) with its property row(s) inside — whether it has one finding or
+  // many, so the list stays visually consistent.
+  const renderIssueCluster = (cluster: IssueCluster): h.JSX.Element => (
+    <div class="health-node-cluster" key={cluster.nodeId}>
+      <div class="health-cluster-header">
+        <button
+          class="health-node-link"
+          onClick={() => props.onFocusNode(cluster.nodeId)}
+          title="Show on canvas — the audited selection stays unchanged"
+          type="button"
+        >
+          {cluster.nodeName}
+        </button>
+        <span class="health-cluster-count">
+          ({cluster.issues.length})
+        </span>
+      </div>
+      <div class="health-cluster-rows">
+        {cluster.issues.map((issue) => (
+          <div class="health-issue-row health-issue-row-nested" key={issue.id}>
+            {issueIcon(issue)}
+            {renderIssueContent(issue, false)}
+            {renderIssueAction(issue)}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
 
   return (
-    <div class="design-health-view">
-      {/* Top Layer Header */}
-      <div class="health-header">
+    <main aria-labelledby="tashil-design-health-heading" class="design-health-view">
+      <header class="health-header">
         <div class="health-header-info">
-          <div class="health-header-icon">
-            {isComponentOrInstance ? <IconComponent16 /> : <IconFrame16 />}
-          </div>
-          <div class="health-header-titles">
-            <div class="health-header-name-row">
-              <span class="health-header-name" title={scanResult.targetNode.name}>
-                {scanResult.targetNode.name}
-              </span>
-              <span class="health-header-badge">
-                {scanResult.targetNode.type}
-              </span>
-            </div>
-          </div>
+          <h1 class="health-heading" id="tashil-design-health-heading">Design health</h1>
+          <p class="health-header-subject">
+            <span class="health-header-name" title={scanResult.targetNode.name}>
+              {scanResult.targetNode.name}
+            </span>
+            <span class="health-header-badge">{scanResult.targetNode.type}</span>
+          </p>
         </div>
-
         <div class="health-header-actions">
-          {isScanning ? (
-            <span class="health-status-indicator">
-              <LoadingIndicator />
-              <span>Auditing…</span>
-            </span>
-          ) : (
-            <span class="health-status-indicator health-status-indicator-live">
-              <span class="health-status-dot" />
-              <span>Auto-Audited</span>
-            </span>
-          )}
-
-          <IconButton
-            onClick={props.onScan}
-            title="Re-audit selection"
+          <span
+            class={`health-status-text${status === 'error' ? ' health-status-text-error' : ''}`}
+            role="status"
           >
+            {isScanning ? <LoadingIndicator /> : null}
+            {headerStatus}
+          </span>
+          <IconButton onClick={props.onScan} title="Re-audit selection">
             <IconRefresh16 />
           </IconButton>
         </div>
-      </div>
+      </header>
 
-      {/* Optional Banner Message */}
-      {message ? (
-        <div
-          role="status"
-          style={{
-            padding: '8px 12px',
-            borderRadius: '6px',
-            fontSize: '11px',
-            background: status === 'error' ? 'rgba(242, 72, 34, 0.1)' : 'rgba(13, 153, 255, 0.1)',
-            color: status === 'error' ? 'var(--figma-color-text-danger, #f24822)' : 'var(--figma-color-text-brand, #0d99ff)',
-            border: '1px solid currentColor',
-          }}
-        >
-          {message}
-        </div>
+      {message && !isScanning ? (
+        status === 'error' ? (
+          <p class="field-error" role="alert">{message}</p>
+        ) : (
+          <Banner icon={<IconApprovedCheckmark24 />} variant="success">{message}</Banner>
+        )
       ) : null}
 
-      {/* Hero Score & Breakdown Card */}
-      <div class="health-hero-card">
-        <div class="health-score-ring-container">
-          <div class="health-score-gauge">
-            <svg class="health-gauge-svg" viewBox="0 0 64 64">
-              <circle class="health-gauge-track" cx="32" cy="32" r={gaugeRadius} />
-              <circle
-                class="health-gauge-val"
-                cx="32"
-                cy="32"
-                r={gaugeRadius}
-                stroke={strokeColor}
-                strokeDasharray={gaugeCircumference}
-                strokeDashoffset={strokeDashoffset}
-              />
-            </svg>
-            <div class="health-gauge-center">
-              <span class="health-gauge-pct" style={{ color: strokeColor }}>
-                {coveragePct}%
-              </span>
-            </div>
-          </div>
-          <div class="health-score-label">Token Coverage</div>
-        </div>
+      {scanResult.capReached ? (
+        <Banner icon={<IconWarningSmall24 />} variant="warning">
+          Partial audit: the 800-layer limit was reached — results cover part of this selection.
+        </Banner>
+      ) : null}
 
-        <div class="health-metrics-grid">
-          <div class="health-metric-item">
-            <div class="health-metric-val health-metric-val-success">
-              {scanResult.tokenAudit.boundPropertiesCount}
-            </div>
-            <div class="health-metric-lbl">Bound Tokens</div>
-          </div>
-          <div class="health-metric-item">
-            <div class={`health-metric-val ${scanResult.tokenAudit.unboundPropertiesCount > 0 ? 'health-metric-val-warning' : 'health-metric-val-success'}`}>
-              {scanResult.tokenAudit.unboundPropertiesCount}
-            </div>
-            <div class="health-metric-lbl">Raw Values</div>
-          </div>
-          <div class="health-metric-item">
-            <div class="health-metric-val">
-              {scanResult.libraryHealth.totalInstances}
-            </div>
-            <div class="health-metric-lbl">
-              Components{scanResult.libraryHealth.deprecatedInstances.length > 0 ? ` (⚠️ ${scanResult.libraryHealth.deprecatedInstances.length})` : ''}
-            </div>
-          </div>
-        </div>
+      {scanResult.selectionCount > 1 ? (
+        <Banner icon={<IconWarningSmall24 />} variant="warning">
+          Multiple layers are selected — only the first one was audited.
+        </Banner>
+      ) : null}
+
+      {/* Tab labels carry their related library icon. The children are JSX
+          (icons require it), so `.health-tab-option` reproduces the library
+          `.text` padding that element children would otherwise bypass. */}
+      <div class="health-tabs-row">
+        <SegmentedControl
+          onValueChange={(value) => setSubTab(value as SubTab)}
+          options={[
+            {
+              children: (
+                <span class="health-tab-option">
+                  <IconVariable16 />
+                  <span>{withCount('Tokens', allIssues.length)}</span>
+                </span>
+              ),
+              value: 'tokens',
+            },
+            {
+              children: (
+                <span class="health-tab-option">
+                  <IconLibrary16 />
+                  <span>{withCount('Library', scanResult.libraryHealth.deprecatedInstances.length)}</span>
+                </span>
+              ),
+              value: 'library',
+            },
+          ]}
+          value={subTab}
+        />
       </div>
 
-      {/* Sub Navigation Tabs */}
-      <div class="health-tabs" role="tablist">
-        <button
-          aria-selected={subTab === 'tokens'}
-          class={`health-tab ${subTab === 'tokens' ? 'health-tab-active' : ''}`}
-          onClick={() => setSubTab('tokens')}
-          role="tab"
-          type="button"
-        >
-          <span>Tokens</span>
-          <span
-            class={`health-tab-badge ${(editableOnlyFilter ? editableFilteredIssues.length : scanResult.tokenAudit.unboundPropertiesCount) > 0 ? 'health-tab-badge-warning' : 'health-tab-badge-neutral'}`}
-            title={editableOnlyFilter ? `${editableFilteredIssues.length} editable unbound properties (${scanResult.tokenAudit.unboundPropertiesCount} total in tree)` : `${scanResult.tokenAudit.unboundPropertiesCount} total unbound properties in tree`}
-          >
-            {editableOnlyFilter ? editableFilteredIssues.length : scanResult.tokenAudit.unboundPropertiesCount}
-          </span>
-        </button>
-        <button
-          aria-selected={subTab === 'replacement'}
-          class={`health-tab ${subTab === 'replacement' ? 'health-tab-active' : ''}`}
-          onClick={() => setSubTab('replacement')}
-          role="tab"
-          type="button"
-        >
-          <span>Component Swaps</span>
-          <span class="health-tab-badge health-tab-badge-info">
-            {scanResult.componentCandidates.length}
-          </span>
-        </button>
-        <button
-          aria-selected={subTab === 'library'}
-          class={`health-tab ${subTab === 'library' ? 'health-tab-active' : ''}`}
-          onClick={() => setSubTab('library')}
-          role="tab"
-          type="button"
-        >
-          <span>Library Health</span>
-          {scanResult.libraryHealth.deprecatedInstances.length > 0 ? (
-            <span class="health-tab-badge health-tab-badge-warning">
-              ⚠️ {scanResult.libraryHealth.deprecatedInstances.length}
-            </span>
-          ) : (
-            <span class="health-tab-badge health-tab-badge-neutral">
-              {scanResult.libraryHealth.totalInstances}
-            </span>
-          )}
-        </button>
-      </div>
-
-      {/* TAB 1: TOKEN AUDIT */}
       {subTab === 'tokens' ? (
-        <Fragment>
-          {/* Action & Filter Row */}
-          <div class="health-action-bar">
-            <Checkbox
-              onValueChange={(val) => setEditableOnlyFilter(val)}
-              value={editableOnlyFilter}
-            >
-              Editable layers only
-            </Checkbox>
-
-            {highConfidenceIssues.length > 0 ? (
-              <Button onClick={handleBindAllHighConfidence} disabled={isBinding}>
-                {isBinding ? 'Binding…' : `Auto-Bind High Confidence (${highConfidenceIssues.length})`}
-              </Button>
-            ) : null}
-          </div>
-
-          {/* Property Category Filter Pills */}
-          <div class="health-filter-pills">
-            {(['all', 'fill', 'stroke', 'cornerRadius', 'spacing', 'opacity'] as const).map((kind) => {
-              const count = kind === 'all'
-                ? editableFilteredIssues.length
-                : kind === 'fill'
-                  ? editableFilteredIssues.filter((i) => i.property === 'fill').length
-                  : kind === 'stroke'
-                    ? editableFilteredIssues.filter((i) => i.property === 'stroke').length
-                    : kind === 'cornerRadius'
-                    ? editableFilteredIssues.filter((i) => i.property === 'cornerRadius').length
-                      : kind === 'spacing'
-                        ? editableFilteredIssues.filter((i) => i.property === 'spacing' || i.property === 'gap' || i.property === 'padding').length
-                        : editableFilteredIssues.filter((i) => i.property === 'opacity').length;
-
-              const label = kind === 'all'
-                ? `All (${count})`
-                : kind === 'fill'
-                  ? `Fills (${count})`
-                  : kind === 'stroke'
-                    ? `Strokes (${count})`
-                    : kind === 'cornerRadius'
-                    ? `Radius (${count})`
-                      : kind === 'spacing'
-                        ? `Spacing (${count})`
-                        : `Opacity (${count})`;
-
-              return (
-                <button
-                  class={`health-filter-pill ${propertyFilter === kind ? 'health-filter-pill-active' : ''}`}
-                  key={kind}
-                  onClick={() => setPropertyFilter(kind)}
-                  type="button"
-                >
-                  {label}
-                </button>
-              );
-            })}
-          </div>
-
-          {/* Issues List */}
-          <div class="health-issue-list">
-            {displayedIssues.length === 0 ? (
-              <div class="health-clean-state">
-                <h3>✓ 100% Token Coverage</h3>
-                <p>All inspected properties in this scope are linked to design tokens.</p>
-              </div>
-            ) : (
-              displayedIssues.map((issue) => {
-                const isColor = issue.property === 'fill' || issue.property === 'stroke';
-                const isRadius = issue.property === 'cornerRadius';
-                const isSpacing = issue.property === 'spacing' || issue.property === 'gap' || issue.property === 'padding';
-                const chosenSuggestion = selectedSuggestions[issue.id] || issue.suggestion;
-
-                return (
-                  <div class="health-issue-card" key={issue.id}>
-                    {/* Visual Preview */}
-                    {isColor ? (
-                      <div class="health-issue-swatch" title={`Color: ${String(issue.currentValue)}`}>
-                        <div
-                          class="health-issue-swatch-color"
-                          style={{ backgroundColor: String(issue.currentValue) }}
-                        />
-                      </div>
-                    ) : isRadius ? (
-                      <div class="health-issue-icon-badge" title="Corner Radius">R</div>
-                    ) : isSpacing ? (
-                      <div class="health-issue-icon-badge" title="Spacing / Padding">↔</div>
-                    ) : (
-                      <div class="health-issue-icon-badge">T</div>
-                    )}
-
-                    {/* Issue Details */}
-                    <div class="health-issue-content">
-                      <div class="health-issue-topline">
-                        <button
-                          class="health-issue-node-btn"
-                          onClick={() => props.onFocusNode(issue.nodeId)}
-                          title="Click to focus on canvas"
-                          type="button"
-                        >
-                          {issue.nodeName}
-                        </button>
-                        <span class="health-issue-prop-tag">
-                          {issue.bindingTarget.field}
-                        </span>
-                        <span class="health-issue-raw-val">
-                          {String(issue.currentValue)}
-                        </span>
-                      </div>
-
-                      {chosenSuggestion ? (
-                        <div class="health-issue-suggestion">
-                          <span style={{ color: 'var(--figma-color-text-secondary)' }}>➔</span>
-                          {issue.alternativeSuggestions && issue.alternativeSuggestions.length > 0 ? (
-                            <select
-                              aria-label={`Alternative token suggestions for ${issue.nodeName} ${issue.property}`}
-                              class="health-issue-alt-select"
-                              onChange={(e) => {
-                                const target = (e.target || e.currentTarget) as HTMLSelectElement;
-                                const selectedId = target?.value;
-                                const candidates = [issue.suggestion, ...issue.alternativeSuggestions!].filter(Boolean) as TokenSuggestion[];
-                                const matched = candidates.find((c) => c.variableId === selectedId);
-                                if (matched) {
-                                  setSelectedSuggestions((prev) => ({ ...prev, [issue.id]: matched }));
-                                }
-                              }}
-                              onInput={(e) => {
-                                const target = (e.target || e.currentTarget) as HTMLSelectElement;
-                                const selectedId = target?.value;
-                                const candidates = [issue.suggestion, ...issue.alternativeSuggestions!].filter(Boolean) as TokenSuggestion[];
-                                const matched = candidates.find((c) => c.variableId === selectedId);
-                                if (matched) {
-                                  setSelectedSuggestions((prev) => ({ ...prev, [issue.id]: matched }));
-                                }
-                              }}
-                              value={chosenSuggestion.variableId}
-                            >
-                              {issue.suggestion ? (
-                                <option value={issue.suggestion.variableId}>
-                                  {issue.suggestion.variableName} ({issue.suggestion.confidence})
-                                </option>
-                              ) : null}
-                              {issue.alternativeSuggestions.map((alt) => (
-                                <option key={alt.variableId} value={alt.variableId}>
-                                  {alt.variableName} ({alt.confidence})
-                                </option>
-                              ))}
-                            </select>
-                          ) : (
-                            <strong style={{ color: 'var(--figma-color-text)' }}>
-                              {chosenSuggestion.variableName}
-                            </strong>
-                          )}
-                          <span class={`confidence-chip confidence-${chosenSuggestion.confidence}`}>
-                            {chosenSuggestion.confidence}
-                          </span>
-                        </div>
-                      ) : (
-                        <span style={{ color: 'var(--figma-color-text-secondary)', fontSize: '10px' }}>
-                          No exact token match found
-                        </span>
-                      )}
-                    </div>
-
-                    {/* Action Button */}
-                    <div class="health-issue-action">
-                      {issue.isEditableHere && chosenSuggestion ? (
-                        <Button
-                          disabled={isBinding}
-                          onClick={() => handleBindSingle(issue)}
-                          secondary
-                        >
-                          Bind
-                        </Button>
-                      ) : !issue.isEditableHere ? (
-                        <span class="health-subtle-tag" title="Inside an instance. Edit in main component.">
-                          In Component
-                        </span>
-                      ) : null}
-                    </div>
-                  </div>
-                );
-              })
-            )}
-          </div>
-        </Fragment>
-      ) : null}
-
-      {/* TAB 2: COMPONENT REPLACEMENT */}
-      {subTab === 'replacement' ? (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
-          <div class="health-form-description">
-            Safely swap instances of legacy or local components with standardized Tashil components while preserving text overrides, variants, and dimensions.
-          </div>
-
-          <Field id="tashil-source-comp" label="Source Component in Selection:">
-            <Dropdown
-              id="tashil-source-comp"
-              onChange={(e) => setSelectedSourceKey(e.currentTarget.value)}
-              options={[
-                { value: '', text: 'Select component to swap…' },
-                ...scanResult.componentCandidates.map((c) => ({
-                  value: c.sourceComponentKey,
-                  text: `${c.sourceComponentName} (${c.instancesCount} instances)`,
-                })),
-              ]}
-              value={selectedSourceKey}
-            />
-          </Field>
-
-          <Field id="tashil-target-comp" label="Target Replacement Component Key:">
-            <Textbox
-              id="tashil-target-comp"
-              onInput={(e) => setTargetComponentKey(e.currentTarget.value)}
-              placeholder="Paste Tashil component key or ID…"
-              value={targetComponentKey}
-            />
-          </Field>
-
-          <Button
-            disabled={!selectedSourceKey || !targetComponentKey.trim() || props.compatibilityPlanStatus === 'loading'}
-            onClick={handleRequestPlan}
-          >
-            {props.compatibilityPlanStatus === 'loading' ? 'Analyzing Compatibility…' : 'Analyze Compatibility'}
-          </Button>
-
-          {/* Compatibility Plan Card */}
-          {props.compatibilityPlan && isCompatibilityPlanCurrent ? (
-            <div class="compatibility-report-card">
-              <div class="compatibility-header">
-                <strong style={{ fontSize: '12px' }}>Compatibility Report</strong>
-                <span
-                  class={`confidence-chip ${props.compatibilityPlan.canAutoMigrate ? 'confidence-high' : 'confidence-low'}`}
-                >
-                  {props.compatibilityPlan.canAutoMigrate ? 'Safe to Migrate' : 'Review Recommended'}
-                </span>
-              </div>
-
-              <div class="compatibility-stats">
-                <span style={{ color: '#14ae5c', fontWeight: 600 }}>
-                  ✓ {props.compatibilityPlan.preservedCount} Preserved
-                </span>
-                <span style={{ color: '#ffaa00', fontWeight: 600 }}>
-                  ! {props.compatibilityPlan.needsReviewCount} Needs Review
-                </span>
-                <span style={{ color: '#f24822', fontWeight: 600 }}>
-                  ✕ {props.compatibilityPlan.atRiskCount} At Risk
-                </span>
-              </div>
-
-              <div class="compatibility-list">
-                {props.compatibilityPlan.properties.map((p) => (
-                  <div class="compatibility-row" key={p.name}>
-                    <span>{p.normalizedName}</span>
-                    <span style={{ color: p.status === 'preserved' ? '#14ae5c' : '#ffaa00', fontWeight: 500 }}>
-                      {p.status} {p.targetName ? `➔ ${p.targetName}` : ''}
-                    </span>
-                  </div>
-                ))}
-              </div>
-
-              <Button
-                disabled={isReplacing || !isCompatibilityPlanCurrent}
-                onClick={handleExecuteReplacement}
+        <section aria-label="Token audit" class="health-panel">
+          {!tokenAudit.audited ? (
+            <div class="health-empty-note">
+              <h3 class="health-empty-heading">Nothing to audit</h3>
+              <p>No auditable fill, stroke, radius, spacing, or opacity properties were found on this selection.</p>
+            </div>
+          ) : (
+            <Fragment>
+              <div
+                aria-valuenow={coveragePercent}
+                aria-valuemin={0}
+                aria-valuemax={100}
+                aria-valuetext={`${coveragePercent} percent — ${tokenAudit.boundPropertiesCount} of ${tokenAudit.totalPropertiesScanned} properties bound`}
+                class="health-coverage"
+                role="meter"
               >
-                {isReplacing ? 'Migrating…' : `Replace ${props.compatibilityPlan.instancesCount || 'All'} Instances`}
-              </Button>
-            </div>
-          ) : null}
-        </div>
+                <div class="health-coverage-ring">
+                  <svg
+                    aria-hidden="true"
+                    class="health-coverage-svg"
+                    viewBox="0 0 72 72"
+                  >
+                    <circle
+                      class="health-coverage-track"
+                      cx="36"
+                      cy="36"
+                      r="30"
+                    />
+                    <circle
+                      class={`health-coverage-fill health-tone-${tone}-stroke`}
+                      cx="36"
+                      cy="36"
+                      r="30"
+                      strokeDasharray={COVERAGE_CIRCUMFERENCE}
+                      strokeDashoffset={COVERAGE_CIRCUMFERENCE * (1 - Math.min(100, Math.max(0, coveragePercent)) / 100)}
+                    />
+                  </svg>
+                  <span class={`health-coverage-pct health-tone-${tone}-text`}>{coveragePercent}%</span>
+                </div>
+                <p class="health-coverage-caption">
+                  {tokenAudit.boundPropertiesCount} of {tokenAudit.totalPropertiesScanned} properties bound
+                </p>
+              </div>
+
+              {tokenAudit.unboundPropertiesCount === 0 ? (
+                <div class="health-empty-note health-empty-note-success">
+                  <h3 class="health-empty-heading">All properties bound</h3>
+                  <p>
+                    Every audited property in this selection is linked to a design token — 100% coverage.
+                  </p>
+                </div>
+              ) : (
+                <Fragment>
+                  <div class="health-filter-row">
+                    {/* Labels render from `value` (the capitalized filter
+                        name) and are mapped back to the filter key here. The
+                        `children` slot stays empty — the filter owns no panel
+                        content; it drives the list below. */}
+                    <Tabs
+                      onValueChange={(label) => {
+                        const matched = PROPERTY_FILTERS.find((filter) => filter.label === label);
+                        if (matched) {
+                          setPropertyFilter(matched.value);
+                        }
+                      }}
+                      options={PROPERTY_FILTERS.map((filter) => ({
+                        value: filter.label,
+                        children: null,
+                      }))}
+                      value={PROPERTY_FILTERS.find((filter) => filter.value === propertyFilter)?.label ?? 'All'}
+                    />
+                  </div>
+                  {propertyFilter !== 'all' ? (
+                    <p class="health-showing-line" role="status">
+                      Showing {displayedIssues.length} of {allIssues.length} issues
+                    </p>
+                  ) : null}
+
+                  {displayedIssues.length === 0 ? (
+                    <div class="health-empty-note">
+                      <h3 class="health-empty-heading">No issues match the current filter</h3>
+                      <p>
+                        {allIssues.length} unbound {allIssues.length === 1 ? 'property remains' : 'properties remain'} in this selection.
+                      </p>
+                      <Button onClick={() => setPropertyFilter('all')} secondary>
+                        Clear filter
+                      </Button>
+                    </div>
+                  ) : (
+                    <Fragment>
+                      {autoFixableIssues.length > 0 ? (
+                        <section aria-label="Ready to auto-fix" class="health-issue-group">
+                          <div class="health-group-heading-row">
+                            <h2 class="health-group-heading">Ready to auto-fix ({autoFixableIssues.length})</h2>
+                            <Button disabled={isBinding} onClick={handleBindAllHighConfidence}>
+                              {isBinding
+                                ? 'Binding…'
+                                : propertyFilter === 'all'
+                                  ? `Bind ${autoFixableIssues.length} high-confidence`
+                                  : `Bind ${autoFixableIssues.length} in ${PROPERTY_FILTERS.find((filter) => filter.value === propertyFilter)?.label ?? ''}`}
+                            </Button>
+                          </div>
+                          <div class="health-issue-list">
+                            {clusterByNode(autoFixableIssues).map(renderIssueCluster)}
+                          </div>
+                        </section>
+                      ) : null}
+                      {needsDecisionIssues.length > 0 ? (
+                        <section aria-label="Review suggestions" class="health-issue-group">
+                          <h2 class="health-group-heading">Review suggestions ({needsDecisionIssues.length})</h2>
+                          <div class="health-issue-list">
+                            {clusterByNode(needsDecisionIssues).map(renderIssueCluster)}
+                          </div>
+                        </section>
+                      ) : null}
+                      {noMatchIssues.length > 0 ? (
+                        <section aria-label="No token match" class="health-issue-group">
+                          <h2 class="health-group-heading">No token match ({noMatchIssues.length})</h2>
+                          <div class="health-issue-list">
+                            {clusterByNode(noMatchIssues).map(renderIssueCluster)}
+                          </div>
+                        </section>
+                      ) : null}
+                      {mainComponentIssues.length > 0 ? (
+                        <section aria-label="Fix in the main component" class="health-issue-group">
+                          <h2 class="health-group-heading">Fix in the main component ({mainComponentIssues.length})</h2>
+                          <div class="health-issue-list">
+                            {clusterByNode(mainComponentIssues).map(renderIssueCluster)}
+                          </div>
+                        </section>
+                      ) : null}
+                    </Fragment>
+                  )}
+                </Fragment>
+              )}
+            </Fragment>
+          )}
+        </section>
       ) : null}
 
-      {/* TAB 3: LIBRARY HEALTH */}
       {subTab === 'library' ? (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
-          <div class="health-metrics-grid" style={{ borderLeft: 0, paddingLeft: 0, gridTemplateColumns: 'repeat(4, 1fr)' }}>
-            <div class="health-metric-item">
-              <div class="health-metric-val">{scanResult.libraryHealth.totalInstances}</div>
-              <div class="health-metric-lbl">Total Instances</div>
+        <section aria-label="Library health" class="health-panel">
+          <div class="health-stats-grid">
+            <div class="health-stat">
+              <div class="health-stat-value">{scanResult.libraryHealth.totalInstances}</div>
+              <div class="health-stat-label">Total instances</div>
             </div>
-            <div class="health-metric-item">
-              <div class="health-metric-val">{scanResult.libraryHealth.uniqueComponentsCount}</div>
-              <div class="health-metric-lbl">Unique Components</div>
+            <div class="health-stat">
+              <div class="health-stat-value">{scanResult.libraryHealth.uniqueComponentsCount}</div>
+              <div class="health-stat-label">Unique components</div>
             </div>
-            <div class="health-metric-item">
-              <div class="health-metric-val">{scanResult.libraryHealth.remoteInstancesCount}</div>
-              <div class="health-metric-lbl">Library (Remote)</div>
+            <div class="health-stat">
+              <div class="health-stat-value">{scanResult.libraryHealth.remoteInstancesCount}</div>
+              <div class="health-stat-label">Library (remote)</div>
             </div>
-            <div class="health-metric-item">
-              <div class="health-metric-val">{scanResult.libraryHealth.localInstancesCount}</div>
-              <div class="health-metric-lbl">Local</div>
+            <div class="health-stat">
+              <div class="health-stat-value">{scanResult.libraryHealth.localInstancesCount}</div>
+              <div class="health-stat-label">Local</div>
             </div>
           </div>
 
           {scanResult.libraryHealth.deprecatedInstances.length > 0 ? (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '6px', color: '#ffaa00', fontWeight: 600, fontSize: '12px' }}>
+            <div class="health-deprecated-list">
+              <h2 class="health-group-heading health-tone-warning-text">
                 <IconWarningSmall24 />
-                <span>Deprecated Components ({scanResult.libraryHealth.deprecatedInstances.length})</span>
-              </div>
-
-              {scanResult.libraryHealth.deprecatedInstances.map((dep) => (
-                <div
-                  key={dep.nodeId}
-                  style={{
-                    background: 'rgba(255, 170, 0, 0.06)',
-                    border: '1px solid rgba(255, 170, 0, 0.25)',
-                    borderRadius: '6px',
-                    padding: '10px 12px',
-                    display: 'flex',
-                    justifyContent: 'space-between',
-                    alignItems: 'center',
-                    gap: '8px',
-                  }}
-                >
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
+                Deprecated components ({scanResult.libraryHealth.deprecatedInstances.length})
+              </h2>
+              {scanResult.libraryHealth.deprecatedInstances.map((notice) => (
+                <div class="health-deprecated-card" key={notice.nodeId}>
+                  <div class="health-deprecated-info">
                     <button
-                      class="health-issue-node-btn"
-                      onClick={() => props.onFocusNode(dep.nodeId)}
-                      title="Focus on canvas"
+                      class="health-node-link"
+                      onClick={() => props.onFocusNode(notice.nodeId)}
+                      title="Show on canvas — the audited selection stays unchanged"
                       type="button"
                     >
-                      {dep.instanceName}
+                      {notice.instanceName}
                     </button>
-                    <div style={{ color: 'var(--figma-color-text-secondary)', fontSize: '10px' }}>
-                      Component: <strong>{dep.componentName}</strong>
-                    </div>
-                    <div style={{ color: '#ffaa00', fontSize: '10px', marginTop: '2px' }}>
-                      {dep.deprecationNotice}
-                    </div>
+                    <p class="health-deprecated-component">
+                      Component: <strong>{notice.componentName}</strong>
+                    </p>
+                    <p class="health-deprecated-notice">{notice.deprecationNotice}</p>
                   </div>
-
-                  <Button
-                    onClick={() => props.onFocusNode(dep.nodeId)}
-                    secondary
-                  >
-                    Focus
-                  </Button>
+                  <div class="health-deprecated-actions">
+                    <Button onClick={() => props.onFocusNode(notice.nodeId)} secondary>
+                      Focus
+                    </Button>
+                  </div>
                 </div>
               ))}
             </div>
           ) : (
-            <div class="health-clean-state">
-              <h3>✓ No Deprecated Components</h3>
-              <p>No deprecation markers were found. Native library update availability is not exposed by Figma's public plugin API.</p>
+            <div class="health-empty-note">
+              <h3 class="health-empty-heading">No deprecated components</h3>
+              <p>
+                No deprecation markers were found. Native library update availability is not exposed
+                by Figma's public plugin API.
+              </p>
             </div>
           )}
-        </div>
+        </section>
       ) : null}
-    </div>
+    </main>
   );
 }

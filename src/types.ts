@@ -631,49 +631,16 @@ export type ApplyTokenBindingsResultHandler = {
   }) => void;
 };
 
-export type BuildCompatibilityPlanHandler = {
-  name: 'BUILD_COMPATIBILITY_PLAN';
-  handler: (payload: {
-    requestId: string;
-    sourceComponentKey: string;
-    targetComponentKey: string;
-    instancesCount: number;
-  }) => void;
-};
-
-export type BuildCompatibilityPlanResultHandler = {
-  name: 'BUILD_COMPATIBILITY_PLAN_RESULT';
-  handler: (result: {
-    ok: boolean;
-    requestId: string;
-    plan?: import('./design-health/types').CompatibilityPlan;
-    message?: string;
-  }) => void;
-};
-
-export type ExecuteComponentReplacementHandler = {
-  name: 'EXECUTE_COMPONENT_REPLACEMENT';
-  handler: (payload: {
-    operationId: string;
-    request: import('./design-health/types').ComponentReplacementExecutionRequest;
-  }) => void;
-};
-
-export type ExecuteComponentReplacementResultHandler = {
-  name: 'EXECUTE_COMPONENT_REPLACEMENT_RESULT';
-  handler: (result: {
-    ok: boolean;
-    operationId: string;
-    replacedCount: number;
-    failedCount: number;
-    warningCount: number;
-    message?: string;
-  }) => void;
-};
-
 export type FocusNodeHandler = {
   name: 'FOCUS_NODE';
   handler: (payload: {
     nodeId: string;
+  }) => void;
+};
+
+export type DesignHealthDocumentChangedHandler = {
+  name: 'DESIGN_HEALTH_DOCUMENT_CHANGED';
+  handler: (payload: {
+    changedAt: number;
   }) => void;
 };

@@ -134,12 +134,10 @@ export function Plugin(): h.JSX.Element {
     designHealthScanResult,
     designHealthStatus,
     designHealthMessage,
-    compatibilityPlan,
-    compatibilityPlanStatus,
+    designHealthSelectionSequence,
+    designHealthDocumentChangedSeq,
     runDesignHealthScan,
     applyTokenBindings,
-    loadCompatibilityPlan,
-    executeComponentReplacement,
     focusNode,
   } = useConnectionController();
 
@@ -234,11 +232,25 @@ export function Plugin(): h.JSX.Element {
     }, 0);
   }
 
+  // Design Health rescan triggers, made explicit: opening the tab, a selection
+  // change, or a (debounced) document change — never mid-mutation. Tracked via
+  // a trigger key so status transitions cannot re-fire the scan.
+  const designHealthAutoScanTriggerRef = useRef('');
   useEffect(() => {
-    if (workflowTab === 'design-health') {
-      runDesignHealthScan();
+    if (workflowTab !== 'design-health') {
+      return;
     }
-  }, [workflowTab, inspectCodeState]);
+    const triggerKey = `${designHealthSelectionSequence}:${designHealthDocumentChangedSeq}`;
+    if (designHealthAutoScanTriggerRef.current === triggerKey) {
+      return;
+    }
+    designHealthAutoScanTriggerRef.current = triggerKey;
+    if (designHealthStatus === 'binding') {
+      // The mutation completion handler rescans with the post-mutation message.
+      return;
+    }
+    runDesignHealthScan();
+  }, [workflowTab, designHealthSelectionSequence, designHealthDocumentChangedSeq, designHealthStatus]);
 
   const hasFooter = view === 'connect'
     && workflowTab === 'connect'
@@ -550,13 +562,9 @@ export function Plugin(): h.JSX.Element {
           role="tabpanel"
         >
           <DesignHealthView
-            compatibilityPlan={compatibilityPlan}
-            compatibilityPlanStatus={compatibilityPlanStatus}
             message={designHealthMessage}
             onApplyTokenBindings={applyTokenBindings}
-            onExecuteReplacement={executeComponentReplacement}
             onFocusNode={focusNode}
-            onLoadCompatibilityPlan={loadCompatibilityPlan}
             onScan={() => runDesignHealthScan()}
             scanResult={designHealthScanResult}
             status={designHealthStatus}

@@ -65,7 +65,6 @@ also expose an **Export Markdown** action.
 Use **Design Health** to audit any frame or container on the canvas:
 - **Design Token Linting:** Automatically detects unbound colors, strokes, corner radii, layout gaps, and paddings, and matches them against design system tokens with high/medium/low confidence.
 - **Batch Token Binding:** Bind all high-confidence token suggestions in one click, or select from alternative semantic tokens.
-- **Smart Component Replacement:** Plan component migrations with property normalization (e.g. `Label#123:45` → `label`), verify variant compatibility, and swap instances across the frame with single-step undo.
 - **Library Health:** Review local vs. remote instances and identify deprecated components with canvas focus navigation.
 
 ### Keep data in your file
@@ -85,7 +84,7 @@ The plugin window has six workflows:
 | **Inspect Code** | Preview a connected component's code or generate a styled-components module from the selected design layer. |
 | **Sync Tokens** | Export local Variable collections with live file previews and formatting controls. |
 | **Docs** | Generate and maintain token documentation pages and component variant matrices. |
-| **Design Health** | Audit layer token coverage, batch-bind recommended tokens, plan component replacements, and track deprecated library instances. |
+| **Design Health** | Audit layer token coverage, batch-bind recommended tokens, and track deprecated library instances. |
 | **Settings** | Configure user-local output and copy preferences without changing the Figma document. |
 
 ## Five-minute quick start
@@ -199,7 +198,7 @@ continues to use the previously loaded bundle.
 | [Generate and inspect a frame](docs/inspect-frame.md) | Work with full styled-components output and Figma CSS inspection. |
 | [Sync Tokens](docs/sync-tokens.md) | Export Variable collections and understand formats, modes, and naming controls. |
 | [Token Documentation](docs/token-documentation.md) | Generate, update, and export token documentation. |
-| [Design Health](docs/section-design-health.md) | Audit selection design tokens, batch-bind suggestions, plan component replacements, and review deprecations. |
+| [Design Health](docs/section-design-health.md) | Audit selection design tokens, batch-bind suggestions, and review deprecations. |
 | [Development guide](docs/development.md) | Set up the repository, use the harness, understand testing, and import the development plugin. |
 | [Section guide index](docs/sections-index.md) | Navigate the project architecture and its editor invariants. |
 | [Privacy policy](PRIVACY.md) | Understand stored, transient, downloaded, clipboard, and network data. |
@@ -229,7 +228,7 @@ plugin-side tests use local Figma API doubles.
 | `src/layout/` | Selected-tree styled-components React generation. |
 | `src/sync-tokens/` | Pure token serialization for the supported export formats. |
 | `src/documentation/` | Pure document models plus Figma canvas writers and in-place reconcilers. |
-| `src/design-health/` | Pure token linting, confidence ranking, component compatibility planning, and replacement models. |
+| `src/design-health/` | Pure token linting, confidence ranking, and audit summary models. |
 
 The UI and Figma runtime communicate through typed messages. Pure model and
 serialization code stays independent of Figma typings, keeping it testable

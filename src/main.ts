@@ -1,12 +1,11 @@
-import { on, showUI } from '@create-figma-plugin/utilities';
+import { emit, on, showUI } from '@create-figma-plugin/utilities';
 import {
   type ApplyConnectionImportHandler,
   type ApplyTokenBindingsHandler,
-  type BuildCompatibilityPlanHandler,
   type CancelDocGenerationHandler,
   type ClearConnectionHandler,
   type CloseHandler,
-  type ExecuteComponentReplacementHandler,
+  type DesignHealthDocumentChangedHandler,
   type ExportConnectionsHandler,
   type ExportTokensHandler,
   type FocusNodeHandler,
@@ -71,8 +70,6 @@ import {
 } from './main/connection-adapter';
 import {
   applyTokenBindings,
-  buildCompatibilityPlanForComponents,
-  executeComponentReplacement,
   focusNodeOnCanvas,
   scanDesignHealth,
 } from './main/design-health-adapter';
@@ -188,24 +185,12 @@ export default function (): void {
   });
 
   on<ScanDesignHealthHandler>('SCAN_DESIGN_HEALTH', (payload) => {
+    attachDocumentChangeListenerOnce();
     void scanDesignHealth(payload.scanId, payload.targetNodeId);
   });
 
   on<ApplyTokenBindingsHandler>('APPLY_TOKEN_BINDINGS', (payload) => {
     void applyTokenBindings(payload.operationId, payload.bindings);
-  });
-
-  on<BuildCompatibilityPlanHandler>('BUILD_COMPATIBILITY_PLAN', (payload) => {
-    void buildCompatibilityPlanForComponents(
-      payload.requestId,
-      payload.sourceComponentKey,
-      payload.targetComponentKey,
-      payload.instancesCount,
-    );
-  });
-
-  on<ExecuteComponentReplacementHandler>('EXECUTE_COMPONENT_REPLACEMENT', (payload) => {
-    void executeComponentReplacement(payload.operationId, payload.request);
   });
 
   on<FocusNodeHandler>('FOCUS_NODE', (payload) => {
@@ -219,4 +204,41 @@ export default function (): void {
   figma.on('selectionchange', () => {
     runBestEffort(() => sendSelectionState('selectionchange'));
   });
+}
+
+// Debounced signal for the Design Health tab: an audit goes stale after an
+// undo or an external edit. Attached lazily on the first Design Health scan
+// because under `documentAccess: "dynamic-page"` a documentchange handler can
+// only be registered after figma.loadAllPagesAsync() — loading eagerly at
+// plugin start would tax every file the plugin opens, so users who never open
+// the tab never pay it. Debounced so bulk operations (a scripted restyle
+// touching hundreds of layers) notify once, after things settle.
+let documentChangeListenerRequested = false;
+
+function attachDocumentChangeListenerOnce(): void {
+  if (documentChangeListenerRequested) {
+    return;
+  }
+  documentChangeListenerRequested = true;
+
+  void (async () => {
+    try {
+      await figma.loadAllPagesAsync();
+      let documentChangeNotifyTimer: ReturnType<typeof setTimeout> | undefined;
+      figma.on('documentchange', () => {
+        if (documentChangeNotifyTimer !== undefined) {
+          clearTimeout(documentChangeNotifyTimer);
+        }
+        documentChangeNotifyTimer = setTimeout(() => {
+          documentChangeNotifyTimer = undefined;
+          emit<DesignHealthDocumentChangedHandler>('DESIGN_HEALTH_DOCUMENT_CHANGED', {
+            changedAt: Date.now(),
+          });
+        }, 1500);
+      });
+    } catch {
+      // Page loading failed (e.g. an access restriction): the staleness
+      // signal degrades to manual re-audits instead of crashing the plugin.
+    }
+  })();
 }

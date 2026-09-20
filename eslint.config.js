@@ -49,6 +49,28 @@ module.exports = tseslint.config(
     },
   },
   {
+    // Design-language guardrail (docs/section-design-health.md): view code
+    // colors through figma color tokens only; hex belongs in stylesheets as a
+    // var() fallback. Test fixtures are exempt — they mock canvas values.
+    files: ['src/views/**/*.tsx'],
+    ignores: ['src/views/**/*.test.tsx'],
+    rules: {
+      'no-restricted-syntax': [
+        'error',
+        {
+          selector: 'Literal[value=/#[0-9a-fA-F]{3,8}/]',
+          message:
+            'Raw hex colors are not allowed in view code. Use var(--figma-color-*) tokens; hex belongs in a stylesheet only as a var() fallback.',
+        },
+        {
+          selector: 'Literal[value=/\\brgba?\\(/]',
+          message:
+            'Raw rgb()/rgba() colors are not allowed in view code. Use semantic design tokens (e.g. --figma-color-bg-*-tertiary).',
+        },
+      ],
+    },
+  },
+  {
     ignores: [
       '.kilo',
       '.zcode',

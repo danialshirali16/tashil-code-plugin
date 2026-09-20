@@ -1,58 +1,60 @@
-/* --- Design Health tab styling --- */
+/* --- Design Health tab styling (system-language: tokens only, no keyframes) */
 
 .design-health-view {
   display: flex;
   flex-direction: column;
-  gap: 14px;
+  gap: 16px;
   grid-row: 2;
   min-height: 0;
-  overflow-y: auto;
   overflow-x: hidden;
+  overflow-y: auto;
   padding: 16px;
 }
 
-/* Header bar */
+/* This view is a scrolling column-flex container: its content is ALLOWED to
+   be taller than the panel (that is what the scrollbar is for), so no child
+   may participate in flex shrinking — otherwise controls with their own
+   overflow (e.g. the library SegmentedControl, whose automatic minimum size
+   is 0 because of overflow:hidden) get crushed to zero height once the list
+   overflows. */
+.design-health-view > * {
+  flex-shrink: 0;
+}
+
+/* Header */
 .health-header {
-  align-items: center;
-  background: var(--figma-color-bg-secondary);
-  border: 1px solid var(--figma-color-border);
-  border-radius: 8px;
+  align-items: flex-start;
   display: flex;
+  gap: 8px;
   justify-content: space-between;
-  padding: 8px 12px;
 }
 
 .health-header-info {
-  align-items: center;
-  display: flex;
-  gap: 8px;
+  display: grid;
+  gap: 2px;
   min-width: 0;
 }
 
-.health-header-icon {
+.health-heading {
+  color: var(--figma-color-text);
+  font-size: 16px;
+  font-weight: 600;
+  line-height: 20px;
+  margin: 0;
+}
+
+.health-header-subject {
   align-items: center;
   color: var(--figma-color-text-secondary);
   display: flex;
-  flex-shrink: 0;
-  justify-content: center;
-}
-
-.health-header-titles {
-  display: flex;
-  flex-direction: column;
-  gap: 1px;
-  min-width: 0;
-}
-
-.health-header-name-row {
-  align-items: center;
-  display: flex;
+  font-size: 11px;
   gap: 6px;
+  margin: 0;
+  min-width: 0;
 }
 
 .health-header-name {
   color: var(--figma-color-text);
-  font-size: 12px;
   font-weight: 600;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -60,539 +62,36 @@
 }
 
 .health-header-badge {
-  background: var(--figma-color-border);
+  background: var(--figma-color-bg-secondary);
+  border: 1px solid var(--figma-color-border);
   border-radius: 3px;
   color: var(--figma-color-text-secondary);
-  font-family: monospace;
+  flex-shrink: 0;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   font-size: 9px;
-  padding: 1px 4px;
+  line-height: 12px;
+  padding: 0 4px;
   white-space: nowrap;
 }
 
 .health-header-actions {
   align-items: center;
   display: flex;
+  flex-shrink: 0;
   gap: 8px;
 }
 
-/* Live Auto-Audited Indicator */
-.health-status-indicator {
+.health-status-text {
   align-items: center;
-  background: var(--figma-color-bg);
-  border: 1px solid var(--figma-color-border);
-  border-radius: 999px;
   color: var(--figma-color-text-secondary);
   display: inline-flex;
   font-size: 10px;
-  font-weight: 500;
-  gap: 5px;
-  padding: 2px 8px;
-  user-select: none;
+  gap: 6px;
   white-space: nowrap;
 }
 
-.health-status-indicator-live {
-  border-color: rgba(20, 174, 92, 0.3);
-  color: #14ae5c;
-}
-
-.health-status-dot {
-  background: #14ae5c;
-  border-radius: 50%;
-  box-shadow: 0 0 0 0 rgba(20, 174, 92, 0.6);
-  display: inline-block;
-  height: 6px;
-  width: 6px;
-  animation: health-pulse 2s infinite;
-}
-
-@keyframes health-pulse {
-  0% {
-    transform: scale(0.95);
-    box-shadow: 0 0 0 0 rgba(20, 174, 92, 0.7);
-  }
-  70% {
-    transform: scale(1);
-    box-shadow: 0 0 0 4px rgba(20, 174, 92, 0);
-  }
-  100% {
-    transform: scale(0.95);
-    box-shadow: 0 0 0 0 rgba(20, 174, 92, 0);
-  }
-}
-
-/* Hero Score Card */
-.health-hero-card {
-  align-items: center;
-  background: var(--figma-color-bg-secondary);
-  border: 1px solid var(--figma-color-border);
-  border-radius: 8px;
-  display: grid;
-  gap: 16px;
-  grid-template-columns: auto 1fr;
-  padding: 12px 16px;
-}
-
-.health-score-ring-container {
-  align-items: center;
-  display: flex;
-  flex-direction: column;
-  justify-content: center;
-  position: relative;
-}
-
-.health-score-gauge {
-  height: 64px;
-  position: relative;
-  width: 64px;
-}
-
-.health-gauge-svg {
-  height: 64px;
-  transform: rotate(-90deg);
-  width: 64px;
-}
-
-.health-gauge-track {
-  fill: none;
-  stroke: var(--figma-color-border);
-  stroke-width: 4.5;
-}
-
-.health-gauge-val {
-  fill: none;
-  stroke-linecap: round;
-  stroke-width: 4.5;
-  transition: stroke-dashoffset 0.4s ease, stroke 0.4s ease;
-}
-
-.health-gauge-center {
-  align-items: center;
-  display: flex;
-  flex-direction: column;
-  height: 100%;
-  justify-content: center;
-  left: 0;
-  position: absolute;
-  top: 0;
-  width: 100%;
-}
-
-.health-gauge-pct {
-  font-size: 15px;
-  font-weight: 700;
-  letter-spacing: -0.02em;
-  line-height: 1;
-}
-
-.health-score-label {
-  color: var(--figma-color-text-secondary);
-  font-size: 10px;
-  margin-top: 3px;
-  text-align: center;
-}
-
-.health-metrics-grid {
-  align-content: center;
-  border-left: 1px solid var(--figma-color-border);
-  display: grid;
-  gap: 8px 12px;
-  grid-template-columns: repeat(3, 1fr);
-  padding-left: 16px;
-}
-
-.health-metric-item {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-
-.health-metric-val {
-  font-size: 16px;
-  font-weight: 700;
-  line-height: 1.2;
-}
-
-.health-metric-val-success {
-  color: #14ae5c;
-}
-
-.health-metric-val-warning {
-  color: #ffaa00;
-}
-
-.health-metric-val-danger {
-  color: #f24822;
-}
-
-.health-metric-lbl {
-  color: var(--figma-color-text-secondary);
-  font-size: 10px;
-  white-space: nowrap;
-}
-
-/* Sub Navigation (Segmented Pill Bar) */
-.health-tabs {
-  background: var(--figma-color-bg-secondary);
-  border: 1px solid var(--figma-color-border);
-  border-radius: 6px;
-  display: flex;
-  gap: 2px;
-  padding: 2px;
-}
-
-.health-tab {
-  align-items: center;
-  background: transparent;
-  border: 0;
-  border-radius: 4px;
-  color: var(--figma-color-text-secondary);
-  cursor: pointer;
-  display: flex;
-  flex: 1;
-  font-size: 11px;
-  font-weight: 500;
-  gap: 6px;
-  justify-content: center;
-  padding: 6px 10px;
-  transition: background 0.15s ease, color 0.15s ease;
-}
-
-.health-tab:hover {
-  color: var(--figma-color-text);
-}
-
-.health-tab-active {
-  background: var(--figma-color-bg);
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
-  color: var(--figma-color-text);
-  font-weight: 600;
-}
-
-.health-tab-badge {
-  border-radius: 10px;
-  font-size: 9px;
-  font-weight: 600;
-  padding: 1px 5px;
-}
-
-.health-tab-badge-neutral {
-  background: var(--figma-color-bg-secondary);
-  color: var(--figma-color-text-secondary);
-}
-
-.health-tab-badge-warning {
-  background: rgba(255, 170, 0, 0.15);
-  color: #ffaa00;
-}
-
-.health-tab-badge-info {
-  background: rgba(13, 153, 255, 0.15);
-  color: #0d99ff;
-}
-
-/* Action & Filter Bar */
-.health-action-bar {
-  align-items: center;
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  justify-content: space-between;
-}
-
-.health-filter-pills {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 4px;
-}
-
-.health-filter-pill {
-  background: transparent;
-  border: 1px solid var(--figma-color-border);
-  border-radius: 999px;
-  color: var(--figma-color-text-secondary);
-  cursor: pointer;
-  font-size: 10px;
-  font-weight: 500;
-  padding: 2px 8px;
-  transition: all 0.15s ease;
-}
-
-.health-filter-pill:hover {
-  border-color: var(--figma-color-border-brand-strong, #0d99ff);
-  color: var(--figma-color-text);
-}
-
-.health-filter-pill-active {
-  background: var(--figma-color-bg-secondary);
-  border-color: var(--figma-color-text);
-  color: var(--figma-color-text);
-  font-weight: 600;
-}
-
-.health-filter-label {
-  align-items: center;
-  color: var(--figma-color-text-secondary);
-  cursor: pointer;
-  display: flex;
-  font-size: 11px;
-  gap: 6px;
-  user-select: none;
-}
-
-/* Issues List */
-.health-issue-list {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-
-.health-issue-card {
-  align-items: center;
-  background: var(--figma-color-bg);
-  border: 1px solid var(--figma-color-border);
-  border-radius: 6px;
-  display: grid;
-  gap: 10px;
-  grid-template-columns: 24px minmax(0, 1fr) auto;
-  padding: 8px 10px;
-  transition: border-color 0.15s ease, box-shadow 0.15s ease;
-}
-
-.health-issue-card:hover {
-  border-color: var(--figma-color-border-brand-strong, #0d99ff);
-  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.05);
-}
-
-.health-issue-swatch {
-  background-image: linear-gradient(45deg, #ccc 25%, transparent 25%),
-    linear-gradient(-45deg, #ccc 25%, transparent 25%),
-    linear-gradient(45deg, transparent 75%, #ccc 75%),
-    linear-gradient(-45deg, transparent 75%, #ccc 75%);
-  background-position: 0 0, 0 4px, 4px -4px, -4px 0px;
-  background-size: 8px 8px;
-  border: 1px solid var(--figma-color-border);
-  border-radius: 4px;
-  height: 22px;
-  overflow: hidden;
-  position: relative;
-  width: 22px;
-}
-
-.health-issue-swatch-color {
-  height: 100%;
-  width: 100%;
-}
-
-.health-issue-icon-badge {
-  align-items: center;
-  background: var(--figma-color-bg-secondary);
-  border: 1px dashed var(--figma-color-border);
-  border-radius: 4px;
-  color: var(--figma-color-text-secondary);
-  display: flex;
-  font-family: monospace;
-  font-size: 10px;
-  font-weight: 600;
-  height: 22px;
-  justify-content: center;
-  width: 22px;
-}
-
-.health-issue-content {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  min-width: 0;
-}
-
-.health-issue-topline {
-  align-items: center;
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-}
-
-.health-issue-node-btn {
-  background: transparent;
-  border: 0;
-  color: var(--figma-color-text);
-  cursor: pointer;
-  font-size: 11px;
-  font-weight: 600;
-  padding: 0;
-  text-decoration: underline;
-  text-underline-offset: 2px;
-}
-
-.health-issue-node-btn:hover {
-  color: #0d99ff;
-}
-
-.health-issue-prop-tag {
-  background: var(--figma-color-bg-secondary);
-  border-radius: 3px;
-  color: var(--figma-color-text-secondary);
-  font-family: monospace;
-  font-size: 9px;
-  padding: 1px 4px;
-}
-
-.health-issue-raw-val {
-  color: var(--figma-color-text-tertiary, #808080);
-  font-size: 10px;
-}
-
-.health-issue-suggestion {
-  align-items: center;
-  display: flex;
-  flex-wrap: wrap;
-  font-size: 11px;
-  gap: 6px;
-}
-
-.health-issue-alt-select {
-  background: var(--figma-color-bg-secondary);
-  border: 1px solid var(--figma-color-border);
-  border-radius: 4px;
-  color: var(--figma-color-text);
-  cursor: pointer;
-  font-family: inherit;
-  font-size: 11px;
-  font-weight: 600;
-  max-width: 240px;
-  outline: none;
-  padding: 2px 6px;
-}
-
-.health-issue-alt-select:focus {
-  border-color: #0d99ff;
-}
-
-.confidence-chip {
-  border-radius: 3px;
-  font-size: 9px;
-  font-weight: 600;
-  padding: 1px 4px;
-  text-transform: uppercase;
-}
-
-.confidence-high {
-  background: rgba(20, 174, 92, 0.15);
-  color: #14ae5c;
-}
-
-.confidence-medium {
-  background: rgba(13, 153, 255, 0.15);
-  color: #0d99ff;
-}
-
-.confidence-low {
-  background: rgba(255, 170, 0, 0.15);
-  color: #ffaa00;
-}
-
-.health-issue-action {
-  align-items: center;
-  display: flex;
-  gap: 6px;
-}
-
-.health-subtle-tag {
-  color: var(--figma-color-text-tertiary, #808080);
-  font-size: 10px;
-  white-space: nowrap;
-}
-
-/* Success Clean State */
-.health-clean-state {
-  align-items: center;
-  background: rgba(20, 174, 92, 0.06);
-  border: 1px dashed rgba(20, 174, 92, 0.3);
-  border-radius: 8px;
-  color: #14ae5c;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  padding: 24px 16px;
-  text-align: center;
-}
-
-.health-clean-state h3 {
-  font-size: 13px;
-  font-weight: 600;
-  margin: 0;
-}
-
-.health-clean-state p {
-  color: var(--figma-color-text-secondary);
-  font-size: 11px;
-  margin: 0;
-}
-
-/* Form Groups */
-.health-form-group {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-
-.health-form-label {
-  color: var(--figma-color-text);
-  font-size: 11px;
-  font-weight: 600;
-}
-
-.health-form-description {
-  color: var(--figma-color-text-secondary);
-  font-size: 11px;
-  line-height: 1.4;
-}
-
-/* Compatibility Report Card */
-.compatibility-report-card {
-  background: var(--figma-color-bg-secondary);
-  border: 1px solid var(--figma-color-border);
-  border-radius: 8px;
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  padding: 12px 14px;
-}
-
-.compatibility-header {
-  align-items: center;
-  display: flex;
-  justify-content: space-between;
-}
-
-.compatibility-stats {
-  display: flex;
-  font-size: 11px;
-  gap: 12px;
-}
-
-.compatibility-list {
-  background: var(--figma-color-bg);
-  border: 1px solid var(--figma-color-border);
-  border-radius: 6px;
-  display: flex;
-  flex-direction: column;
-  font-size: 11px;
-  max-height: 180px;
-  overflow-y: auto;
-}
-
-.compatibility-row {
-  align-items: center;
-  border-bottom: 1px solid var(--figma-color-border-subtle, var(--figma-color-border));
-  display: flex;
-  justify-content: space-between;
-  padding: 6px 10px;
-}
-
-.compatibility-row:last-child {
-  border-bottom: 0;
+.health-status-text-error {
+  color: var(--figma-color-text-danger, #b42318);
 }
 
 .health-loading-container {
@@ -600,6 +99,7 @@
   display: flex;
   flex-direction: column;
   gap: 10px;
+  height: 100%;
   justify-content: center;
   padding: 48px 16px;
 }
@@ -608,3 +108,579 @@
   color: var(--figma-color-text-secondary);
   font-size: 11px;
 }
+
+/* Sub-tab bar: the library SegmentedControl inside a bare structural wrapper.
+   No padding/margin/border overrides here — the control must render with the
+   component's own native geometry (24px flush segments with the library's
+   own `.text` padding on its secondary track). The wrapper exists only so
+   the flex-shrink rule (`.design-health-view > *`) has a stable anchor
+   around the strip. */
+.health-tabs-row {
+  display: flex;
+  width: 100%;
+}
+
+.health-tabs-row div[class*='_segmentedControl'] {
+  flex: 1;
+}
+
+.health-tabs-row label {
+  display: flex;
+  flex: 1;
+}
+
+.health-tabs-row label > div {
+  width: 100%;
+}
+
+/* Tab label: icon + "Name (N)" text. The padding mirrors the library's own
+   `.text` container, which element children bypass. */
+.health-tab-option {
+  align-items: center;
+  display: inline-flex;
+  gap: 4px;
+  padding: var(--space-4, 4px) var(--space-8, 8px);
+}
+
+.health-tab-option svg {
+  flex-shrink: 0;
+}
+
+/* Coverage ring — circular meter with the percentage centered inside and the
+   caption below, both centered on the row. */
+.health-coverage {
+  align-items: center;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.health-coverage-ring {
+  position: relative;
+  height: 72px;
+  width: 72px;
+}
+
+.health-coverage-svg {
+  height: 100%;
+  transform: rotate(-90deg);
+  width: 100%;
+}
+
+.health-coverage-track {
+  fill: none;
+  stroke: var(--figma-color-bg-tertiary, #e5e5e5);
+  stroke-linecap: round;
+  stroke-width: 6;
+}
+
+.health-coverage-fill {
+  fill: none;
+  stroke-linecap: round;
+  stroke-width: 6;
+  transition: stroke-dashoffset 0.3s ease;
+}
+
+.health-coverage-pct {
+  align-items: center;
+  bottom: 0;
+  color: var(--figma-color-text);
+  display: flex;
+  font-size: 15px;
+  font-weight: 600;
+  justify-content: center;
+  left: 0;
+  position: absolute;
+  right: 0;
+  top: 0;
+}
+
+.health-coverage-caption {
+  color: var(--figma-color-text-secondary);
+  font-size: 11px;
+  margin: 0;
+  text-align: center;
+}
+
+/* Semantic tones — figure tokens first, hex only as fallback. */
+.health-tone-success-text {
+  color: var(--figma-color-text-success, #1a7f37);
+}
+
+.health-tone-neutral-text {
+  color: var(--figma-color-text);
+}
+
+.health-tone-warning-text {
+  color: var(--figma-color-text-warning, #7d4e00);
+}
+
+.health-tone-danger-text {
+  color: var(--figma-color-text-danger, #b42318);
+}
+
+.health-tone-success-stroke {
+  stroke: var(--figma-color-icon-success, #1a7f37);
+}
+
+.health-tone-neutral-stroke {
+  stroke: var(--figma-color-border-brand-strong, #0d99ff);
+}
+
+.health-tone-warning-stroke {
+  stroke: var(--figma-color-icon-warning, #9a6700);
+}
+
+.health-tone-danger-stroke {
+  stroke: var(--figma-color-icon-danger, #d1242f);
+}
+
+.health-tone-success-bg {
+  background: var(--figma-color-icon-success, #1a7f37);
+}
+
+.health-tone-neutral-bg {
+  background: var(--figma-color-border-brand-strong, #0d99ff);
+}
+
+.health-tone-warning-bg {
+  background: var(--figma-color-icon-warning, #9a6700);
+}
+
+.health-tone-danger-bg {
+  background: var(--figma-color-icon-danger, #d1242f);
+}
+
+/* Empty / clean states */
+.health-empty-note {
+  background: var(--figma-color-bg-secondary);
+  border: 1px dashed var(--figma-color-border);
+  border-radius: 6px;
+  color: var(--figma-color-text-secondary);
+  display: grid;
+  gap: 4px;
+  justify-items: center;
+  padding: 20px 16px;
+  text-align: center;
+}
+
+.health-empty-note-success {
+  border-style: solid;
+  border-color: var(--figma-color-border-success, #1a7f37);
+}
+
+.health-empty-heading {
+  color: var(--figma-color-text);
+  font-size: 12px;
+  font-weight: 600;
+  margin: 0;
+}
+
+.health-empty-note p {
+  font-size: 11px;
+  line-height: 16px;
+  margin: 0;
+}
+
+.health-showing-line {
+  color: var(--figma-color-text-secondary);
+  font-size: 10px;
+  margin: 0;
+}
+
+/* The property filter hugs its content instead of stretching a full-width
+   track with a long dead tail on wide panels. The library Tabs strip inside
+   it is stripped of its underline border and label padding, so the filter
+   reads as a tight row of options rather than a boxed tab panel. */
+.health-filter-row {
+  max-width: 100%;
+  width: fit-content;
+}
+
+.health-filter-row div[class*='_tabs_'] {
+  border-bottom: 0;
+  gap: 4px;
+}
+
+.health-filter-row div[class*='_tabs_'] label {
+  padding: 0;
+}
+
+/* Issue groups and rows */
+.health-issue-group {
+  display: grid;
+  gap: 4px;
+}
+
+.health-group-heading-row {
+  align-items: center;
+  display: flex;
+  gap: 8px;
+  justify-content: space-between;
+}
+
+.health-group-heading {
+  align-items: center;
+  color: var(--figma-color-text);
+  display: flex;
+  font-size: 11px;
+  font-weight: 600;
+  gap: 6px;
+  margin: 0;
+}
+
+.health-issue-list {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+/* One compact line per issue: icon | wrapping inline content | action.
+   Surface matches the .inventory-row reference: bg-secondary fill, border
+   appears on hover instead of drawing 51 hairline boxes. */
+.health-issue-row {
+  align-items: center;
+  background: var(--figma-color-bg-secondary);
+  border: 1px solid transparent;
+  border-radius: 6px;
+  display: grid;
+  gap: 8px;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  min-height: 42px;
+  padding: 6px 10px;
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+
+.health-issue-row:hover {
+  background: var(--figma-color-bg-hover);
+  border-color: var(--figma-color-border);
+}
+
+.health-issue-row:focus-within {
+  border-color: var(--figma-color-border-brand);
+}
+
+/* A node with several raw properties (e.g. itemSpacing + four padding edges)
+   renders as one cluster card: node header on top, flat property lines
+   inside — instead of N near-identical rows repeating the node name. Hover
+   marks the card with a border (inventory-row pattern) while the row under
+   the pointer gets its own pressed surface, so inside a multi-row cluster
+   the actionable row is still identifiable. */
+.health-node-cluster {
+  background: var(--figma-color-bg-secondary);
+  border: 1px solid transparent;
+  border-radius: 6px;
+  display: grid;
+  gap: 2px;
+  padding: 4px 6px;
+  transition: border-color 0.15s ease;
+}
+
+.health-node-cluster:hover {
+  border-color: var(--figma-color-border);
+}
+
+.health-cluster-header {
+  align-items: center;
+  display: flex;
+  gap: 6px;
+  min-height: 22px;
+  min-width: 0;
+  padding: 0 4px;
+}
+
+.health-cluster-header .health-node-link {
+  font-weight: 500;
+}
+
+.health-cluster-count {
+  color: var(--figma-color-text-secondary);
+  flex-shrink: 0;
+  font-size: 10px;
+}
+
+.health-cluster-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.health-issue-row-nested {
+  background: transparent;
+  border-radius: 4px;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  min-height: 34px;
+  padding: 3px 4px;
+}
+
+.health-issue-row-nested:hover {
+  background: var(--figma-color-bg-pressed);
+  border-color: transparent;
+}
+
+.health-issue-row-nested:focus-within {
+  border-color: var(--figma-color-border-brand);
+}
+
+/* Nested rows keep the property swatch/icon at a smaller size so the color
+   signal survives clustering without competing with the node header. */
+/* Node link, field tag, value, token picker, and chip share one
+   flex-wrap line; long content wraps to a second line on narrow panels. */
+.health-issue-content {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 6px;
+  min-width: 0;
+}
+
+.health-node-link {
+  appearance: none;
+  background: transparent;
+  border: 0;
+  color: var(--figma-color-text);
+  cursor: pointer;
+  flex: 0 1 auto;
+  font: inherit;
+  font-size: 11px;
+  font-weight: 600;
+  max-width: 45%;
+  min-width: 0;
+  overflow: hidden;
+  padding: 0;
+  text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.health-node-link:hover {
+  color: var(--figma-color-text-brand);
+}
+
+.health-node-link:focus-visible {
+  outline: 2px solid var(--figma-color-border-brand-strong, currentColor);
+  outline-offset: 1px;
+}
+
+.health-issue-field {
+  background: var(--figma-color-bg-tertiary);
+  border-radius: 3px;
+  color: var(--figma-color-text-secondary);
+  flex-shrink: 0;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 9px;
+  line-height: 12px;
+  padding: 0 4px;
+}
+
+.health-issue-value {
+  color: var(--figma-color-text-secondary);
+  flex-shrink: 0;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 10px;
+  word-break: break-all;
+}
+
+/* Field + value travel as one fixed-width key so the token pickers of nested
+   cluster rows align on a single left edge. */
+.health-issue-key {
+  align-items: baseline;
+  display: inline-flex;
+  flex-shrink: 0;
+  gap: 6px;
+  min-width: 0;
+}
+
+.health-issue-row-nested .health-issue-value {
+  min-width: 3ch;
+}
+
+.health-issue-row-nested .health-issue-key {
+  min-width: 104px;
+}
+
+/* Token picker keeps a bounded width inside the row — never card-wide. */
+.health-issue-picker {
+  display: block;
+  flex: 0 1 auto;
+  max-width: 100%;
+  min-width: 0;
+  width: 200px;
+}
+
+.health-issue-token {
+  color: var(--figma-color-text);
+  /* <strong> defaults to bold (700) — stepped down to 500 for a softer
+     emphasis than group headings (600). */
+  font-weight: 500;
+}
+
+.health-issue-nomatch {
+  color: var(--figma-color-text-secondary);
+  font-size: 10px;
+}
+
+.health-issue-action {
+  align-items: center;
+  display: flex;
+  gap: 6px;
+}
+
+.health-issue-swatch {
+  /* Checkerboard under the fill: genuinely transparent or very light fills
+     (e.g. background/neutral/transparent) stay distinguishable from the row
+     surface instead of reading as an empty square. */
+  background-image: conic-gradient(
+    var(--figma-color-bg-tertiary) 25%,
+    transparent 0 50%,
+    var(--figma-color-bg-tertiary) 0 75%,
+    transparent 0
+  );
+  background-size: 8px 8px;
+  border-radius: 4px;
+  display: block;
+  height: 20px;
+  overflow: hidden;
+  width: 20px;
+}
+
+.health-issue-swatch-color {
+  /* Same radius as the container so the inset ring follows the rounded
+     corners instead of getting clipped square. */
+  border-radius: 4px;
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.08) inset;
+  display: block;
+  height: 100%;
+  width: 100%;
+}
+
+@media (prefers-color-scheme: dark) {
+  .health-issue-swatch-color {
+    box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.14) inset;
+  }
+}
+
+.health-issue-icon {
+  align-items: center;
+  color: var(--figma-color-text-secondary);
+  display: flex;
+  justify-content: center;
+}
+
+/* Icons render at the library's native 24px — no CSS resizing. */
+
+.confidence-chip {
+  border: 1px solid currentColor;
+  border-radius: 3px;
+  flex-shrink: 0;
+  font-size: 9px;
+  line-height: 12px;
+  padding: 0 4px;
+  text-transform: uppercase;
+}
+
+.confidence-high {
+  color: var(--figma-color-text-success, #1a7f37);
+}
+
+.confidence-medium {
+  /* Mixed toward the text color: the host brand token alone lands under
+     4.5:1 on light-theme surfaces at this 9px size. */
+  color: var(--figma-color-text-brand);
+  color: color-mix(in srgb, var(--figma-color-text-brand) 65%, var(--figma-color-text));
+}
+
+.confidence-low {
+  color: var(--figma-color-text-warning, #7d4e00);
+}
+
+/* Panels (swap + library tabs) */
+.health-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+/* Swap-tab controls keep a bounded width on wide panels; inside a narrow
+   panel they still fill the available space. */
+/* Compatibility and replacement-result reports */
+
+/* Inline confirmation (clear-confirmation pattern) */
+
+/* Library tab */
+.health-stats-grid {
+  display: grid;
+  gap: 8px 12px;
+  grid-template-columns: repeat(auto-fit, minmax(72px, 1fr));
+}
+
+.health-stat {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.health-stat-value {
+  color: var(--figma-color-text);
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 1.2;
+}
+
+.health-stat-label {
+  color: var(--figma-color-text-secondary);
+  font-size: 10px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.health-deprecated-list {
+  display: grid;
+  gap: 8px;
+}
+
+.health-deprecated-card {
+  align-items: center;
+  background: var(--figma-color-bg-warning-tertiary, #fff8c5);
+  border: 1px solid var(--figma-color-border-warning, #eac54f);
+  border-radius: 6px;
+  display: flex;
+  gap: 8px;
+  justify-content: space-between;
+  padding: 8px 10px;
+}
+
+.health-deprecated-info {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.health-deprecated-component {
+  color: var(--figma-color-text-secondary);
+  font-size: 10px;
+  margin: 0;
+}
+
+.health-deprecated-notice {
+  color: var(--figma-color-text-warning, #7d4e00);
+  font-size: 10px;
+  margin: 0;
+  word-break: break-word;
+}
+
+.health-deprecated-actions {
+  align-items: center;
+  display: flex;
+  flex-direction: column;
+  flex-shrink: 0;
+  gap: 6px;
+}
+
+/* Keyboard focus for the custom controls of this view */
+.health-issue-row button:focus-visible {
+  outline: 2px solid var(--figma-color-border-brand-strong, currentColor);
+  outline-offset: 1px;
+}
+

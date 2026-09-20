@@ -1,29 +1,20 @@
 import { emit } from '@create-figma-plugin/utilities';
 import {
   calculateTokenAuditSummary,
+  isValueEqual,
   rankTokenSuggestion,
   type TokenCandidateInput,
 } from '../design-health/token-audit';
-import {
-  buildCompatibilityPlan,
-  normalizePropertyName,
-} from '../design-health/replacement-plan';
 import type {
-  ComponentPropertyDescriptor,
-  ComponentDescriptor,
-} from '../design-health/replacement-plan';
-import type {
-  ComponentReplacementCandidate,
-  ComponentReplacementExecutionRequest,
   DeprecatedInstanceNotice,
   DesignHealthScanResult,
   TokenBindingRequest,
   TokenPropertyIssue,
+  TokenPropertyKind,
+  TokenSuggestion,
 } from '../design-health/types';
 import type {
   ApplyTokenBindingsResultHandler,
-  BuildCompatibilityPlanResultHandler,
-  ExecuteComponentReplacementResultHandler,
   ScanDesignHealthResultHandler,
 } from '../types';
 
@@ -63,10 +54,13 @@ export async function scanDesignHealth(
       return;
     }
 
+    const selectionCount = figma.currentPage.selection.length;
+
     // 1. Build comprehensive variable map from local collections and referenced document variables
     const variableMap = new Map<string, Variable>();
 
-    // Local variables
+    // One call covers every local collection's tokens; a per-collection
+    // variableIds walk would only re-fetch variables already in this list.
     try {
       const localVariables = await figma.variables.getLocalVariablesAsync();
       for (const v of localVariables) {
@@ -76,56 +70,36 @@ export async function scanDesignHealth(
       // ignore
     }
 
-    // Local variable collections
-    try {
-      const localCollections = await figma.variables.getLocalVariableCollectionsAsync();
-      for (const col of localCollections) {
-        for (const varId of col.variableIds) {
-          if (!variableMap.has(varId)) {
-            const v = await figma.variables.getVariableByIdAsync(varId);
-            if (v) variableMap.set(v.id, v);
-          }
-        }
-      }
-    } catch {
-      // ignore
-    }
-
     // Fast-scan bound and inferred variables in target subtree to discover referenced collections
     const referencedVarIds = new Set<string>();
     collectVariableReferences(targetNode, referencedVarIds, 400);
 
+    // Fetch referenced variables that are not local, then expand their full
+    // collections so the complete library token set is available in memory.
+    // Fetches run in parallel chunks — sequential per-variable awaits are the
+    // dominant scan cost once a library holds hundreds of tokens.
+    const referencedMissing = Array.from(referencedVarIds).filter((id) => !variableMap.has(id));
+    await fetchVariablesChunked(referencedMissing, variableMap);
+    if (scanId !== latestScanId) {
+      return;
+    }
+
     const collectionIdsToExpand = new Set<string>();
     for (const varId of referencedVarIds) {
-      if (!variableMap.has(varId)) {
-        try {
-          const v = await figma.variables.getVariableByIdAsync(varId);
-          if (v) {
-            variableMap.set(v.id, v);
-            if (v.variableCollectionId) {
-              collectionIdsToExpand.add(v.variableCollectionId);
-            }
-          }
-        } catch {
-          // ignore
-        }
-      } else {
-        const existing = variableMap.get(varId);
-        if (existing?.variableCollectionId) {
-          collectionIdsToExpand.add(existing.variableCollectionId);
-        }
+      const v = variableMap.get(varId);
+      if (v?.variableCollectionId) {
+        collectionIdsToExpand.add(v.variableCollectionId);
       }
     }
 
-    // Expand all sister variables in referenced collections (discovers full library token set locally)
+    const sisterVarIds: string[] = [];
     for (const colId of collectionIdsToExpand) {
       try {
         const col = await figma.variables.getVariableCollectionByIdAsync(colId);
         if (col && Array.isArray(col.variableIds)) {
           for (const varId of col.variableIds) {
             if (!variableMap.has(varId)) {
-              const v = await figma.variables.getVariableByIdAsync(varId);
-              if (v) variableMap.set(v.id, v);
+              sisterVarIds.push(varId);
             }
           }
         }
@@ -133,26 +107,23 @@ export async function scanDesignHealth(
         // ignore
       }
     }
+    await fetchVariablesChunked(sisterVarIds, variableMap);
+    if (scanId !== latestScanId) {
+      return;
+    }
 
-    // Resolve values for each consuming node later so variable modes and alias
-    // chains follow that node's explicit/inherited mode configuration.
+    // Resolve candidate values once for the audit root's variable-mode context.
+    // Resolving every variable for every node would cost nodes × variables
+    // bridge calls; per-node mode divergence inside the selection is instead
+    // handled by verifying each exact-match suggestion against its consuming
+    // node (see rankAndVerifySuggestions).
     const variableList = Array.from(variableMap.values());
-    const tokenCandidatesByNodeId = new Map<string, TokenCandidateInput[]>();
-    const getAvailableTokens = (consumer: SceneNode): TokenCandidateInput[] => {
-      const cached = tokenCandidatesByNodeId.get(consumer.id);
-      if (cached) return cached;
-      const resolved = createTokenCandidatesForConsumer(variableList, consumer);
-      tokenCandidatesByNodeId.set(consumer.id, resolved);
-      return resolved;
-    };
+    const tokenCandidates = createTokenCandidatesForConsumer(variableList, targetNode);
 
     // Traverse the subtree
     const issues: TokenPropertyIssue[] = [];
     let boundPropertiesCount = 0;
-    const componentCandidatesMap = new Map<string, {
-      sourceComponentName: string;
-      instanceIds: string[];
-    }>();
+    const uniqueComponentKeys = new Set<string>();
     const deprecatedInstances: DeprecatedInstanceNotice[] = [];
     let remoteInstancesCount = 0;
     let localInstancesCount = 0;
@@ -183,6 +154,20 @@ export async function scanDesignHealth(
       try {
         const isEditableHere = !current.isInsideInstance || n.id === current.parentInstanceId;
 
+        // One bridge read per property group; the loops below reuse these
+        // snapshots instead of re-reading node fields per paint/edge.
+        const fills = 'fills' in n && Array.isArray(n.fills) ? n.fills : undefined;
+        const strokes = 'strokes' in n && Array.isArray(n.strokes) ? n.strokes : undefined;
+        const boundVariables = 'boundVariables' in n
+          ? (n.boundVariables as Record<string, VariableAlias | VariableAlias[]> | undefined)
+          : undefined;
+        const inferredVariables = 'inferredVariables' in n && n.inferredVariables
+          ? (n.inferredVariables as Record<string, unknown>)
+          : undefined;
+        const hasBoundVariable = (field: string): boolean => Boolean(
+          boundVariables && field in boundVariables,
+        );
+
         // Check Component Instances
         if (n.type === 'INSTANCE') {
           totalInstances++;
@@ -204,16 +189,7 @@ export async function scanDesignHealth(
 
             const compKey = mainComp.key || mainComp.id;
             const compName = mainComp.name;
-
-            const existingCandidate = componentCandidatesMap.get(compKey);
-            if (existingCandidate) {
-              existingCandidate.instanceIds.push(n.id);
-            } else {
-              componentCandidatesMap.set(compKey, {
-                sourceComponentName: compName,
-                instanceIds: [n.id],
-              });
-            }
+            uniqueComponentKeys.add(compKey);
 
             // Check deprecation
             const desc = (mainComp.description || '').toLowerCase();
@@ -230,23 +206,26 @@ export async function scanDesignHealth(
         }
 
       // Check Fills (Colors)
-      if ('fills' in n && Array.isArray(n.fills)) {
-        for (let paintIndex = 0; paintIndex < n.fills.length; paintIndex += 1) {
-          const paint = n.fills[paintIndex];
+      if (fills) {
+        for (let paintIndex = 0; paintIndex < fills.length; paintIndex += 1) {
+          const paint = fills[paintIndex];
           if (paint.type === 'SOLID' && paint.visible !== false) {
             const hasBoundVar = Boolean(
-              paint.boundVariables?.color || getBoundPaintVariable(n, 'fills', paintIndex),
+              paint.boundVariables?.color || getBoundPaintVariable(boundVariables, 'fills', paintIndex),
             );
             if (hasBoundVar) {
               boundPropertiesCount++;
             } else {
               const hex = colorToHex(paint.color, paint.opacity);
-              const inferred = await readInferredVariable(n, 'fills', variableMap, paintIndex);
-              const { suggestion, alternatives } = rankTokenSuggestion({
+              const inferred = await readInferredVariable(inferredVariables, 'fills', variableMap, paintIndex);
+              const { suggestion, alternatives } = await rankAndVerifySuggestions({
+                node: n,
                 property: 'fill',
                 currentValue: hex,
                 inferredVariable: inferred,
-                availableTokens: getAvailableTokens(n),
+                availableTokens: tokenCandidates,
+                nodeName: n.name,
+                variableMap,
               });
 
               issues.push({
@@ -267,23 +246,26 @@ export async function scanDesignHealth(
       }
 
       // Check Strokes (Colors)
-      if ('strokes' in n && Array.isArray(n.strokes)) {
-        for (let paintIndex = 0; paintIndex < n.strokes.length; paintIndex += 1) {
-          const paint = n.strokes[paintIndex];
+      if (strokes) {
+        for (let paintIndex = 0; paintIndex < strokes.length; paintIndex += 1) {
+          const paint = strokes[paintIndex];
           if (paint.type === 'SOLID' && paint.visible !== false) {
             const hasBoundVar = Boolean(
-              paint.boundVariables?.color || getBoundPaintVariable(n, 'strokes', paintIndex),
+              paint.boundVariables?.color || getBoundPaintVariable(boundVariables, 'strokes', paintIndex),
             );
             if (hasBoundVar) {
               boundPropertiesCount++;
             } else {
               const hex = colorToHex(paint.color, paint.opacity);
-              const inferred = await readInferredVariable(n, 'strokes', variableMap, paintIndex);
-              const { suggestion, alternatives } = rankTokenSuggestion({
+              const inferred = await readInferredVariable(inferredVariables, 'strokes', variableMap, paintIndex);
+              const { suggestion, alternatives } = await rankAndVerifySuggestions({
+                node: n,
                 property: 'stroke',
                 currentValue: hex,
                 inferredVariable: inferred,
-                availableTokens: getAvailableTokens(n),
+                availableTokens: tokenCandidates,
+                nodeName: n.name,
+                variableMap,
               });
 
               issues.push({
@@ -304,21 +286,22 @@ export async function scanDesignHealth(
       }
 
       // Check Corner Radius
-      if ('cornerRadius' in n && typeof n.cornerRadius === 'number' && n.cornerRadius > 0) {
-        const hasBoundVar = Boolean(
-          (n.boundVariables && 'cornerRadius' in n.boundVariables) ||
-          (n.boundVariables && 'topLeftRadius' in n.boundVariables),
-        );
+      const cornerRadius = 'cornerRadius' in n ? n.cornerRadius : undefined;
+      if (typeof cornerRadius === 'number' && cornerRadius > 0) {
+        const hasBoundVar = hasBoundVariable('cornerRadius') || hasBoundVariable('topLeftRadius');
         if (hasBoundVar) {
           boundPropertiesCount++;
         } else {
-          const inferred = (await readInferredVariable(n, 'cornerRadius', variableMap))
-            || (await readInferredVariable(n, 'topLeftRadius', variableMap));
-          const { suggestion, alternatives } = rankTokenSuggestion({
+          const inferred = (await readInferredVariable(inferredVariables, 'cornerRadius', variableMap))
+            || (await readInferredVariable(inferredVariables, 'topLeftRadius', variableMap));
+          const { suggestion, alternatives } = await rankAndVerifySuggestions({
+            node: n,
             property: 'cornerRadius',
-            currentValue: n.cornerRadius,
+            currentValue: cornerRadius,
             inferredVariable: inferred,
-            availableTokens: getAvailableTokens(n),
+            availableTokens: tokenCandidates,
+            nodeName: n.name,
+            variableMap,
           });
 
           issues.push({
@@ -327,7 +310,7 @@ export async function scanDesignHealth(
             nodeName: n.name,
             property: 'cornerRadius',
             bindingTarget: { field: 'cornerRadius' },
-            currentValue: n.cornerRadius,
+            currentValue: cornerRadius,
             isEditableHere,
             containerInstanceId: current.parentInstanceId,
             suggestion,
@@ -337,18 +320,23 @@ export async function scanDesignHealth(
       }
 
       // Check Layout Gap (itemSpacing)
-      if ('layoutMode' in n && n.layoutMode !== 'NONE') {
-        if (typeof n.itemSpacing === 'number' && n.itemSpacing > 0) {
-          const hasBoundVar = Boolean(n.boundVariables && 'itemSpacing' in n.boundVariables);
+      const layoutMode = 'layoutMode' in n ? n.layoutMode : undefined;
+      if (layoutMode && layoutMode !== 'NONE') {
+        const itemSpacing = 'itemSpacing' in n ? n.itemSpacing : undefined;
+        if (typeof itemSpacing === 'number' && itemSpacing > 0) {
+          const hasBoundVar = hasBoundVariable('itemSpacing');
           if (hasBoundVar) {
             boundPropertiesCount++;
           } else {
-            const inferred = await readInferredVariable(n, 'itemSpacing', variableMap);
-            const { suggestion, alternatives } = rankTokenSuggestion({
+            const inferred = await readInferredVariable(inferredVariables, 'itemSpacing', variableMap);
+            const { suggestion, alternatives } = await rankAndVerifySuggestions({
+              node: n,
               property: 'gap',
-              currentValue: n.itemSpacing,
+              currentValue: itemSpacing,
               inferredVariable: inferred,
-              availableTokens: getAvailableTokens(n),
+              availableTokens: tokenCandidates,
+              nodeName: n.name,
+              variableMap,
             });
 
             issues.push({
@@ -357,7 +345,7 @@ export async function scanDesignHealth(
               nodeName: n.name,
               property: 'gap',
               bindingTarget: { field: 'itemSpacing' },
-              currentValue: n.itemSpacing,
+              currentValue: itemSpacing,
               isEditableHere,
               containerInstanceId: current.parentInstanceId,
               suggestion,
@@ -369,26 +357,29 @@ export async function scanDesignHealth(
         // Check each padding edge independently. Collapsing four edges into a
         // single issue would destroy asymmetric padding when applying a token.
         const paddingFields = [
-          ['paddingTop', n.paddingTop],
-          ['paddingRight', n.paddingRight],
-          ['paddingBottom', n.paddingBottom],
-          ['paddingLeft', n.paddingLeft],
+          ['paddingTop', 'paddingTop' in n ? n.paddingTop : undefined],
+          ['paddingRight', 'paddingRight' in n ? n.paddingRight : undefined],
+          ['paddingBottom', 'paddingBottom' in n ? n.paddingBottom : undefined],
+          ['paddingLeft', 'paddingLeft' in n ? n.paddingLeft : undefined],
         ] as const;
 
         for (const [field, paddingValue] of paddingFields) {
           if (typeof paddingValue !== 'number' || paddingValue <= 0) continue;
-          const hasBoundVar = Boolean(n.boundVariables && field in n.boundVariables);
+          const hasBoundVar = hasBoundVariable(field);
           if (hasBoundVar) {
             boundPropertiesCount++;
             continue;
           }
 
-          const inferred = await readInferredVariable(n, field, variableMap);
-          const { suggestion, alternatives } = rankTokenSuggestion({
+          const inferred = await readInferredVariable(inferredVariables, field, variableMap);
+          const { suggestion, alternatives } = await rankAndVerifySuggestions({
+            node: n,
             property: 'padding',
             currentValue: paddingValue,
             inferredVariable: inferred,
-            availableTokens: getAvailableTokens(n),
+            availableTokens: tokenCandidates,
+            nodeName: n.name,
+            variableMap,
           });
 
           issues.push({
@@ -408,17 +399,21 @@ export async function scanDesignHealth(
 
       // Opacity is tokenizable independently of color. Ignore the default 1
       // because it does not represent an intentional raw opacity value.
-      if ('opacity' in n && typeof n.opacity === 'number' && n.opacity >= 0 && n.opacity < 1) {
-        const hasBoundVar = Boolean(n.boundVariables && 'opacity' in n.boundVariables);
+      const opacity = 'opacity' in n ? n.opacity : undefined;
+      if (typeof opacity === 'number' && opacity >= 0 && opacity < 1) {
+        const hasBoundVar = hasBoundVariable('opacity');
         if (hasBoundVar) {
           boundPropertiesCount++;
         } else {
-          const inferred = await readInferredVariable(n, 'opacity', variableMap);
-          const { suggestion, alternatives } = rankTokenSuggestion({
+          const inferred = await readInferredVariable(inferredVariables, 'opacity', variableMap);
+          const { suggestion, alternatives } = await rankAndVerifySuggestions({
+            node: n,
             property: 'opacity',
-            currentValue: n.opacity,
+            currentValue: opacity,
             inferredVariable: inferred,
-            availableTokens: getAvailableTokens(n),
+            availableTokens: tokenCandidates,
+            nodeName: n.name,
+            variableMap,
           });
           issues.push({
             id: `${n.id}:opacity`,
@@ -426,7 +421,7 @@ export async function scanDesignHealth(
             nodeName: n.name,
             property: 'opacity',
             bindingTarget: { field: 'opacity' },
-            currentValue: n.opacity,
+            currentValue: opacity,
             isEditableHere,
             containerInstanceId: current.parentInstanceId,
             suggestion,
@@ -435,14 +430,20 @@ export async function scanDesignHealth(
         }
       }
 
-        // Recurse children
+        // Recurse children. Component instances stay atomic: their internals
+        // belong to the main component, auditing them would only surface
+        // read-only rows, and skipping them keeps large frames inside the
+        // node budget. The audit root itself may be an instance — selecting
+        // one is an explicit request to audit that component's own layers.
         if ('children' in n && Array.isArray(n.children)) {
-          for (const child of n.children) {
-            nodesToWalk.push({
-              node: child,
-              isInsideInstance: current.isInsideInstance || n.type === 'INSTANCE',
-              parentInstanceId: current.parentInstanceId || (n.type === 'INSTANCE' ? n.id : undefined),
-            });
+          if (n.type !== 'INSTANCE' || n.id === targetNode.id) {
+            for (const child of n.children) {
+              nodesToWalk.push({
+                node: child,
+                isInsideInstance: current.isInsideInstance || n.type === 'INSTANCE',
+                parentInstanceId: current.parentInstanceId || (n.type === 'INSTANCE' ? n.id : undefined),
+              });
+            }
           }
         }
       } catch {
@@ -452,16 +453,6 @@ export async function scanDesignHealth(
 
     const tokenAudit = calculateTokenAuditSummary(boundPropertiesCount, issues);
 
-    const componentCandidates: ComponentReplacementCandidate[] = [];
-    for (const [key, data] of componentCandidatesMap.entries()) {
-      componentCandidates.push({
-        sourceComponentKey: key,
-        sourceComponentName: data.sourceComponentName,
-        instancesCount: data.instanceIds.length,
-        instanceIds: data.instanceIds,
-      });
-    }
-
     const scanResult: DesignHealthScanResult = {
       scanId,
       targetNode: {
@@ -470,14 +461,16 @@ export async function scanDesignHealth(
         type: targetNode.type,
       },
       tokenAudit,
-      componentCandidates,
       libraryHealth: {
         totalInstances,
-        uniqueComponentsCount: componentCandidates.length,
+        uniqueComponentsCount: uniqueComponentKeys.size,
         deprecatedInstances,
         remoteInstancesCount,
         localInstancesCount,
       },
+      nodesVisited: visitedCount,
+      capReached: nodesToWalk.length > 0,
+      selectionCount,
       scannedAt: Date.now(),
     };
 
@@ -603,189 +596,12 @@ function applyTokenBindingToTarget(
   }
 }
 
-export async function buildCompatibilityPlanForComponents(
-  requestId: string,
-  sourceKey: string,
-  targetKey: string,
-  instancesCount: number,
-): Promise<void> {
-  try {
-    const sourceComp = await resolveComponentDescriptor(sourceKey);
-    const targetComp = await resolveComponentDescriptor(targetKey);
-
-    if (!sourceComp || !targetComp) {
-      emit<BuildCompatibilityPlanResultHandler>('BUILD_COMPATIBILITY_PLAN_RESULT', {
-        ok: false,
-        requestId,
-        message: 'Could not resolve source or target component definitions',
-      });
-      return;
-    }
-
-    const plan = buildCompatibilityPlan({
-      sourceComponent: sourceComp,
-      targetComponent: targetComp,
-      instancesCount,
-    });
-
-    emit<BuildCompatibilityPlanResultHandler>('BUILD_COMPATIBILITY_PLAN_RESULT', {
-      ok: true,
-      requestId,
-      plan,
-    });
-  } catch (error) {
-    emit<BuildCompatibilityPlanResultHandler>('BUILD_COMPATIBILITY_PLAN_RESULT', {
-      ok: false,
-      requestId,
-      message: error instanceof Error ? error.message : String(error),
-    });
-  }
-}
-
-export async function executeComponentReplacement(
-  operationId: string,
-  request: ComponentReplacementExecutionRequest,
-): Promise<void> {
-  try {
-    let targetComponentNode: ComponentNode | null = null;
-
-    // Try finding target in local file or importing by key
-    try {
-      targetComponentNode = await figma.importComponentByKeyAsync(request.targetComponentKey);
-    } catch {
-      // Local search fallback
-      const found = await figma.getNodeByIdAsync(request.targetComponentKey);
-      if (found && found.type === 'COMPONENT') {
-        targetComponentNode = found as ComponentNode;
-      }
-    }
-
-    if (!targetComponentNode) {
-      emit<ExecuteComponentReplacementResultHandler>('EXECUTE_COMPONENT_REPLACEMENT_RESULT', {
-        ok: false,
-        operationId,
-        replacedCount: 0,
-        failedCount: request.instanceIds.length,
-        warningCount: 0,
-        message: 'Target component could not be loaded from library or document.',
-      });
-      return;
-    }
-
-    let replacedCount = 0;
-    let failedCount = 0;
-    let warningCount = 0;
-
-    for (const instanceId of request.instanceIds) {
-      let swapped = false;
-      try {
-        const node = await figma.getNodeByIdAsync(instanceId);
-        if (!node || node.type !== 'INSTANCE' || node.removed) {
-          failedCount++;
-          continue;
-        }
-
-        const instance = node as InstanceNode;
-        const currentMainComponent = await instance.getMainComponentAsync();
-        const currentSourceKey = currentMainComponent?.key || currentMainComponent?.id;
-        if (!currentSourceKey || currentSourceKey !== request.sourceComponentKey) {
-          failedCount++;
-          continue;
-        }
-
-        // Extract existing properties before swap.
-        const oldProps = { ...instance.componentProperties };
-
-        // Swap using native Figma override preservation heuristics.
-        instance.swapComponent(targetComponentNode);
-        swapped = true;
-        replacedCount++;
-
-        // Re-apply only mappings that still exist and accept the old value.
-        const targetDefs = targetComponentNode.componentPropertyDefinitions;
-        const newPropertiesToSet: Record<string, string | boolean> = {};
-
-        for (const [targetRawKey, targetDefinition] of Object.entries(targetDefs)) {
-          if (targetDefinition.type === 'SLOT') continue;
-          const targetNorm = normalizePropertyName(targetRawKey).toLowerCase();
-          const sourceEntry = Object.entries(request.propertyMappings).find(
-            ([, mappedTarget]) => normalizePropertyName(mappedTarget).toLowerCase() === targetNorm,
-          );
-          if (!sourceEntry) continue;
-
-          const [sourceNorm] = sourceEntry;
-          const oldEntry = Object.entries(oldProps).find(
-            ([oldRawKey]) => normalizePropertyName(oldRawKey).toLowerCase() === sourceNorm.toLowerCase(),
-          );
-          if (!oldEntry) continue;
-
-          const oldProperty = oldEntry[1];
-          const oldValue = oldProperty.value;
-          if (oldProperty.type !== targetDefinition.type) {
-            warningCount++;
-            continue;
-          }
-          if (
-            targetDefinition.type === 'VARIANT'
-            && typeof oldValue === 'string'
-            && !targetDefinition.variantOptions?.some(
-              (option) => option.trim().toLowerCase() === oldValue.trim().toLowerCase(),
-            )
-          ) {
-            warningCount++;
-            continue;
-          }
-          if (typeof oldValue === 'string' || typeof oldValue === 'boolean') {
-            newPropertiesToSet[targetRawKey] = oldValue;
-          }
-        }
-
-        if (Object.keys(newPropertiesToSet).length > 0) {
-          try {
-            instance.setProperties(newPropertiesToSet);
-          } catch {
-            warningCount++;
-          }
-        }
-      } catch {
-        if (swapped) {
-          warningCount++;
-        } else {
-          failedCount++;
-        }
-      }
-    }
-
-    if (replacedCount > 0) {
-      figma.commitUndo();
-    }
-
-    emit<ExecuteComponentReplacementResultHandler>('EXECUTE_COMPONENT_REPLACEMENT_RESULT', {
-      ok: failedCount === 0 && warningCount === 0,
-      operationId,
-      replacedCount,
-      failedCount,
-      warningCount,
-      message: failedCount === 0 && warningCount === 0
-        ? `Successfully migrated ${replacedCount} component instances.`
-        : `Replaced ${replacedCount} instances; ${failedCount} failed and ${warningCount} need override review.`,
-    });
-  } catch (error) {
-    emit<ExecuteComponentReplacementResultHandler>('EXECUTE_COMPONENT_REPLACEMENT_RESULT', {
-      ok: false,
-      operationId,
-      replacedCount: 0,
-      failedCount: request.instanceIds.length,
-      warningCount: 0,
-      message: error instanceof Error ? error.message : String(error),
-    });
-  }
-}
-
 export async function focusNodeOnCanvas(nodeId: string): Promise<void> {
   const node = await figma.getNodeByIdAsync(nodeId);
   if (node && 'type' in node) {
-    figma.currentPage.selection = [node as SceneNode];
+    // Deliberately does NOT change figma.currentPage.selection: the audit is
+    // anchored to the current selection, and re-pointing it here would discard
+    // the whole scan the user is reading.
     figma.viewport.scrollAndZoomIntoView([node as SceneNode]);
   }
 }
@@ -861,10 +677,13 @@ function collectVariableReferences(
         }
       }
 
-      // 5. Children
+      // 5. Children — same atomicity rule as the audit walk: never descend
+      // into a non-root instance's internals.
       if ('children' in node && Array.isArray(node.children)) {
-        for (const child of node.children) {
-          stack.push(child);
+        if (node.type !== 'INSTANCE' || node.id === root.id) {
+          for (const child of node.children) {
+            stack.push(child);
+          }
         }
       }
     } catch {
@@ -874,20 +693,16 @@ function collectVariableReferences(
 }
 
 async function readInferredVariable(
-  node: SceneNode,
+  inferredVariables: Record<string, unknown> | undefined,
   prop: string,
   variableMap: Map<string, Variable>,
   paintIndex?: number,
 ): Promise<{ id: string; name: string; key?: string } | undefined> {
   try {
-    if ('removed' in node && node.removed) {
+    if (!inferredVariables) {
       return undefined;
     }
-    if (!('inferredVariables' in node) || !node.inferredVariables) {
-      return undefined;
-    }
-    const map = node.inferredVariables as Record<string, unknown>;
-    const inferred = map[prop];
+    const inferred = inferredVariables[prop];
     if (!inferred) return undefined;
 
   let aliasId: string | undefined;
@@ -943,43 +758,109 @@ async function readInferredVariable(
   }
 }
 
-async function resolveComponentDescriptor(key: string): Promise<ComponentDescriptor | null> {
-  let comp: ComponentNode | null = null;
-  try {
-    comp = await figma.importComponentByKeyAsync(key);
-  } catch {
-    const found = await figma.getNodeByIdAsync(key);
-    if (found && found.type === 'COMPONENT') comp = found as ComponentNode;
-  }
-
-  if (!comp) return null;
-
-  const props: ComponentPropertyDescriptor[] = [];
-  const defs = comp.componentPropertyDefinitions || {};
-  for (const [name, def] of Object.entries(defs)) {
-    if (def.type === 'SLOT') continue;
-    props.push({
-      name,
-      type: def.type,
-      variantOptions: def.variantOptions,
-      defaultValue: def.defaultValue,
-    });
-  }
-
-  return {
-    key: comp.key || comp.id,
-    name: comp.name,
-    properties: props,
-  };
-}
-
 function getBoundPaintVariable(
-  node: SceneNode,
+  boundVariables: Record<string, VariableAlias | VariableAlias[]> | undefined,
   field: 'fills' | 'strokes',
   paintIndex: number,
 ): VariableAlias | undefined {
-  const aliases = node.boundVariables?.[field];
+  const aliases = boundVariables?.[field];
   return Array.isArray(aliases) ? aliases[paintIndex] : undefined;
+}
+
+/**
+ * Rank same-value token candidates and verify the top suggestions against the
+ * consuming node. Candidate values come from the audit root's variable-mode
+ * context; the per-issue `resolveForConsumer` check keeps a mode switch inside
+ * the selection from ever offering a token whose value on this node differs
+ * from the layer's raw value.
+ */
+async function rankAndVerifySuggestions(params: {
+  node: SceneNode;
+  property: TokenPropertyKind;
+  currentValue: string | number;
+  inferredVariable?: { id: string; name: string; key?: string };
+  availableTokens: TokenCandidateInput[];
+  nodeName?: string;
+  variableMap: Map<string, Variable>;
+}): Promise<{ suggestion?: TokenSuggestion; alternatives?: TokenSuggestion[] }> {
+  const { node, property, currentValue, inferredVariable, availableTokens, nodeName, variableMap } = params;
+  const ranked = rankTokenSuggestion({
+    property,
+    currentValue,
+    inferredVariable,
+    availableTokens,
+    nodeName,
+  });
+  const isExactMatch = ranked.suggestion?.source === 'exact-value'
+    || ranked.suggestion?.source === 'scope-match';
+  if (!ranked.suggestion || !isExactMatch) {
+    // Inferred matches were resolved by Figma for this exact node; near-value
+    // and name-match suggestions intentionally propose a different value and
+    // must not be re-verified against the layer's raw value.
+    return ranked;
+  }
+
+  const all = [ranked.suggestion, ...(ranked.alternatives ?? [])];
+  let verified: TokenSuggestion | undefined;
+  // Cap verification so a worst-case property still costs only a handful of
+  // bridge calls instead of one per library token.
+  for (const candidate of all.slice(0, 3)) {
+    const variable = variableMap.get(candidate.variableId);
+    if (!variable) continue;
+    try {
+      const resolved = variable.resolveForConsumer(node);
+      const value = normalizeResolvedTokenValue(resolved.value, resolved.resolvedType);
+      if (value !== undefined && isValueEqual(value, currentValue)) {
+        verified = candidate;
+        break;
+      }
+    } catch {
+      // A variable that cannot resolve for this consumer is not a safe suggestion.
+    }
+  }
+  if (!verified) {
+    // No token holds this value under the node's own mode context. Near/name
+    // alternatives remain valid (their values differ by design), so promote
+    // them instead of discarding the whole ranking.
+    const proximityAlternatives = all.filter(
+      (candidate) => candidate.source === 'near-value' || candidate.source === 'name-match',
+    );
+    if (proximityAlternatives.length > 0) {
+      return {
+        suggestion: proximityAlternatives[0],
+        alternatives: proximityAlternatives.length > 1 ? proximityAlternatives.slice(1) : undefined,
+      };
+    }
+    // Reporting no match is safer than a binding that would change the layer's appearance.
+    return {};
+  }
+  const alternatives = all.filter((candidate) => candidate.variableId !== verified!.variableId);
+  return {
+    suggestion: verified,
+    alternatives: alternatives.length > 0 ? alternatives : undefined,
+  };
+}
+
+async function fetchVariablesChunked(
+  variableIds: readonly string[],
+  variableMap: Map<string, Variable>,
+): Promise<void> {
+  const CHUNK_SIZE = 25;
+  for (let start = 0; start < variableIds.length; start += CHUNK_SIZE) {
+    const slice = variableIds.slice(start, start + CHUNK_SIZE);
+    const variables = await Promise.all(slice.map(async (id) => {
+      try {
+        return await figma.variables.getVariableByIdAsync(id);
+      } catch {
+        return null;
+      }
+    }));
+    for (const v of variables) {
+      if (v) {
+        variableMap.set(v.id, v);
+      }
+    }
+  }
 }
 
 function createTokenCandidatesForConsumer(

@@ -84,7 +84,7 @@ jsdom; plugin-side tests cover Figma API behavior with local test doubles.
 | `src/layout/` | Full selected-tree styled-components React generation, token-aware Figma CSS extraction, atomic component resolution, naming, per-request caches, and bounded traversal/concurrency. |
 | `src/sync-tokens/` | Pure serialization of Figma variable collections to CSS, JSON, Tailwind, Markdown, and Nested TypeScript. |
 | `src/documentation/` | Automated documentation frame generation, style sources, markdown docs, and in-place canvas reconciliation. |
-| `src/design-health/` | Pure token linting, confidence ranking, component compatibility planning, and replacement execution models. |
+| `src/design-health/` | Pure token linting, confidence ranking, audit summary models. |
 | `src/types.ts` | Shared messages, persisted schema, and domain types. |
 | `docs/` | Product and contributor documentation. |
 
@@ -146,7 +146,7 @@ change, update its section guide too:
 
 - [Section guide index](sections-index.md) and the seven `section-*.md` guides
   for module-level architecture and the rules each section enforces.
-- [Design Health — How It Works](section-design-health.md) for canvas auditing, token linting, auto-binding, and component replacement.
+- [Design Health — How It Works](section-design-health.md) for canvas auditing, token linting, auto-binding, and library health.
 
 When a user-facing mapping or maintenance behavior changes, update the relevant
 guide in the same change:
