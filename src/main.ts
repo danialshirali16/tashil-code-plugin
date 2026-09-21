@@ -1,6 +1,7 @@
 import { emit, on, showUI } from '@create-figma-plugin/utilities';
 import {
   type ApplyConnectionImportHandler,
+  type ApplyLibraryUpdatesHandler,
   type ApplyTokenBindingsHandler,
   type CancelDocGenerationHandler,
   type ClearConnectionHandler,
@@ -69,11 +70,13 @@ import {
   sendComponentTargetState,
 } from './main/connection-adapter';
 import {
+  applyLibraryUpdates,
   applyTokenBindings,
   focusNodeOnCanvas,
   scanDesignHealth,
 } from './main/design-health-adapter';
 import {
+  consumeProgrammaticSelectionMatch,
   sendSelectionState,
 } from './main/selection-adapter';
 
@@ -193,6 +196,10 @@ export default function (): void {
     void applyTokenBindings(payload.operationId, payload.bindings);
   });
 
+  on<ApplyLibraryUpdatesHandler>('APPLY_LIBRARY_UPDATES', (payload) => {
+    void applyLibraryUpdates(payload.operationId, payload.nodeIds);
+  });
+
   on<FocusNodeHandler>('FOCUS_NODE', (payload) => {
     void focusNodeOnCanvas(payload.nodeId);
   });
@@ -202,7 +209,10 @@ export default function (): void {
   });
 
   figma.on('selectionchange', () => {
-    runBestEffort(() => sendSelectionState('selectionchange'));
+    // Decided synchronously per event, before the async pipeline: a selection
+    // change caused by the FOCUS_NODE reveal must not rescan the audit.
+    const suppressDesignHealthRescan = consumeProgrammaticSelectionMatch();
+    runBestEffort(() => sendSelectionState('selectionchange', { suppressDesignHealthRescan }));
   });
 }
 

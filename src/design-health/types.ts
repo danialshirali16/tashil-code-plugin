@@ -74,12 +74,21 @@ export interface DeprecatedInstanceNotice {
   deprecationNotice: string;
 }
 
+export interface LibraryUpdateNotice {
+  nodeId: string;
+  instanceName: string;
+  componentName: string;
+}
+
 export interface LibraryHealthSummary {
   totalInstances: number;
   uniqueComponentsCount: number;
   deprecatedInstances: DeprecatedInstanceNotice[];
+  updateAvailableInstances: LibraryUpdateNotice[];
   remoteInstancesCount: number;
   localInstancesCount: number;
+  currentRemoteInstancesCount: number;
+  updateCheckFailuresCount: number;
 }
 
 export interface DesignHealthScanResult {

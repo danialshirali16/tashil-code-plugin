@@ -36,6 +36,7 @@ import type {
 type Handler = (payload: unknown) => void;
 
 const handlers = new Map<string, Set<Handler>>();
+const appliedLibraryUpdateNodeIds = new Set<string>();
 
 // The official Create Figma Plugin controls import these sentinel values from
 // the utilities package. The harness aliases that package to this module, so it
@@ -134,6 +135,57 @@ function send(name: string, payload: unknown): void {
   for (const handler of handlers.get(name) ?? []) {
     handler(payload);
   }
+}
+
+/**
+ * Transient harness-only acknowledgment for canvas-side actions: the real
+ * canvas reaction cannot happen in a browser, but the click must be
+ * observable for the visual gate. Deliberately does NOT synthesize
+ * INSPECT_CODE_STATE — that would bump the Design Health rescan sequence
+ * and diverge from production behavior.
+ */
+function notifyHarness(message: string): void {
+  const toast = document.createElement('div');
+  toast.textContent = message;
+  toast.setAttribute('role', 'status');
+  Object.assign(toast.style, {
+    background: 'var(--figma-color-bg, #ffffff)',
+    border: '1px solid var(--figma-color-border, #cccccc)',
+    borderRadius: '6px',
+    bottom: '24px',
+    boxShadow: '0 4px 12px rgba(0, 0, 0, 0.15)',
+    color: 'var(--figma-color-text, #333333)',
+    font: '11px Inter, sans-serif',
+    left: '50%',
+    padding: '8px 12px',
+    position: 'fixed',
+    transform: 'translateX(-50%)',
+    zIndex: '1000',
+  });
+  document.body.appendChild(toast);
+  window.setTimeout(() => toast.remove(), 2200);
+}
+
+/** Resolve a fixture node id to its display name so the ack reads like Figma would. */
+function harnessNodeName(nodeId: string | undefined): string {
+  if (!nodeId) {
+    return 'Unknown layer';
+  }
+  const result = designHealthScanResult('harness-lookup');
+  const issue = result.tokenAudit.issues.find((candidate) => candidate.nodeId === nodeId);
+  if (issue) {
+    return issue.nodeName;
+  }
+  const deprecated = result.libraryHealth.deprecatedInstances.find(
+    (candidate) => candidate.nodeId === nodeId,
+  );
+  if (deprecated) {
+    return deprecated.instanceName;
+  }
+  const update = result.libraryHealth.updateAvailableInstances.find(
+    (candidate) => candidate.nodeId === nodeId,
+  );
+  return update?.instanceName ?? nodeId;
 }
 
 // ---------------------------------------------------------------------------
@@ -441,6 +493,13 @@ function spacingIssue(
 }
 
 function designHealthScanResult(scanId: string): DesignHealthScanResult {
+  const updateAvailableInstances = [
+    {
+      componentName: 'Button',
+      instanceName: 'Primary action',
+      nodeId: 'inst-update-1',
+    },
+  ].filter((notice) => !appliedLibraryUpdateNodeIds.has(notice.nodeId));
   const issues: TokenPropertyIssue[] = [
     {
       bindingTarget: { field: 'fills', paintIndex: 0 },
@@ -514,6 +573,7 @@ function designHealthScanResult(scanId: string): DesignHealthScanResult {
   return {
     capReached: false,
     libraryHealth: {
+      currentRemoteInstancesCount: 3 - updateAvailableInstances.length,
       deprecatedInstances: [
         {
           componentName: 'LegacyIcon',
@@ -526,6 +586,8 @@ function designHealthScanResult(scanId: string): DesignHealthScanResult {
       remoteInstancesCount: 3,
       totalInstances: 5,
       uniqueComponentsCount: 2,
+      updateAvailableInstances,
+      updateCheckFailuresCount: 0,
     },
     nodesVisited: 214,
     scanId,
@@ -703,9 +765,29 @@ function respond(name: string, payload: unknown): void {
       });
       break;
     }
-    case 'FOCUS_NODE':
-      // Visual focus happens on the real canvas; nothing to do here.
+    case 'APPLY_LIBRARY_UPDATES': {
+      const updateRequest = (payload ?? {}) as { nodeIds?: string[]; operationId?: string };
+      const nodeIds = Array.from(new Set(updateRequest.nodeIds ?? []));
+      for (const nodeId of nodeIds) {
+        appliedLibraryUpdateNodeIds.add(nodeId);
+      }
+      send('APPLY_LIBRARY_UPDATES_RESULT', {
+        currentCount: 0,
+        failedCount: 0,
+        ok: true,
+        operationId: updateRequest.operationId,
+        updatedCount: nodeIds.length,
+        message: `Successfully updated ${nodeIds.length} library instances.`,
+      });
       break;
+    }
+    case 'FOCUS_NODE': {
+      // Selecting happens on the real canvas; acknowledge the reveal so the
+      // interaction is observable here.
+      const focusRequest = (payload ?? {}) as { nodeId?: string };
+      notifyHarness(`Would select “${harnessNodeName(focusRequest.nodeId)}” on canvas`);
+      break;
+    }
     case 'CLEAR_CONNECTION':
       send('SAVE_RESULT', {
         message: 'Connection cleared.',

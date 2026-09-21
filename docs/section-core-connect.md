@@ -1,7 +1,7 @@
 # Core Connect / Codegen — How It Works (Developer Guide)
 
 Status: Active
-Last updated: 2026-08-01
+Last updated: 2026-09-21
 Companion: [user guide](connect-component.md) · [prop mapping](prop-mapping.md) · [maintain](maintain-connections.md) · [Section guide index](sections-index.md)
 
 This is the connect-component pipeline that lives in the **`src/` root** (not
@@ -55,8 +55,8 @@ simple subset.
 | `src/views/InspectView.tsx` | Inspect Code view: React layout preview, CSS layout and style partitions, accessibility badges, and connected component snippets. |
 | `src/views/SyncTokensView.tsx` | Sync Tokens view: variable collection selection, mode toggles, format picker, unit/naming options, and token export diffs. |
 | `src/views/DocsView.tsx` | Documentation view: tokens/styles/components documentation frame generation, search filters, grouping depth selector, and in-place reconciliation. |
-| `src/views/DesignHealthView.tsx` | Design Health view: live token coverage score ring, unbound token suggestions with confidence badges, library statistics reporting, and library deprecation cards. |
-| `src/views/DesignHealthView.test.tsx` | Design Health view unit tests: badge synchronization, property filtering, and alternative token selection. |
+| `src/views/DesignHealthView.tsx` | Design Health view: live token coverage score ring, unbound token suggestions with confidence badges, library statistics, and actionable update/deprecation cards. |
+| `src/views/DesignHealthView.test.tsx` | Design Health view unit tests: badge synchronization, property filtering, alternative token selection, tri-state library reporting, and individual/batch update actions. |
 | `src/views/SettingsView.tsx` | Output settings view: modern Bento Grid layout for code formatting, styled-component naming presets, workspace preferences, real-time code preview, and clientStorage reset. |
 | `src/views/HowItWorksView.tsx` | How it works view: workflow guide, field glossary, and maintenance walkthrough. |
 | `src/components/common.tsx` | Reusable UI widgets: `CodeBlock`, `CopyButton`, `ConnectionReferencesPanel`, `AccessibilityBadges`, `Field`, and syntax highlighting. |

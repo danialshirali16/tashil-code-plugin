@@ -330,7 +330,9 @@
 }
 
 .health-issue-row:hover {
-  background: var(--figma-color-bg-hover);
+  /* bg-hover resolves to the same value as bg-secondary in the host theme —
+     bg-tertiary is the first visibly distinct hover step. */
+  background: var(--figma-color-bg-tertiary);
   border-color: var(--figma-color-border);
 }
 
@@ -392,7 +394,7 @@
 }
 
 .health-issue-row-nested:hover {
-  background: var(--figma-color-bg-pressed);
+  background: var(--figma-color-bg-tertiary);
   border-color: transparent;
 }
 
@@ -629,6 +631,11 @@
   padding: 8px 10px;
 }
 
+.health-update-card {
+  background: var(--figma-color-bg-brand-tertiary, #e5f4ff);
+  border-color: var(--figma-color-border-brand, #80caff);
+}
+
 .health-deprecated-info {
   display: grid;
   gap: 2px;
@@ -648,6 +655,13 @@
   word-break: break-word;
 }
 
+.health-update-notice {
+  color: var(--figma-color-text-brand);
+  font-size: 10px;
+  margin: 0;
+  word-break: break-word;
+}
+
 .health-deprecated-actions {
   align-items: center;
   display: flex;
@@ -661,4 +675,3 @@
   outline: 2px solid var(--figma-color-border-brand-strong, currentColor);
   outline-offset: 1px;
 }
-

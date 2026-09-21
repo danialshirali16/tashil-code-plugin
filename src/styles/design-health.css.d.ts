@@ -72,6 +72,8 @@ declare const styles: {
   readonly "health-tone-warning-bg": string;
   readonly "health-tone-warning-stroke": string;
   readonly "health-tone-warning-text": string;
+  readonly "health-update-card": string;
+  readonly "health-update-notice": string;
 };
 export = styles;
 

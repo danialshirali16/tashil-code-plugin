@@ -30,9 +30,10 @@ import { IconInteractionClickSmall48 } from '../ui-assets';
 
 export interface DesignHealthViewProps {
   scanResult: DesignHealthScanResult | null;
-  status: 'idle' | 'scanning' | 'scanned' | 'binding' | 'error';
+  status: 'idle' | 'scanning' | 'scanned' | 'binding' | 'updating-library' | 'error';
   message: string;
   onScan: () => void;
+  onApplyLibraryUpdates: (nodeIds: string[]) => void;
   onApplyTokenBindings: (bindings: TokenBindingRequest[]) => void;
   onFocusNode: (nodeId: string) => void;
 }
@@ -176,6 +177,8 @@ export function DesignHealthView(props: DesignHealthViewProps): h.JSX.Element {
 
   const isScanning = status === 'scanning';
   const isBinding = status === 'binding';
+  const isUpdatingLibrary = status === 'updating-library';
+  const isMutating = isBinding || isUpdatingLibrary;
 
   const allIssues = scanResult?.tokenAudit.issues ?? [];
 
@@ -246,10 +249,11 @@ export function DesignHealthView(props: DesignHealthViewProps): h.JSX.Element {
   const noMatchIssues = displayedIssues.filter((issue) => issue.isEditableHere && !issue.suggestion);
   const mainComponentIssues = displayedIssues.filter((issue) => !issue.isEditableHere);
 
-  // Coverage spans both tabs: token properties AND library findings
-  // (deprecated instances count as unresolved problems).
+  // Coverage spans both tabs: token properties AND library findings.
   const deprecatedCount = scanResult.libraryHealth.deprecatedInstances.length;
-  const healthTotal = tokenAudit.totalPropertiesScanned + deprecatedCount;
+  const updateAvailableCount = scanResult.libraryHealth.updateAvailableInstances.length;
+  const libraryFindingCount = deprecatedCount + updateAvailableCount;
+  const healthTotal = tokenAudit.totalPropertiesScanned + libraryFindingCount;
   const coveragePercent = healthTotal > 0
     ? Math.min(100, Math.max(0, Math.round((tokenAudit.boundPropertiesCount / healthTotal) * 100)))
     : 0;
@@ -259,9 +263,11 @@ export function DesignHealthView(props: DesignHealthViewProps): h.JSX.Element {
     ? 'Auditing…'
     : isBinding
       ? 'Binding tokens…'
-      : status === 'error'
-        ? 'Update failed — Retry'
-        : `Up to date · ${formatRelativeTime(scanResult.scannedAt, now)}`;
+      : isUpdatingLibrary
+        ? 'Updating library…'
+        : status === 'error'
+          ? 'Update failed — Retry'
+          : `Audited · ${formatRelativeTime(scanResult.scannedAt, now)}`;
 
   const handleChooseSuggestion = (
     issue: TokenPropertyIssue,
@@ -315,7 +321,8 @@ export function DesignHealthView(props: DesignHealthViewProps): h.JSX.Element {
           <button
             class="health-node-link"
             onClick={() => props.onFocusNode(issue.nodeId)}
-            title="Show on canvas — the audited selection stays unchanged"
+            aria-label={`Show ${issue.nodeName} on canvas — selects it; the audit stays unchanged`}
+            title={`Show ${issue.nodeName} on canvas — selects it; the audit stays unchanged`}
             type="button"
           >
             {issue.nodeName}
@@ -370,7 +377,7 @@ export function DesignHealthView(props: DesignHealthViewProps): h.JSX.Element {
     <div class="health-issue-action">
       {issue.isEditableHere && (effectiveSuggestions[issue.id] || issue.suggestion) ? (
         <Button
-          disabled={isBinding}
+          disabled={isMutating}
           onClick={() => handleBindSingle(issue)}
         >
           Bind
@@ -385,12 +392,13 @@ export function DesignHealthView(props: DesignHealthViewProps): h.JSX.Element {
   const renderIssueCluster = (cluster: IssueCluster): h.JSX.Element => (
     <div class="health-node-cluster" key={cluster.nodeId}>
       <div class="health-cluster-header">
-        <button
-          class="health-node-link"
-          onClick={() => props.onFocusNode(cluster.nodeId)}
-          title="Show on canvas — the audited selection stays unchanged"
-          type="button"
-        >
+          <button
+            class="health-node-link"
+            onClick={() => props.onFocusNode(cluster.nodeId)}
+            aria-label={`Show ${cluster.nodeName} on canvas — selects it; the audit stays unchanged`}
+            title={`Show ${cluster.nodeName} on canvas — selects it; the audit stays unchanged`}
+            type="button"
+          >
           {cluster.nodeName}
         </button>
         <span class="health-cluster-count">
@@ -416,7 +424,7 @@ export function DesignHealthView(props: DesignHealthViewProps): h.JSX.Element {
           <h1 class="health-heading" id="tashil-design-health-heading">Design Health</h1>
           <p class="health-header-description">
             Audit layer token coverage, batch-bind recommended tokens, and track
-            deprecated library instances.
+            library updates and deprecated instances.
           </p>
         </div>
         <div class="health-header-actions">
@@ -424,7 +432,7 @@ export function DesignHealthView(props: DesignHealthViewProps): h.JSX.Element {
             class={`health-status-text${status === 'error' ? ' health-status-text-error' : ''}`}
             role="status"
           >
-            {isScanning ? <LoadingIndicator /> : null}
+            {isScanning || isUpdatingLibrary ? <LoadingIndicator /> : null}
             {headerStatus}
           </span>
           <IconButton onClick={props.onScan} title="Re-audit selection">
@@ -512,7 +520,7 @@ export function DesignHealthView(props: DesignHealthViewProps): h.JSX.Element {
               children: (
                 <span class="health-tab-option">
                   <IconLibrary16 />
-                  <span>{withCount('Library', scanResult.libraryHealth.deprecatedInstances.length)}</span>
+                  <span>{withCount('Library', libraryFindingCount)}</span>
                 </span>
               ),
               value: 'library',
@@ -581,7 +589,7 @@ export function DesignHealthView(props: DesignHealthViewProps): h.JSX.Element {
                         <section aria-label="Ready to auto-fix" class="health-issue-group">
                           <div class="health-group-heading-row">
                             <h2 class="health-group-heading">Ready to auto-fix ({autoFixableIssues.length})</h2>
-                            <Button disabled={isBinding} onClick={handleBindAllHighConfidence}>
+                            <Button disabled={isMutating} onClick={handleBindAllHighConfidence}>
                               {isBinding
                                 ? 'Binding…'
                                 : propertyFilter === 'all'
@@ -646,11 +654,78 @@ export function DesignHealthView(props: DesignHealthViewProps): h.JSX.Element {
               <div class="health-stat-value">{scanResult.libraryHealth.localInstancesCount}</div>
               <div class="health-stat-label">Local</div>
             </div>
+            <div class="health-stat">
+              <div class="health-stat-value">{updateAvailableCount}</div>
+              <div class="health-stat-label">Updates available</div>
+            </div>
+            <div class="health-stat">
+              <div class="health-stat-value">{scanResult.libraryHealth.updateCheckFailuresCount}</div>
+              <div class="health-stat-label">Unchecked</div>
+            </div>
           </div>
+
+          {updateAvailableCount > 0 ? (
+            <div class="health-deprecated-list">
+              <div class="health-group-heading-row">
+                <h2
+                  aria-label={`Updates available (${updateAvailableCount})`}
+                  class="health-group-heading health-tone-warning-text"
+                >
+                  <IconRefresh16 />
+                  Updates available ({updateAvailableCount})
+                </h2>
+                <Button
+                  disabled={isMutating}
+                  onClick={() => props.onApplyLibraryUpdates(
+                    scanResult.libraryHealth.updateAvailableInstances.map((notice) => notice.nodeId),
+                  )}
+                >
+                  {isUpdatingLibrary ? 'Updating…' : 'Update all'}
+                </Button>
+              </div>
+              {scanResult.libraryHealth.updateAvailableInstances.map((notice) => (
+                <div class="health-deprecated-card health-update-card" key={notice.nodeId}>
+                  <div class="health-deprecated-info">
+                    <button
+                      class="health-node-link"
+                      onClick={() => props.onFocusNode(notice.nodeId)}
+                      aria-label={`Show ${notice.instanceName} on canvas — selects it; the audit stays unchanged`}
+                      title={`Show ${notice.instanceName} on canvas — selects it; the audit stays unchanged`}
+                      type="button"
+                    >
+                      {notice.instanceName}
+                    </button>
+                    <p class="health-deprecated-component">
+                      Component: <strong>{notice.componentName}</strong>
+                    </p>
+                    <p class="health-update-notice">A newer published library version is available.</p>
+                  </div>
+                  <div class="health-deprecated-actions">
+                    <Button
+                      disabled={isMutating}
+                      onClick={() => props.onApplyLibraryUpdates([notice.nodeId])}
+                    >
+                      Update
+                    </Button>
+                    <Button
+                      onClick={() => props.onFocusNode(notice.nodeId)}
+                      aria-label={`Show ${notice.instanceName} on canvas (selects it)`}
+                      secondary
+                    >
+                      Show on canvas
+                    </Button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : null}
 
           {scanResult.libraryHealth.deprecatedInstances.length > 0 ? (
             <div class="health-deprecated-list">
-              <h2 class="health-group-heading health-tone-warning-text">
+              <h2
+                aria-label={`Deprecated components (${scanResult.libraryHealth.deprecatedInstances.length})`}
+                class="health-group-heading health-tone-warning-text"
+              >
                 <IconWarningSmall24 />
                 Deprecated components ({scanResult.libraryHealth.deprecatedInstances.length})
               </h2>
@@ -660,7 +735,8 @@ export function DesignHealthView(props: DesignHealthViewProps): h.JSX.Element {
                     <button
                       class="health-node-link"
                       onClick={() => props.onFocusNode(notice.nodeId)}
-                      title="Show on canvas — the audited selection stays unchanged"
+                      aria-label={`Show ${notice.instanceName} on canvas — selects it; the audit stays unchanged`}
+                      title={`Show ${notice.instanceName} on canvas — selects it; the audit stays unchanged`}
                       type="button"
                     >
                       {notice.instanceName}
@@ -671,22 +747,40 @@ export function DesignHealthView(props: DesignHealthViewProps): h.JSX.Element {
                     <p class="health-deprecated-notice">{notice.deprecationNotice}</p>
                   </div>
                   <div class="health-deprecated-actions">
-                    <Button onClick={() => props.onFocusNode(notice.nodeId)} secondary>
-                      Focus
+                    <Button
+                      onClick={() => props.onFocusNode(notice.nodeId)}
+                      aria-label={`Show ${notice.instanceName} on canvas (selects it)`}
+                      secondary
+                    >
+                      Show on canvas
                     </Button>
                   </div>
                 </div>
               ))}
             </div>
-          ) : (
+          ) : null}
+
+          {libraryFindingCount === 0 ? (
             <div class="health-empty-note">
-              <h3 class="health-empty-heading">No deprecated components</h3>
-              <p>
-                No deprecation markers were found. Native library update availability is not exposed
-                by Figma's public plugin API.
-              </p>
+              <h3 class="health-empty-heading">
+                {scanResult.libraryHealth.totalInstances === 0
+                  ? 'No component instances'
+                  : scanResult.libraryHealth.updateCheckFailuresCount > 0
+                    ? 'Library check incomplete'
+                    : 'Library components are current'}
+              </h3>
+              {scanResult.libraryHealth.totalInstances === 0 ? (
+                <p>No component instances were found in this selection.</p>
+              ) : scanResult.libraryHealth.updateCheckFailuresCount > 0 ? (
+                <p>
+                  {scanResult.libraryHealth.updateCheckFailuresCount} instance(s) could not be checked.
+                  No confirmed updates or deprecation markers were found.
+                </p>
+              ) : (
+                <p>No newer remote component versions or deprecation markers were found.</p>
+              )}
             </div>
-          )}
+          ) : null}
         </section>
       ) : null}
     </main>

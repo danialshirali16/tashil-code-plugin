@@ -1,11 +1,11 @@
 # Design Health — How It Works (Developer Guide)
 
 Status: Active  
-Last updated: 2026-09-19  
+Last updated: 2026-09-21
 See also: [Section guide index](sections-index.md) · [Figma Editor Modes](section-editor-modes.md)
 
 Design Health provides frame-level design-token auditing, one-click token
-binding, and library deprecation inspection in Figma Design mode.
+binding, and library update/deprecation inspection in Figma Design mode.
 
 ---
 
@@ -36,22 +36,26 @@ Backend (src/main/design-health-adapter.ts)
    │     node/variable pair resolves once; at most 3 new candidates per
    │     issue); values
    │     without an exact token get near-value/name-ranked suggestions
-   │  3. Resolves instance main components in cancellable parallel chunks
+   │  3. Resolves instance main components, then loads the latest published
+   │     remote component once per unique key in cancellable parallel chunks
    │  4. Evaluates the retained snapshots with isolated node try/catch:
    │     individual fills/strokes, radius, gap, each padding
    │     edge, and opacity (one bridge read per property group per node), then
-   │     detects library deprecation tags and counts instance statistics
+   │     detects available library updates and deprecation tags, and counts
+   │     instance statistics; failed update checks remain explicitly unknown
    │  5. Emits scan honesty fields: nodesVisited, capReached, selectionCount
    │  emit SCAN_DESIGN_HEALTH_RESULT (monotonic scanId drops stale refreshes)
    ▼
 UI View (src/views/DesignHealthView.tsx)
    │  ├── Tokens tab: coverage meter, three groups (Ready to auto-fix /
    │  │   Review suggestions / No token match), per-row token Dropdown
-   │  └── Library tab: instance stats + deprecated cards with canvas focus
+   │  └── Library tab: instance stats + update/deprecation cards with canvas focus
    ▼
 User triggers Action:
-   └── Bind: APPLY_TOKEN_BINDINGS → setBoundVariableForPaint /
-       setBoundVariable (exact field/paintIndex) → commitUndo() when ≥1 bound
+   ├── Bind: APPLY_TOKEN_BINDINGS → setBoundVariableForPaint /
+   │   setBoundVariable (exact field/paintIndex) → commitUndo() when ≥1 bound
+   └── Update: APPLY_LIBRARY_UPDATES → reload latest component by key →
+       instance.swapComponent(latest) → commitUndo() once when ≥1 updated
 ```
 
 ---
@@ -60,15 +64,15 @@ User triggers Action:
 
 | File | Role |
 | --- | --- |
-| `src/design-health/types.ts` | **Pure domain model.** Zero `@figma/plugin-typings` imports. Defines `TokenPropertyIssue`, `TokenAuditSummary` (with `audited`), `TokenSuggestion`, `DeprecatedInstanceNotice`, and `DesignHealthScanResult` (with `nodesVisited`/`capReached`/`selectionCount`). |
+| `src/design-health/types.ts` | **Pure domain model.** Zero `@figma/plugin-typings` imports. Defines `TokenPropertyIssue`, `TokenAuditSummary` (with `audited`), `TokenSuggestion`, `DeprecatedInstanceNotice`, `LibraryUpdateNotice`, and `DesignHealthScanResult` (with `nodesVisited`/`capReached`/`selectionCount`). |
 | `src/design-health/token-audit.ts` | **Pure token linting and ranking.** Compares raw layer values against available design tokens. Scores suggestions into High, Medium, and Low confidence based on inferred variable, exact value match, and property scope matching; when no token holds the value, falls back to nearest-value (scale step / shade distance / RGB-equal-alpha) and layer-name-affinity suggestions that are decision-only. `calculateTokenAuditSummary` reports `audited: false` (and 0% — never 100%) when nothing was scanned. |
 | `src/design-health/token-audit.test.ts` | Unit tests for pure token ranking, scope matching, confidence classification, and summary honesty. |
-| `src/main/design-health-adapter.ts` | **The Figma runtime adapter.** The only place in this feature that interacts with the Figma Plugin API: walks nodes defensively (instances stay atomic — no descent into non-root instance internals), reads bound and inferred variables, resolves token candidates once per audit into a value index and verifies each suggestion for its consuming node, applies variable bindings to exact field/paint targets, and commits undo steps. `focusNodeOnCanvas` scrolls/zooms **without changing the selection**. |
+| `src/main/design-health-adapter.ts` | **The Figma runtime adapter.** The only place in this feature that interacts with the Figma Plugin API: walks nodes defensively (instances stay atomic — no descent into non-root instance internals), reads bound and inferred variables, resolves token candidates once per audit into a value index and verifies each suggestion for its consuming node, applies variable bindings to exact field/paint targets, swaps update-available remote instances to their latest imported component, and commits undo steps. `focusNodeOnCanvas` selects the node and scrolls/zooms to it; the programmatic `selectionchange` it fires is consumed exactly once and never rescans. |
 | `src/views/DesignHealthView.tsx` | **Preact UI view.** Built from `@create-figma-plugin/ui` primitives (`main`/`h1` document structure, `SegmentedControl`, `Banner`, `Dropdown`, `Checkbox`, official icons). Hosts the coverage meter, token groups, and library health. |
 | `src/views/DesignHealthView.test.tsx` | UI component tests: honest empty states, binding payloads, clustering, scope accounting, and deprecation cards. |
 | `src/styles/design-health.css` | Stylesheet for the view. Colors only through `var(--figma-color-*)` tokens (hex solely as `var()` fallback). No keyframes. |
-| `src/ui-controller.ts` | State machine and message orchestrator: `designHealthScanResult`, `designHealthStatus`, `designHealthMessage`, selection/document-change sequences, and the binding dispatcher. |
-| `src/types.ts` | Message contracts: `SCAN_DESIGN_HEALTH`, `APPLY_TOKEN_BINDINGS`, `FOCUS_NODE`, `DESIGN_HEALTH_DOCUMENT_CHANGED`. |
+| `src/ui-controller.ts` | State machine and message orchestrator: `designHealthScanResult`, `designHealthStatus`, `designHealthMessage`, selection/document-change sequences, token-binding/library-update dispatchers, and post-mutation rescans. |
+| `src/types.ts` | Message contracts: `SCAN_DESIGN_HEALTH`, `APPLY_TOKEN_BINDINGS`, `APPLY_LIBRARY_UPDATES`, `FOCUS_NODE`, `DESIGN_HEALTH_DOCUMENT_CHANGED`. |
 
 ---
 
@@ -199,10 +203,16 @@ document-access restrictions:
   `capReached` so the UI can label a partial audit instead of presenting it
   as complete.
 - **Protected calls:** instance `getMainComponentAsync()` lookups are
-  deduplicated by node ID and run in parallel chunks of 25. Each lookup is
-  wrapped in `try…catch`, so one unavailable component cannot block the other
-  instance statistics or the token audit. Results are consumed later in
-  traversal order, keeping deprecated-instance output deterministic.
+  deduplicated by node ID and run in parallel chunks of 25. Remote main
+  components are then deduplicated by component key and checked through
+  `figma.importComponentByKeyAsync()` in the same bounded chunks. The imported
+  latest component ID is compared with the instance's current main-component
+  ID; a difference means an update is available. Figma exposes no explicit
+  instance-update flag, so this feature deliberately uses that ID comparison
+  after the public loading call. The call may materialize the latest published
+  component in the file. Every lookup is wrapped in `try…catch`; failures are
+  counted as **Unchecked**, never as current. Results are consumed later in
+  traversal order, keeping update and deprecated-instance output deterministic.
 - **Stale scan cancellation:** every scan carries a monotonic `scanId`; stale
   completions are discarded, including between variable, collection, and
   main-component fetch chunks. The backend never overlaps full scan pipelines:
@@ -220,11 +230,32 @@ document-access restrictions:
   bounded chunks of 25; requests are then applied in their original order.
   Each request is isolated, partial failures are counted, and
   `figma.commitUndo()` is called only when at least one binding changed.
-- `focusNodeOnCanvas`: scrolls and zooms to a node **without re-pointing
-  `figma.currentPage.selection`**. The audit is anchored to the user's
-  selection; "focus" must not silently replace the audit subject with a child
-  layer (focus clicks used to trigger a rescan of the clicked child,
-  discarding the parent's audit the user was reading).
+- `applyLibraryUpdates`: accepts the selected update-card node IDs, resolves
+  each still-existing instance and its remote main component with async APIs,
+  deduplicates keys, and imports the latest published component once per key.
+  It revalidates the component ID at mutation time (the scan may already be
+  stale), skips already-current instances, and calls
+  `instance.swapComponent(latest)`. Figma preserves compatible instance
+  overrides during this swap; overrides whose properties no longer exist in
+  the published component cannot be preserved. Each instance is isolated, so
+  one missing/inaccessible target does not abort the batch. The result reports
+  updated, already-current, and failed counts; the UI then rescans the original
+  audit root while preserving that result message. All successful swaps share
+  one `figma.commitUndo()` checkpoint, and an all-current/all-failed request
+  creates no empty undo entry.
+- `focusNodeOnCanvas`: sets `figma.currentPage.selection = [node]` then
+  `scrollAndZoomIntoView`, so Figma's own selection chrome identifies the layer
+  in both themes. The audit stays anchored to the scan root: the
+  `selectionchange` fired by this programmatic selection is consumed exactly
+  once (identity-keyed suppression in `selection-adapter.ts`: arm the node id
+  before the assignment, consume on any event, suppress only when the event's
+  selection matches; a no-op assignment — target already sole selection —
+  skips arming entirely). The verdict rides the `INSPECT_CODE_STATE` message
+  as `suppressDesignHealthRescan: true` (on both the success and the error
+  emit paths), and `ui-controller` skips only the rescan sequence bump.
+  Findings inside instances deep-select the flagged node inside the instance —
+  the link reveals the row's own layer, never its main component
+  (main-component navigation is a separate, future action).
 
 ---
 
@@ -235,8 +266,8 @@ Built strictly from `@create-figma-plugin/ui` inside a
 for empty/loading/error states):
 
 1. **Header:** node name + type badge as the subject, and a truthful status
-   line (`Auditing…` / `Binding tokens…` /
-   `Up to date · relative time` / `Update failed — Retry`). There is no
+   line (`Auditing…` / `Binding tokens…` / `Updating library…` /
+   `Audited · relative time` / `Update failed — Retry`). There is no
    always-green "Auto-Audited" indicator.
 2. **Honesty banners:** `Banner variant="warning"` for partial audits
    (800-node cap) and multi-selection; scan errors render through the
@@ -244,8 +275,8 @@ for empty/loading/error states):
 3. **Sub-navigation:** `SegmentedControl` (Tokens / Library), each label
    carrying a related library icon. Each tab's count is plain text in the
    option in the "Name (N)" format and has one fixed meaning: unbound issues
-   in the selection, deprecated instances. Counts never change color to imply
-   severity.
+   in the selection, confirmed library findings (updates plus deprecated
+   instances). Counts never change color to imply severity.
 4. **Tokens tab:** a centered `role="meter"` coverage ring (72px circle, percentage
    centered inside; "X of Y properties bound" caption below; graded tone — success ≥80%, neutral ≥50%, warning ≥25%, danger
    below — so a decent score never renders as a failure), a property
@@ -264,11 +295,14 @@ for empty/loading/error states):
    audit* (nothing scanned), *All properties bound* (only when every scanned
    property really is bound), and *No issues match the current filter* with a
    **Clear filter** action.
-5. **Library tab:** instance composition stats in an auto-fit grid, and
-   deprecated cards whose actions are canvas **Focus**. The empty state
-   states plainly that Figma's plugin API does not expose native
-   library update availability, so the tab must not claim that unmarked
-   instances are up to date.
+5. **Library tab:** instance composition and update-check stats in an auto-fit
+   grid, followed by update-available and deprecated cards whose node link and
+   **Show on canvas** action both reveal the instance by selecting it on the
+   canvas. Each update card has an explicit **Update** action and the group
+   header has **Update all**; both are disabled while any Design Health
+   mutation is active. A clean state renders only when every relevant lookup
+   succeeded; otherwise the empty state says the check is incomplete and
+   reports the **Unchecked** instance count.
 
 ---
 
@@ -286,9 +320,10 @@ for empty/loading/error states):
    never pay that load.
 2. **Cancellable scans with monotonic `scanId`:** any new scan supersedes
    older pending scans and suppresses stale emits across async bounds.
-3. **Commit undo after mutation:** the binding batch calls
-   `figma.commitUndo()` only after at least one binding succeeds, preserving
-   a clean single-step rollback without creating empty history entries.
+3. **Commit undo after mutation:** token-binding and library-update batches
+   call `figma.commitUndo()` exactly once, only after at least one requested
+   mutation succeeds. Each action therefore has a clean single-step rollback
+   and creates no empty history entry.
 4. **Audit honesty:** no success/100% state renders unless
    `unboundPropertiesCount === 0` with a non-empty, uncapped scan; partial
    audits and multi-selections are labeled; every enum status value has a
@@ -301,15 +336,23 @@ for empty/loading/error states):
 6. **Rescans preserve user state:** a rescan invalidates only what its
    changed data actually refers to. Chosen tokens survive while their issue
    exists and the property filter persists across scans.
-5. **Focus ≠ selection:** focusing a layer never changes
-   `figma.currentPage.selection`, so the audited subject stays stable.
-7. **Instances are out of editing scope:** the scan flags findings inside a
+7. **Programmatic focus-selection never rescans:** clicking a finding's node
+   link (or a deprecated card's reveal action) selects the node and scrolls it
+   into view. Exactly the `selectionchange` caused by that programmatic
+   selection is suppressed (consume-once, keyed to the selected node id),
+   so the audit subject changes only on user-initiated selection. The link
+   must never scroll without selecting — an unmarked viewport move reads as a
+   broken click. Keyboard focus stays on the clicked button: no rescan means
+   no list re-render under the pointer/focus. After a reveal, later rescans
+   (tab re-entry, document change) anchor on the revealed node — the user
+   selected it, so auditing it is correct.
+8. **Instances are out of editing scope:** the scan flags findings inside a
    non-root component instance `isEditableHere: false` ("Fix in the main
    component") and never binds them from the panel — binding there would
    create a local override on the instance instead of fixing the main
    component, and overrides vanish on the next library update or instance
    reset. Batch bind respects the flag unconditionally.
-8. **Consumer-mode token resolution:** candidate values are resolved once for
+9. **Consumer-mode token resolution:** candidate values are resolved once for
    the audit root with `Variable.resolveForConsumer`; every exact-match
    suggestion is then verified against its actual consuming node (max 3 new
    candidates per issue). Results are cached per `(SceneNode, Variable)` for
@@ -317,12 +360,21 @@ for empty/loading/error states):
    properties never repeat the same resolution.
    Near-value and name-match suggestions are exempt (their values differ from
    the raw value by design) and are decision-only — never auto-bound.
-9. **Precise binding targets:** findings and mutation requests retain paint
-   indices and individual padding edges; applying one suggestion must not
-   overwrite sibling paints or asymmetric spacing.
+10. **Precise binding targets:** findings and mutation requests retain paint
+    indices and individual padding edges; applying one suggestion must not
+    overwrite sibling paints or asymmetric spacing.
 11. **Resilient node traversal:** isolated node errors (e.g., inaccessible
     remote components, removed layers) are gracefully trapped without
     crashing the scan.
+12. **Library status is tri-state:** a remote instance is current only when
+    loading its latest published component succeeds and returns the same node
+    ID. A different ID is update-available; a failed main-component/latest
+    lookup is unchecked. Unknown must never collapse into current.
+13. **Library updates are explicit and revalidated:** scanning may load the
+    latest component for comparison, but never swaps an instance. A swap runs
+    only after **Update** or **Update all**, repeats async resolution/import at
+    action time, accepts remote instances only, reports partial failures, and
+    rescans the same audit root after any successful update.
 
 ---
 
@@ -368,6 +420,10 @@ for empty/loading/error states):
   the collapsed "No token match" group) — a light-theme Tokens-only capture
   is not a complete gate; that gap is how a fully-rendered-in-tests sub-tab
   bar shipped invisible in dark Figma while every jsdom test stayed green.
+  In the harness, FOCUS_NODE renders a transient "Would select … on canvas"
+  acknowledgment (never a synthetic `INSPECT_CODE_STATE`, which would bump
+  the rescan sequence); the actual canvas selection/scroll it stands in for
+  is only verifiable in real Figma.
 
 ## Layout invariants of this view
 

@@ -64,6 +64,15 @@ const mockScanResult: DesignHealthScanResult = {
     uniqueComponentsCount: 2,
     remoteInstancesCount: 4,
     localInstancesCount: 1,
+    currentRemoteInstancesCount: 3,
+    updateCheckFailuresCount: 0,
+    updateAvailableInstances: [
+      {
+        nodeId: 'inst-update-1',
+        instanceName: 'Checkout Button',
+        componentName: 'Button',
+      },
+    ],
     deprecatedInstances: [
       {
         nodeId: 'inst-dep-1',
@@ -86,6 +95,7 @@ function createProps(
     status: 'idle',
     message: '',
     onScan: vi.fn(),
+    onApplyLibraryUpdates: vi.fn(),
     onApplyTokenBindings: vi.fn(),
     onFocusNode: vi.fn(),
     ...overrides,
@@ -131,11 +141,11 @@ describe('DesignHealthView', () => {
 
     expect(screen.getByRole('heading', { name: 'Design Health' })).toBeTruthy();
     expect(screen.getByText(/Audit layer token coverage, batch-bind recommended tokens/)).toBeTruthy();
-    expect(screen.getByText(/Up to date/)).toBeTruthy();
+    expect(screen.getByText(/Audited/)).toBeTruthy();
     expect(screen.queryByText('Auto-Audited')).toBeNull();
-    expect(screen.getByText('8 of 11 items bound')).toBeTruthy();
+    expect(screen.getByText('8 of 12 items bound')).toBeTruthy();
     const meter = document.querySelector('[role="meter"]');
-    expect(meter?.getAttribute('aria-valuetext')).toBe('73 percent — 8 of 11 items bound');
+    expect(meter?.getAttribute('aria-valuetext')).toBe('67 percent — 8 of 12 items bound');
   });
 
   it('warns about partial audits and multi-selection instead of hiding them', () => {
@@ -385,11 +395,11 @@ describe('DesignHealthView', () => {
     ]);
   });
 
-  it('focuses a node without changing the audited subject', () => {
+  it('reveals a node by selecting it without changing the audited subject', () => {
     const onFocusNode = vi.fn();
     renderView({ scanResult: mockScanResult, status: 'scanned', onFocusNode });
 
-    fireEvent.click(screen.getByRole('button', { name: 'Submit Button' }));
+    fireEvent.click(screen.getByRole('button', { name: /^Show Submit Button on canvas/ }));
 
     expect(onFocusNode).toHaveBeenCalledWith('12:35');
   });
@@ -451,7 +461,7 @@ describe('DesignHealthView', () => {
     expect(screen.queryByText('No issues match the current filter')).toBeNull();
   });
 
-  it('surfaces deprecated components with canvas focus', () => {
+  it('surfaces deprecated components with a show-on-canvas action', () => {
     const onFocusNode = vi.fn();
     renderView({
       scanResult: mockScanResult,
@@ -464,23 +474,103 @@ describe('DesignHealthView', () => {
     expect(screen.getByText('Deprecated components (1)')).toBeTruthy();
     expect(screen.getByText('Use TashilIcon instead')).toBeTruthy();
 
-    fireEvent.click(screen.getByRole('button', { name: 'Focus' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Show Old Icon on canvas (selects it)' }));
     expect(onFocusNode).toHaveBeenCalledWith('inst-dep-1');
   });
 
-  it('does not claim library updates are available when no marker exists', () => {
+  it('surfaces instances with a newer published library component', () => {
+    const onFocusNode = vi.fn();
+    const onApplyLibraryUpdates = vi.fn();
+    renderView({
+      scanResult: mockScanResult,
+      status: 'scanned',
+      onFocusNode,
+      onApplyLibraryUpdates,
+    });
+
+    fireEvent.click(screen.getByRole('radio', { name: /^Library/ }));
+
+    expect(screen.getByText('Updates available (1)')).toBeTruthy();
+    expect(screen.getByText('A newer published library version is available.')).toBeTruthy();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Update' }));
+    expect(onApplyLibraryUpdates).toHaveBeenCalledWith(['inst-update-1']);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Show Checkout Button on canvas (selects it)' }));
+    expect(onFocusNode).toHaveBeenCalledWith('inst-update-1');
+  });
+
+  it('updates every confirmed outdated instance as one batch', () => {
+    const onApplyLibraryUpdates = vi.fn();
+    renderView({
+      scanResult: {
+        ...mockScanResult,
+        libraryHealth: {
+          ...mockScanResult.libraryHealth,
+          updateAvailableInstances: [
+            ...mockScanResult.libraryHealth.updateAvailableInstances,
+            {
+              nodeId: 'inst-update-2',
+              instanceName: 'Secondary Button',
+              componentName: 'Button',
+            },
+          ],
+        },
+      },
+      status: 'scanned',
+      onApplyLibraryUpdates,
+    });
+
+    fireEvent.click(screen.getByRole('radio', { name: /^Library/ }));
+    fireEvent.click(screen.getByRole('button', { name: 'Update all' }));
+
+    expect(onApplyLibraryUpdates).toHaveBeenCalledWith(['inst-update-1', 'inst-update-2']);
+  });
+
+  it('disables library update actions while an update is running', () => {
+    renderView({ scanResult: mockScanResult, status: 'updating-library' });
+
+    fireEvent.click(screen.getByRole('radio', { name: /^Library/ }));
+
+    expect(screen.getByText('Updating library…')).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Updating…' }).hasAttribute('disabled')).toBe(true);
+    expect(screen.getByRole('button', { name: 'Update' }).hasAttribute('disabled')).toBe(true);
+  });
+
+  it('reports a clean library only when every update check succeeded', () => {
     renderView({
       scanResult: {
         ...mockScanResult,
         libraryHealth: {
           ...mockScanResult.libraryHealth,
           deprecatedInstances: [],
+          updateAvailableInstances: [],
         },
       },
       status: 'scanned',
     });
 
     fireEvent.click(screen.getByRole('radio', { name: /^Library/ }));
-    expect(screen.getByText(/Native library update availability is not exposed/)).toBeTruthy();
+    expect(screen.getByText('Library components are current')).toBeTruthy();
+    expect(screen.getByText(/No newer remote component versions/)).toBeTruthy();
+  });
+
+  it('keeps failed update checks explicitly unknown', () => {
+    renderView({
+      scanResult: {
+        ...mockScanResult,
+        libraryHealth: {
+          ...mockScanResult.libraryHealth,
+          deprecatedInstances: [],
+          updateAvailableInstances: [],
+          updateCheckFailuresCount: 2,
+        },
+      },
+      status: 'scanned',
+    });
+
+    fireEvent.click(screen.getByRole('radio', { name: /^Library/ }));
+    expect(screen.getByText('Library check incomplete')).toBeTruthy();
+    expect(screen.getByText(/2 instance\(s\) could not be checked/)).toBeTruthy();
   });
 });

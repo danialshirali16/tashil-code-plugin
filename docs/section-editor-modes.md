@@ -1,7 +1,7 @@
 # Figma Editor Modes — Design vs Dev Mode (Developer Guide)
 
 Status: Active
-Last updated: 2026-07-31
+Last updated: 2026-09-21
 See also: [Section guide index](sections-index.md)
 
 Tashil Code is one plugin registered for **both** Figma editor surfaces.
@@ -80,7 +80,7 @@ window (`src/ui.tsx`) is where design-system owners:
   for teammates without a Dev Mode seat ([inspect section](section-inspect.md)),
 - export Figma Variables to CSS via **Sync Tokens** ([sync-tokens section](section-sync-tokens.md)),
 - generate and reconcile design system documentation frames ([documentation section](section-documentation.md)),
-- audit canvas selection, lint unbound tokens, track deprecated instances, and batch-bind tokens via **Design Health** ([design-health section](section-design-health.md)).
+- audit canvas selection, lint unbound tokens, detect and apply remote component updates, track deprecated instances, and batch-bind tokens via **Design Health** ([design-health section](section-design-health.md)).
 
 All connection persistence (`setSharedPluginData` under `tashil_storybook`) and
 all mutation messages (`SAVE_CONNECTION`, `CLEAR_CONNECTION`,

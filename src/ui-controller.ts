@@ -128,6 +128,8 @@ import {
   type GenerateComponentDocsHandler,
   type GenerateComponentDocsResultHandler,
   type DocGenerationProgressHandler,
+  type ApplyLibraryUpdatesHandler,
+  type ApplyLibraryUpdatesResultHandler,
   type ApplyTokenBindingsHandler,
   type ApplyTokenBindingsResultHandler,
   type DesignHealthDocumentChangedHandler,
@@ -280,7 +282,7 @@ export type ConnectionController = {
   generateComponentDocs: (targetToken: string, targetFormat?: 'canvas' | 'markdown') => void;
   generateStyleDocs: (styleKind: DocStyleKind, tokenGroupingDepth?: TokenGroupingDepth) => void;
   designHealthScanResult: DesignHealthScanResult | null;
-  designHealthStatus: 'idle' | 'scanning' | 'scanned' | 'binding' | 'error';
+  designHealthStatus: 'idle' | 'scanning' | 'scanned' | 'binding' | 'updating-library' | 'error';
   designHealthMessage: string;
   /** Increments on every selection-state push from the plugin main thread. */
   designHealthSelectionSequence: number;
@@ -288,6 +290,7 @@ export type ConnectionController = {
   designHealthDocumentChangedSeq: number;
   runDesignHealthScan: (targetNodeId?: string, preserveMessage?: boolean) => void;
   applyTokenBindings: (bindings: TokenBindingRequest[]) => void;
+  applyLibraryUpdates: (nodeIds: string[]) => void;
   focusNode: (nodeId: string) => void;
 };
 
@@ -379,7 +382,9 @@ export function useConnectionController(): ConnectionController {
 
   // --- Design Health state ---
   const [designHealthScanResult, setDesignHealthScanResult] = useState<DesignHealthScanResult | null>(null);
-  const [designHealthStatus, setDesignHealthStatus] = useState<'idle' | 'scanning' | 'scanned' | 'binding' | 'error'>('idle');
+  const [designHealthStatus, setDesignHealthStatus] = useState<
+    'idle' | 'scanning' | 'scanned' | 'binding' | 'updating-library' | 'error'
+  >('idle');
   const [designHealthMessage, setDesignHealthMessage] = useState<string>('');
   const [designHealthSelectionSequence, setDesignHealthSelectionSequence] = useState(0);
   const [designHealthDocumentChangedSeq, setDesignHealthDocumentChangedSeq] = useState(0);
@@ -489,8 +494,11 @@ export function useConnectionController(): ConnectionController {
     const offInspectCodeState = on<InspectCodeStateHandler>('INSPECT_CODE_STATE', (state) => {
       setInspectCodeState(state);
       // Explicit subscription signal for the Design Health tab: rescan on
-      // selection change instead of piggybacking on inspectCodeState updates.
-      setDesignHealthSelectionSequence((sequence) => sequence + 1);
+      // selection change instead of piggybacking on inspectCodeState updates —
+      // but never on the FOCUS_NODE reveal selection, whose message says so.
+      if (!state.suppressDesignHealthRescan) {
+        setDesignHealthSelectionSequence((sequence) => sequence + 1);
+      }
     });
 
     const offScaffoldResult = on<ScaffoldResultHandler>('SCAFFOLD_RESULT', (result) => {
@@ -654,6 +662,22 @@ export function useConnectionController(): ConnectionController {
       }
     });
 
+    const offLibraryUpdates = on<ApplyLibraryUpdatesResultHandler>('APPLY_LIBRARY_UPDATES_RESULT', (result) => {
+      if (result.operationId !== currentDesignHealthMutationIdRef.current) return;
+      const mutationMessage = result.message
+        || `Updated ${result.updatedCount} library instances.`;
+      if (result.updatedCount > 0 && designHealthTargetNodeIdRef.current) {
+        designHealthPostScanMessageRef.current = mutationMessage;
+        runDesignHealthScan(designHealthTargetNodeIdRef.current, true);
+      } else if (result.ok) {
+        setDesignHealthStatus('scanned');
+        setDesignHealthMessage(mutationMessage);
+      } else {
+        setDesignHealthStatus('error');
+        setDesignHealthMessage(mutationMessage);
+      }
+    });
+
     const offDesignHealthDocumentChanged = on<DesignHealthDocumentChangedHandler>('DESIGN_HEALTH_DOCUMENT_CHANGED', () => {
       setDesignHealthDocumentChangedSeq((sequence) => sequence + 1);
     });
@@ -689,6 +713,7 @@ export function useConnectionController(): ConnectionController {
       offStyleDocsResult();
       offDesignHealthScan();
       offTokenBindings();
+      offLibraryUpdates();
       offDesignHealthDocumentChanged();
     };
   }, []);
@@ -1852,6 +1877,14 @@ export function useConnectionController(): ConnectionController {
     emit<ApplyTokenBindingsHandler>('APPLY_TOKEN_BINDINGS', { operationId, bindings });
   };
 
+  const applyLibraryUpdatesAction = (nodeIds: string[]): void => {
+    const operationId = `update-library-${++designHealthMutationSequenceRef.current}`;
+    currentDesignHealthMutationIdRef.current = operationId;
+    setDesignHealthStatus('updating-library');
+    setDesignHealthMessage(`Updating ${nodeIds.length} library instances...`);
+    emit<ApplyLibraryUpdatesHandler>('APPLY_LIBRARY_UPDATES', { operationId, nodeIds });
+  };
+
   const focusNodeAction = (nodeId: string): void => {
     emit<FocusNodeHandler>('FOCUS_NODE', { nodeId });
   };
@@ -1948,6 +1981,7 @@ export function useConnectionController(): ConnectionController {
     designHealthDocumentChangedSeq,
     runDesignHealthScan,
     applyTokenBindings: applyTokenBindingsAction,
+    applyLibraryUpdates: applyLibraryUpdatesAction,
     focusNode: focusNodeAction,
   };
 }

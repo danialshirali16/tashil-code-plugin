@@ -24,6 +24,7 @@ import type {
   FigmaComponentSnapshot,
   InspectCodeState,
   InspectCodeStateHandler,
+  InspectCodeStateMessage,
   SourceComponentSnapshot,
   UiTargetState,
 } from '../types';
@@ -50,10 +51,41 @@ import { loadRawStyleCollection } from './doc-adapter';
 
 export let latestSelectionRefreshRequestId = 0;
 
+/**
+ * Node ids of the in-flight programmatic reveal selection (FOCUS_NODE).
+ * Consumed on the next selectionchange event regardless of outcome, so a
+ * no-op assignment can never leak the suppression onto a later genuine
+ * user selection: the id match decides, not the mere presence of the arm.
+ */
+let programmaticSelectionIds: readonly string[] | null = null;
+
+/** Arm the reveal: the selectionchange this assignment fires must not rescan. */
+export function armProgrammaticSelection(node: SceneNode): void {
+  programmaticSelectionIds = [node.id];
+}
+
+/**
+ * Consume-on-any-event: true only when the event's selection is exactly the
+ * armed programmatic selection. Runs synchronously in the selectionchange
+ * listener body, before sendSelectionState's async work begins.
+ */
+export function consumeProgrammaticSelectionMatch(): boolean {
+  const armed = programmaticSelectionIds;
+  programmaticSelectionIds = null;
+  if (!armed) {
+    return false;
+  }
+  const selection = figma.currentPage.selection;
+  return selection.length === armed.length
+    && selection.every((node, index) => node.id === armed[index]);
+}
+
 export async function sendSelectionState(
   source: 'initial' | 'refresh' | 'selectionchange',
+  options?: { suppressDesignHealthRescan?: boolean },
 ): Promise<void> {
   const requestId = ++latestSelectionRefreshRequestId;
+  const suppressDesignHealthRescan = options?.suppressDesignHealthRescan === true;
   const selectedNodes = [...figma.currentPage.selection];
 
   try {
@@ -80,7 +112,7 @@ export async function sendSelectionState(
     }
 
     emitCanvasTargetState(source, state);
-    emit<InspectCodeStateHandler>('INSPECT_CODE_STATE', inspectState);
+    emit<InspectCodeStateHandler>('INSPECT_CODE_STATE', withRescanSuppression(inspectState, suppressDesignHealthRescan));
 
     if (selectedNodes.length === 1) {
       const docMetadata = readDocFrameMetadata(selectedNodes[0]);
@@ -146,12 +178,25 @@ export async function sendSelectionState(
       status: 'empty',
       message,
     });
-    emit<InspectCodeStateHandler>('INSPECT_CODE_STATE', {
+    emit<InspectCodeStateHandler>('INSPECT_CODE_STATE', withRescanSuppression({
       status: 'invalid-selection',
       message,
-    });
+    }, suppressDesignHealthRescan));
     emit<DocFrameSelectedHandler>('DOC_FRAME_SELECTED', {});
   }
+}
+
+/**
+ * The error path must carry the flag too — otherwise a failing reveal
+ * fail-opens into the very rescan the suppression exists to prevent.
+ */
+function withRescanSuppression(
+  state: InspectCodeState,
+  suppressDesignHealthRescan: boolean,
+): InspectCodeStateMessage {
+  return suppressDesignHealthRescan
+    ? { ...state, suppressDesignHealthRescan: true }
+    : state;
 }
 
 export function formatInspectCodeState(state: InspectCodeState, preferences: OutputPreferences): InspectCodeState {

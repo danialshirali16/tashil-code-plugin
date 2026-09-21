@@ -10,15 +10,18 @@ import {
 import type {
   DeprecatedInstanceNotice,
   DesignHealthScanResult,
+  LibraryUpdateNotice,
   TokenBindingRequest,
   TokenPropertyIssue,
   TokenPropertyKind,
   TokenSuggestion,
 } from '../design-health/types';
 import type {
+  ApplyLibraryUpdatesResultHandler,
   ApplyTokenBindingsResultHandler,
   ScanDesignHealthResultHandler,
 } from '../types';
+import { armProgrammaticSelection } from './selection-adapter';
 
 let latestScanId = '';
 const MAX_SCAN_NODES = 800;
@@ -204,14 +207,24 @@ async function runDesignHealthScan(
     if (!mainComponentsByInstanceId) {
       return;
     }
+    const latestRemoteComponentsByKey = await fetchLatestRemoteComponentsChunked(
+      mainComponentsByInstanceId,
+      scanId,
+    );
+    if (!latestRemoteComponentsByKey) {
+      return;
+    }
 
     // Traverse the subtree
     const issues: TokenPropertyIssue[] = [];
     let boundPropertiesCount = 0;
     const uniqueComponentKeys = new Set<string>();
     const deprecatedInstances: DeprecatedInstanceNotice[] = [];
+    const updateAvailableInstances: LibraryUpdateNotice[] = [];
     let remoteInstancesCount = 0;
     let localInstancesCount = 0;
+    let currentRemoteInstancesCount = 0;
+    let updateCheckFailuresCount = 0;
     let totalInstances = 0;
 
     for (const current of traversal.nodes) {
@@ -240,6 +253,21 @@ async function runDesignHealthScan(
           if (mainComp) {
             if (mainComp.remote) {
               remoteInstancesCount++;
+
+              const latestComponent = mainComp.key
+                ? latestRemoteComponentsByKey.get(mainComp.key)
+                : null;
+              if (!latestComponent) {
+                updateCheckFailuresCount++;
+              } else if (latestComponent.id !== mainComp.id) {
+                updateAvailableInstances.push({
+                  nodeId: n.id,
+                  instanceName: n.name,
+                  componentName: mainComp.name,
+                });
+              } else {
+                currentRemoteInstancesCount++;
+              }
             } else {
               localInstancesCount++;
             }
@@ -259,6 +287,8 @@ async function runDesignHealthScan(
                 deprecationNotice: mainComp.description || 'Component marked as deprecated in library',
               });
             }
+          } else {
+            updateCheckFailuresCount++;
           }
         }
 
@@ -512,8 +542,11 @@ async function runDesignHealthScan(
         totalInstances,
         uniqueComponentsCount: uniqueComponentKeys.size,
         deprecatedInstances,
+        updateAvailableInstances,
         remoteInstancesCount,
         localInstancesCount,
+        currentRemoteInstancesCount,
+        updateCheckFailuresCount,
       },
       nodesVisited: traversal.nodesVisited,
       capReached: traversal.capReached,
@@ -582,6 +615,120 @@ export async function applyTokenBindings(
     message: failedCount === 0
       ? `Successfully bound ${boundCount} properties to design tokens.`
       : `Bound ${boundCount} properties; ${failedCount} could not be updated. Review the remaining findings.`,
+  });
+}
+
+export async function applyLibraryUpdates(
+  operationId: string,
+  nodeIds: readonly string[],
+): Promise<void> {
+  const uniqueNodeIds = Array.from(new Set(nodeIds));
+  const instancesById = new Map<string, InstanceNode>();
+
+  for (let start = 0; start < uniqueNodeIds.length; start += FIGMA_LOOKUP_CHUNK_SIZE) {
+    const chunk = uniqueNodeIds.slice(start, start + FIGMA_LOOKUP_CHUNK_SIZE);
+    await Promise.all(chunk.map(async (nodeId) => {
+      try {
+        const node = await figma.getNodeByIdAsync(nodeId);
+        if (node?.type === 'INSTANCE' && !node.removed) {
+          instancesById.set(nodeId, node);
+        }
+      } catch {
+        // Missing/inaccessible targets are counted while applying below.
+      }
+    }));
+  }
+
+  const mainComponentsByInstanceId = new Map<string, ComponentNode | null>();
+  const instances = Array.from(instancesById.values());
+  for (let start = 0; start < instances.length; start += FIGMA_LOOKUP_CHUNK_SIZE) {
+    const chunk = instances.slice(start, start + FIGMA_LOOKUP_CHUNK_SIZE);
+    const resolved = await Promise.all(chunk.map(async (instance) => {
+      try {
+        return [instance.id, await instance.getMainComponentAsync()] as const;
+      } catch {
+        return [instance.id, null] as const;
+      }
+    }));
+    for (const [nodeId, component] of resolved) {
+      mainComponentsByInstanceId.set(nodeId, component);
+    }
+  }
+
+  const componentKeys = new Set<string>();
+  for (const component of mainComponentsByInstanceId.values()) {
+    if (component?.remote && component.key) {
+      componentKeys.add(component.key);
+    }
+  }
+
+  const latestComponentsByKey = new Map<string, ComponentNode | null>();
+  const keys = Array.from(componentKeys);
+  for (let start = 0; start < keys.length; start += FIGMA_LOOKUP_CHUNK_SIZE) {
+    const chunk = keys.slice(start, start + FIGMA_LOOKUP_CHUNK_SIZE);
+    const imported = await Promise.all(chunk.map(async (key) => {
+      try {
+        return [key, await figma.importComponentByKeyAsync(key)] as const;
+      } catch {
+        return [key, null] as const;
+      }
+    }));
+    for (const [key, component] of imported) {
+      latestComponentsByKey.set(key, component);
+    }
+  }
+
+  let updatedCount = 0;
+  let currentCount = 0;
+  let failedCount = 0;
+
+  for (const nodeId of uniqueNodeIds) {
+    try {
+      const instance = instancesById.get(nodeId);
+      const currentComponent = mainComponentsByInstanceId.get(nodeId) ?? null;
+      if (!instance || !currentComponent?.remote || !currentComponent.key) {
+        throw new Error('Library update target is no longer available.');
+      }
+
+      const latestComponent = latestComponentsByKey.get(currentComponent.key) ?? null;
+      if (!latestComponent) {
+        throw new Error('Latest library component could not be loaded.');
+      }
+      if (latestComponent.id === currentComponent.id) {
+        currentCount++;
+        continue;
+      }
+
+      instance.swapComponent(latestComponent);
+      updatedCount++;
+    } catch {
+      failedCount++;
+    }
+  }
+
+  if (updatedCount > 0) {
+    figma.commitUndo();
+  }
+
+  const ok = failedCount === 0;
+  let message: string;
+  if (uniqueNodeIds.length === 0) {
+    message = 'No library instances were selected for update.';
+  } else if (failedCount > 0) {
+    message = `Updated ${updatedCount} instances; ${currentCount} were already current; ${failedCount} could not be updated.`;
+  } else if (updatedCount === 0) {
+    message = `All ${currentCount} selected library instances are already current.`;
+  } else {
+    message = `Successfully updated ${updatedCount} library instances.${currentCount > 0 ? ` ${currentCount} were already current.` : ''}`;
+  }
+
+  emit<ApplyLibraryUpdatesResultHandler>('APPLY_LIBRARY_UPDATES_RESULT', {
+    ok,
+    operationId,
+    updatedCount,
+    currentCount,
+    failedCount,
+    message,
   });
 }
 
@@ -692,10 +839,17 @@ function applyTokenBindingToTarget(
 export async function focusNodeOnCanvas(nodeId: string): Promise<void> {
   const node = await figma.getNodeByIdAsync(nodeId);
   if (node && 'type' in node) {
-    // Deliberately does NOT change figma.currentPage.selection: the audit is
-    // anchored to the current selection, and re-pointing it here would discard
-    // the whole scan the user is reading.
-    figma.viewport.scrollAndZoomIntoView([node as SceneNode]);
+    // The reveal IS the selection: Figma's own selection chrome identifies the
+    // layer in both themes. The selectionchange this assignment fires is
+    // armed here and consumed exactly once in main.ts, so it never rescans
+    // the audit the user is reading.
+    const sceneNode = node as SceneNode;
+    const currentSelection = figma.currentPage.selection;
+    if (currentSelection.length !== 1 || currentSelection[0]?.id !== sceneNode.id) {
+      armProgrammaticSelection(sceneNode);
+      figma.currentPage.selection = [sceneNode];
+    }
+    figma.viewport.scrollAndZoomIntoView([sceneNode]);
   }
 }
 
@@ -1097,6 +1251,41 @@ async function fetchMainComponentsChunked(
     }
   }
   return mainComponents;
+}
+
+async function fetchLatestRemoteComponentsChunked(
+  mainComponentsByInstanceId: ReadonlyMap<string, ComponentNode | null>,
+  scanId: string,
+): Promise<Map<string, ComponentNode | null> | undefined> {
+  const componentKeys = new Set<string>();
+  for (const component of mainComponentsByInstanceId.values()) {
+    if (component?.remote && component.key) {
+      componentKeys.add(component.key);
+    }
+  }
+
+  const keys = Array.from(componentKeys);
+  const latestComponents = new Map<string, ComponentNode | null>();
+  for (let start = 0; start < keys.length; start += FIGMA_LOOKUP_CHUNK_SIZE) {
+    if (scanId !== latestScanId) {
+      return undefined;
+    }
+    const chunk = keys.slice(start, start + FIGMA_LOOKUP_CHUNK_SIZE);
+    const fetched = await Promise.all(chunk.map(async (key) => {
+      try {
+        return [key, await figma.importComponentByKeyAsync(key)] as const;
+      } catch {
+        return [key, null] as const;
+      }
+    }));
+    if (scanId !== latestScanId) {
+      return undefined;
+    }
+    for (const [key, component] of fetched) {
+      latestComponents.set(key, component);
+    }
+  }
+  return latestComponents;
 }
 
 function createTokenCandidatesForConsumer(

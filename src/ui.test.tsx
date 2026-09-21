@@ -219,6 +219,95 @@ describe('Plugin rendered interactions', () => {
     expect(emittedPayloads('SCAN_DESIGN_HEALTH')).toHaveLength(2);
   });
 
+  it('does not rescan Design Health for the programmatic reveal selection state', async () => {
+    renderPlugin();
+
+    fireEvent.click(screen.getByRole('tab', { name: 'Design Health' }));
+    await waitFor(() => {
+      expect(emittedPayloads('SCAN_DESIGN_HEALTH')).toHaveLength(1);
+    });
+
+    receive('INSPECT_CODE_STATE', { status: 'invalid-selection', suppressDesignHealthRescan: true });
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    expect(emittedPayloads('SCAN_DESIGN_HEALTH')).toHaveLength(1);
+
+    receive('INSPECT_CODE_STATE', { status: 'invalid-selection' });
+    await waitFor(() => {
+      expect(emittedPayloads('SCAN_DESIGN_HEALTH')).toHaveLength(2);
+    });
+  });
+
+  it('sends library update requests and rescans the audited root after success', async () => {
+    renderPlugin();
+
+    fireEvent.click(screen.getByRole('tab', { name: 'Design Health' }));
+    await waitFor(() => {
+      expect(emittedPayloads('SCAN_DESIGN_HEALTH')).toHaveLength(1);
+    });
+    const firstScan = emittedPayloads<{ scanId: string }>('SCAN_DESIGN_HEALTH')[0];
+    receive('SCAN_DESIGN_HEALTH_RESULT', {
+      ok: true,
+      scanId: firstScan.scanId,
+      scanResult: {
+        capReached: false,
+        libraryHealth: {
+          currentRemoteInstancesCount: 0,
+          deprecatedInstances: [],
+          localInstancesCount: 0,
+          remoteInstancesCount: 1,
+          totalInstances: 1,
+          uniqueComponentsCount: 1,
+          updateAvailableInstances: [{
+            componentName: 'Button',
+            instanceName: 'Checkout Button',
+            nodeId: 'instance-update',
+          }],
+          updateCheckFailuresCount: 0,
+        },
+        nodesVisited: 2,
+        scanId: firstScan.scanId,
+        scannedAt: Date.now(),
+        selectionCount: 1,
+        targetNode: { id: 'audit-root', name: 'Checkout', type: 'FRAME' },
+        tokenAudit: {
+          audited: false,
+          boundPropertiesCount: 0,
+          highConfidenceCount: 0,
+          issues: [],
+          lowConfidenceCount: 0,
+          mediumConfidenceCount: 0,
+          tokenCoveragePercent: 0,
+          totalPropertiesScanned: 0,
+          unboundPropertiesCount: 0,
+        },
+      },
+    });
+
+    fireEvent.click(screen.getByRole('radio', { name: /^Library/ }));
+    fireEvent.click(screen.getByRole('button', { name: 'Update' }));
+
+    const updateRequest = emittedPayloads<{
+      nodeIds: string[];
+      operationId: string;
+    }>('APPLY_LIBRARY_UPDATES')[0];
+    expect(updateRequest.nodeIds).toEqual(['instance-update']);
+
+    receive('APPLY_LIBRARY_UPDATES_RESULT', {
+      currentCount: 0,
+      failedCount: 0,
+      message: 'Successfully updated 1 library instance.',
+      ok: true,
+      operationId: updateRequest.operationId,
+      updatedCount: 1,
+    });
+
+    await waitFor(() => {
+      expect(emittedPayloads('SCAN_DESIGN_HEALTH')).toHaveLength(2);
+    });
+    expect(emittedPayloads<{ targetNodeId?: string }>('SCAN_DESIGN_HEALTH')[1])
+      .toEqual(expect.objectContaining({ targetNodeId: 'audit-root' }));
+  });
+
   it('keeps the inventory visible when the initial canvas selection is empty', () => {
     renderPlugin();
 

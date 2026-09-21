@@ -65,14 +65,16 @@ also expose an **Export Markdown** action.
 Use **Design Health** to audit any frame or container on the canvas:
 - **Design Token Linting:** Automatically detects unbound colors, strokes, corner radii, layout gaps, and paddings, and matches them against design system tokens with high/medium/low confidence.
 - **Batch Token Binding:** Bind all high-confidence token suggestions in one click, or select from alternative semantic tokens.
-- **Library Health:** Review local vs. remote instances and identify deprecated components with canvas focus navigation.
+- **Library Health:** Review local vs. remote instances, detect and apply newer published library components individually or as one undoable batch, and identify deprecated components with canvas navigation.
 
 ### Keep data in your file
 
-Tashil Code makes no network requests and has no telemetry. Connections live in
-Figma shared plugin data; user-specific formatting and export history live in
-Figma `clientStorage`; source uploads exist only in memory while the plugin
-window is open. Read the [Privacy policy](PRIVACY.md) for the full data model.
+Tashil Code makes no direct external network requests and has no telemetry.
+Connections live in Figma shared plugin data; user-specific formatting and
+export history live in Figma `clientStorage`; source uploads exist only in
+memory while the plugin window is open. Design Health can ask Figma's host API
+to load the latest published team-library component for an update check. Read
+the [Privacy policy](PRIVACY.md) for the full data model.
 
 ## Design-mode workspace
 
@@ -84,7 +86,7 @@ The plugin window has six workflows:
 | **Inspect Code** | Preview a connected component's code or generate a styled-components module from the selected design layer. |
 | **Sync Tokens** | Export local Variable collections with live file previews and formatting controls. |
 | **Docs** | Generate and maintain token documentation pages and component variant matrices. |
-| **Design Health** | Audit layer token coverage, batch-bind recommended tokens, and track deprecated library instances. |
+| **Design Health** | Audit layer token coverage, batch-bind recommended tokens, apply library updates, and track deprecated instances. |
 | **Settings** | Configure user-local output and copy preferences without changing the Figma document. |
 
 ## Five-minute quick start
@@ -198,7 +200,7 @@ continues to use the previously loaded bundle.
 | [Generate and inspect a frame](docs/inspect-frame.md) | Work with full styled-components output and Figma CSS inspection. |
 | [Sync Tokens](docs/sync-tokens.md) | Export Variable collections and understand formats, modes, and naming controls. |
 | [Token Documentation](docs/token-documentation.md) | Generate, update, and export token documentation. |
-| [Design Health](docs/section-design-health.md) | Audit selection design tokens, batch-bind suggestions, and review deprecations. |
+| [Design Health](docs/section-design-health.md) | Audit selection design tokens, batch-bind suggestions, and review library updates/deprecations. |
 | [Development guide](docs/development.md) | Set up the repository, use the harness, understand testing, and import the development plugin. |
 | [Section guide index](docs/sections-index.md) | Navigate the project architecture and its editor invariants. |
 | [Privacy policy](PRIVACY.md) | Understand stored, transient, downloaded, clipboard, and network data. |

@@ -1,10 +1,12 @@
 # Privacy Policy
 
-Last updated: 2026-08-01
+Last updated: 2026-09-21
 
 Tashil Code is a local-first Figma plugin. It does not operate a server, send
-telemetry, use analytics, serve advertising, or make network requests. The
-plugin manifest explicitly sets `networkAccess.allowedDomains` to `none`.
+telemetry, use analytics, serve advertising, or make direct network requests.
+The plugin manifest explicitly sets `networkAccess.allowedDomains` to `none`.
+Figma-hosted APIs may still load resources the current user can access, such
+as a published team-library component used for a Design Health update check.
 
 ## Data the plugin handles
 
@@ -17,6 +19,7 @@ plugin manifest explicitly sets `networkAccess.allowedDomains` to `none`.
 | Generated code and previews | Memory while the plugin or Dev Mode generation is active | The current user | Not persisted by Tashil Code |
 | User-requested exports | A local download chosen by the user | Whoever can access the downloaded file | Controlled by the user and their operating system |
 | User-requested clipboard content | The system clipboard | Controlled by the user and their operating system | Controlled by the operating system |
+| Published component loaded for a Design Health update check | The current Figma file through Figma's `importComponentByKeyAsync` host API | People who can access the Figma file, subject to Figma's permissions | Governed by Figma and the containing file; Tashil Code does not copy it to external storage |
 
 Source uploads are parsed locally. Tashil Code stores only the derived schema,
 source filename/path metadata supplied by the user, and a content hash needed
@@ -30,6 +33,19 @@ or reviewed connection import. Connection exports, token files, generated
 stories, audit reports, and debug bundles are downloaded only after the user
 chooses the corresponding action. Copy actions write only the displayed output
 to the clipboard.
+
+## Automatic Figma library checks
+
+Opening or refreshing Design Health automatically asks Figma for the latest
+published version of each unique remote component key in the audited selection.
+Figma may materialize that component in the current file. Tashil Code uses the
+returned node ID only to classify instances as current, update available, or
+unchecked; the automatic check never swaps an instance. An instance is updated
+only when the user explicitly chooses **Update** or **Update all**. That action
+uses Figma's host API to swap the selected instance to the latest published
+component, changes the shared Figma document, preserves overrides that remain
+compatible with the new component, and creates one undo checkpoint for the
+successful batch.
 
 ## Third parties
 
@@ -51,4 +67,3 @@ before sharing them.
 Material changes to this policy will be documented in the repository changelog.
 Questions or reports can be filed through the repository's
 [privacy and security issue form](https://github.com/danialshirali16/tashil-code-plugin/issues/new?template=privacy.yml).
-

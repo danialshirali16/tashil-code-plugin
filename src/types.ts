@@ -318,9 +318,18 @@ export type ComponentTargetStateHandler = {
   }) => void;
 };
 
+/**
+ * INSPECT_CODE_STATE payload. `suppressDesignHealthRescan` marks a state
+ * produced by the programmatic reveal selection (FOCUS_NODE) so the Design
+ * Health tab does not treat it as a user selection change.
+ */
+export type InspectCodeStateMessage = InspectCodeState & {
+  suppressDesignHealthRescan?: boolean;
+};
+
 export type InspectCodeStateHandler = {
   name: 'INSPECT_CODE_STATE';
-  handler: (state: InspectCodeState) => void;
+  handler: (state: InspectCodeStateMessage) => void;
 };
 
 export type SaveConnectionHandler = {
@@ -626,6 +635,26 @@ export type ApplyTokenBindingsResultHandler = {
     ok: boolean;
     operationId: string;
     boundCount: number;
+    failedCount: number;
+    message?: string;
+  }) => void;
+};
+
+export type ApplyLibraryUpdatesHandler = {
+  name: 'APPLY_LIBRARY_UPDATES';
+  handler: (payload: {
+    operationId: string;
+    nodeIds: string[];
+  }) => void;
+};
+
+export type ApplyLibraryUpdatesResultHandler = {
+  name: 'APPLY_LIBRARY_UPDATES_RESULT';
+  handler: (result: {
+    ok: boolean;
+    operationId: string;
+    updatedCount: number;
+    currentCount: number;
     failedCount: number;
     message?: string;
   }) => void;

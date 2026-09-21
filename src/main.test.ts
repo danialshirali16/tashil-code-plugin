@@ -59,6 +59,7 @@ type ComponentDouble = ComponentNode & {
 
 type InstanceDouble = InstanceNode & {
   getMainComponentAsync: ReturnType<typeof vi.fn>;
+  swapComponent: ReturnType<typeof vi.fn>;
 };
 
 type PageDouble = PageNode & {
@@ -104,6 +105,7 @@ function createInstance(
     id,
     name: id,
     parent: { type: 'PAGE' },
+    swapComponent: vi.fn(),
     type: 'INSTANCE',
   } as unknown as InstanceDouble;
 }
@@ -219,6 +221,7 @@ async function startPlugin(options: StartPluginOptions = {}): Promise<{
   clientStorage: Map<string, unknown>;
   codegenCustomSettings: Record<string, string>;
   codegenEvents: Map<string, CodegenGenerateHandler>;
+  currentPage: { selection: SceneNode[] };
   figmaEvents: Map<string, () => void>;
   notify: ReturnType<typeof vi.fn>;
   nodesById: Map<string, BaseNode>;
@@ -267,6 +270,8 @@ async function startPlugin(options: StartPluginOptions = {}): Promise<{
     return spliceSelection(start, deleteCount ?? selection.length - start, ...nodes);
   };
 
+  const currentPage = { selection };
+
   vi.stubGlobal('figma', {
     clientStorage: {
       getAsync: vi.fn((key: string) => Promise.resolve(clientStorage.get(key))),
@@ -279,10 +284,12 @@ async function startPlugin(options: StartPluginOptions = {}): Promise<{
       }),
       preferences: { customSettings: codegenCustomSettings, unit: 'PIXEL' },
     },
-    currentPage: { selection },
+    currentPage,
+    viewport: { scrollAndZoomIntoView: vi.fn() },
     fileKey: 'file-key',
     getNodeByIdAsync: vi.fn((id: string) => Promise.resolve(nodesById.get(id) ?? null)),
     getStyleByIdAsync: vi.fn((id: string) => Promise.resolve(stylesById.get(id) ?? null)),
+    importComponentByKeyAsync: vi.fn(() => Promise.reject(new Error('Library component unavailable.'))),
     getLocalEffectStylesAsync: vi.fn(() => Promise.resolve(effectStyles)),
     getLocalTextStylesAsync: vi.fn(() => Promise.resolve(textStyles)),
     mode: 'default',
@@ -310,6 +317,7 @@ async function startPlugin(options: StartPluginOptions = {}): Promise<{
     clientStorage,
     codegenCustomSettings,
     codegenEvents,
+    currentPage,
     figmaEvents,
     nodesById,
     notify,
@@ -901,6 +909,7 @@ describe('Design Health mutations', () => {
     const localInstance = createInstance('local-instance', deferredLocal.promise);
     const remoteInstance = createInstance('remote-instance', deferredRemote.promise);
     const { selection } = await startPlugin();
+    vi.mocked(figma.importComponentByKeyAsync).mockResolvedValue(remoteCurrent);
     selection.push(createFrame(
       'instance-health-frame',
       'Instance health',
@@ -923,19 +932,98 @@ describe('Design Health mutations', () => {
       scanResult: {
         libraryHealth: {
           deprecatedInstances: Array<{ nodeId: string }>;
+          currentRemoteInstancesCount: number;
           localInstancesCount: number;
           remoteInstancesCount: number;
           totalInstances: number;
           uniqueComponentsCount: number;
+          updateAvailableInstances: Array<{ nodeId: string }>;
+          updateCheckFailuresCount: number;
         };
       };
     }>('SCAN_DESIGN_HEALTH_RESULT')[0];
     expect(result.scanResult.libraryHealth).toEqual(expect.objectContaining({
       deprecatedInstances: [expect.objectContaining({ nodeId: localInstance.id })],
+      currentRemoteInstancesCount: 1,
       localInstancesCount: 1,
       remoteInstancesCount: 1,
       totalInstances: 2,
       uniqueComponentsCount: 2,
+      updateAvailableInstances: [],
+      updateCheckFailuresCount: 0,
+    }));
+    expect(figma.importComponentByKeyAsync).toHaveBeenCalledTimes(1);
+    expect(figma.importComponentByKeyAsync).toHaveBeenCalledWith(remoteCurrent.key);
+  });
+
+  it('detects outdated remote instances and imports each component key once', async () => {
+    const oldMain = createComponent('remote-old', 'Library Button');
+    Object.assign(oldMain, { remote: true });
+    const latestMain = createComponent('remote-latest', 'Library Button');
+    Object.assign(latestMain, { key: oldMain.key, remote: true });
+    const firstInstance = createInstance('first-old-instance', Promise.resolve(oldMain));
+    const secondInstance = createInstance('second-old-instance', Promise.resolve(oldMain));
+    const { selection } = await startPlugin();
+    vi.mocked(figma.importComponentByKeyAsync).mockResolvedValue(latestMain);
+    selection.push(createFrame(
+      'outdated-instance-frame',
+      'Outdated instances',
+      [firstInstance, secondInstance],
+    ));
+
+    utilityMocks.handlers.get('SCAN_DESIGN_HEALTH')?.({ scanId: 'outdated-instance-scan' });
+
+    await vi.waitFor(() => {
+      expect(emittedPayloads('SCAN_DESIGN_HEALTH_RESULT')).toHaveLength(1);
+    });
+
+    expect(figma.importComponentByKeyAsync).toHaveBeenCalledTimes(1);
+    expect(figma.importComponentByKeyAsync).toHaveBeenCalledWith(oldMain.key);
+    const result = emittedPayloads<{
+      scanResult: {
+        libraryHealth: {
+          currentRemoteInstancesCount: number;
+          updateAvailableInstances: Array<{ nodeId: string }>;
+          updateCheckFailuresCount: number;
+        };
+      };
+    }>('SCAN_DESIGN_HEALTH_RESULT')[0];
+    expect(result.scanResult.libraryHealth).toEqual(expect.objectContaining({
+      currentRemoteInstancesCount: 0,
+      updateAvailableInstances: [
+        expect.objectContaining({ nodeId: firstInstance.id }),
+        expect.objectContaining({ nodeId: secondInstance.id }),
+      ],
+      updateCheckFailuresCount: 0,
+    }));
+  });
+
+  it('reports an unknown update status when the latest library component cannot be loaded', async () => {
+    const remoteMain = createComponent('remote-unavailable', 'Unavailable Card');
+    Object.assign(remoteMain, { remote: true });
+    const instance = createInstance('unavailable-instance', Promise.resolve(remoteMain));
+    const { selection } = await startPlugin();
+    selection.push(createFrame('unavailable-frame', 'Unavailable import', [instance]));
+
+    utilityMocks.handlers.get('SCAN_DESIGN_HEALTH')?.({ scanId: 'unavailable-update-scan' });
+
+    await vi.waitFor(() => {
+      expect(emittedPayloads('SCAN_DESIGN_HEALTH_RESULT')).toHaveLength(1);
+    });
+
+    const result = emittedPayloads<{
+      scanResult: {
+        libraryHealth: {
+          currentRemoteInstancesCount: number;
+          updateAvailableInstances: unknown[];
+          updateCheckFailuresCount: number;
+        };
+      };
+    }>('SCAN_DESIGN_HEALTH_RESULT')[0];
+    expect(result.scanResult.libraryHealth).toEqual(expect.objectContaining({
+      currentRemoteInstancesCount: 0,
+      updateAvailableInstances: [],
+      updateCheckFailuresCount: 1,
     }));
   });
 
@@ -970,6 +1058,39 @@ describe('Design Health mutations', () => {
       0,
     )).toBe(25);
     expect(instances[25].getMainComponentAsync).not.toHaveBeenCalled();
+  });
+
+  it('stops scheduling latest-component chunks when an update check is superseded', async () => {
+    const mainComponents = Array.from({ length: 26 }, (_, index) => {
+      const component = createComponent(`remote-component-${index}`, `Remote ${index}`);
+      Object.assign(component, { remote: true });
+      return component;
+    });
+    const instances = mainComponents.map((component, index) => createInstance(
+      `remote-instance-${index}`,
+      Promise.resolve(component),
+    ));
+    const importGate = createDeferred<ComponentNode>();
+    const { selection } = await startPlugin();
+    vi.mocked(figma.importComponentByKeyAsync).mockImplementation(() => importGate.promise);
+    selection.push(createFrame('remote-update-frame', 'Remote updates', instances));
+
+    utilityMocks.handlers.get('SCAN_DESIGN_HEALTH')?.({ scanId: 'stale-update-scan' });
+    await vi.waitFor(() => {
+      expect(figma.importComponentByKeyAsync).toHaveBeenCalledTimes(25);
+    });
+
+    selection.splice(0);
+    utilityMocks.handlers.get('SCAN_DESIGN_HEALTH')?.({ scanId: 'replacement-update-scan' });
+    importGate.resolve(mainComponents[0]);
+    await vi.waitFor(() => {
+      expect(emittedPayloads<{ scanId: string }>('SCAN_DESIGN_HEALTH_RESULT'))
+        .toEqual([expect.objectContaining({ scanId: 'replacement-update-scan' })]);
+    });
+    await flushPromises();
+
+    expect(figma.importComponentByKeyAsync).toHaveBeenCalledTimes(25);
+    expect(figma.importComponentByKeyAsync).not.toHaveBeenCalledWith(mainComponents[25].key);
   });
 
   it('binds only the requested paint index and reports partial failures accurately', async () => {
@@ -1091,6 +1212,73 @@ describe('Design Health mutations', () => {
       failedCount: 0,
       ok: true,
       operationId: 'deduplicated-bind-operation',
+    }));
+  });
+
+  it('updates remote instances in one undo step and preserves request order', async () => {
+    const oldMain = createComponent('update-old-main', 'Button');
+    Object.assign(oldMain, { remote: true });
+    const latestMain = createComponent('update-latest-main', 'Button');
+    Object.assign(latestMain, { key: oldMain.key, remote: true });
+    const firstInstance = createInstance('update-instance-a', Promise.resolve(oldMain));
+    const secondInstance = createInstance('update-instance-b', Promise.resolve(oldMain));
+    const { nodesById } = await startPlugin();
+    nodesById.set(firstInstance.id, firstInstance);
+    nodesById.set(secondInstance.id, secondInstance);
+    vi.mocked(figma.importComponentByKeyAsync).mockResolvedValue(latestMain);
+    const commitUndo = vi.fn();
+    Object.assign(figma, { commitUndo });
+
+    utilityMocks.handlers.get('APPLY_LIBRARY_UPDATES')?.({
+      operationId: 'update-library-operation',
+      nodeIds: [firstInstance.id, secondInstance.id, firstInstance.id],
+    });
+
+    await vi.waitFor(() => {
+      expect(emittedPayloads('APPLY_LIBRARY_UPDATES_RESULT')).toHaveLength(1);
+    });
+
+    expect(figma.importComponentByKeyAsync).toHaveBeenCalledTimes(1);
+    expect(figma.importComponentByKeyAsync).toHaveBeenCalledWith(oldMain.key);
+    expect(firstInstance.swapComponent).toHaveBeenCalledWith(latestMain);
+    expect(secondInstance.swapComponent).toHaveBeenCalledWith(latestMain);
+    expect(commitUndo).toHaveBeenCalledTimes(1);
+    expect(emittedPayloads('APPLY_LIBRARY_UPDATES_RESULT')[0]).toEqual(expect.objectContaining({
+      currentCount: 0,
+      failedCount: 0,
+      ok: true,
+      operationId: 'update-library-operation',
+      updatedCount: 2,
+    }));
+  });
+
+  it('reports already-current and failed library updates without creating an empty undo step', async () => {
+    const currentMain = createComponent('already-current-main', 'Card');
+    Object.assign(currentMain, { remote: true });
+    const currentInstance = createInstance('already-current-instance', Promise.resolve(currentMain));
+    const { nodesById } = await startPlugin();
+    nodesById.set(currentInstance.id, currentInstance);
+    vi.mocked(figma.importComponentByKeyAsync).mockResolvedValue(currentMain);
+    const commitUndo = vi.fn();
+    Object.assign(figma, { commitUndo });
+
+    utilityMocks.handlers.get('APPLY_LIBRARY_UPDATES')?.({
+      operationId: 'current-library-operation',
+      nodeIds: [currentInstance.id, 'missing-instance'],
+    });
+
+    await vi.waitFor(() => {
+      expect(emittedPayloads('APPLY_LIBRARY_UPDATES_RESULT')).toHaveLength(1);
+    });
+
+    expect(currentInstance.swapComponent).not.toHaveBeenCalled();
+    expect(commitUndo).not.toHaveBeenCalled();
+    expect(emittedPayloads('APPLY_LIBRARY_UPDATES_RESULT')[0]).toEqual(expect.objectContaining({
+      currentCount: 1,
+      failedCount: 1,
+      ok: false,
+      operationId: 'current-library-operation',
+      updatedCount: 0,
     }));
   });
 
@@ -1599,6 +1787,89 @@ describe('selection synchronization', () => {
           status: 'ready',
         }),
       );
+    });
+  });
+
+  it('marks the reveal selection so Design Health does not rescan', async () => {
+    const { currentPage, figmaEvents, nodesById } = await startPlugin();
+    const frame = createFrame('frame-1', 'Orders', []);
+    nodesById.set('frame-1', frame as unknown as BaseNode);
+
+    utilityMocks.handlers.get('FOCUS_NODE')?.({ nodeId: 'frame-1' });
+    await flushPromises();
+
+    expect(currentPage.selection).toEqual([frame]);
+
+    figmaEvents.get('selectionchange')?.();
+
+    await vi.waitFor(() => {
+      const payloads = emittedPayloads<{ suppressDesignHealthRescan?: boolean }>('INSPECT_CODE_STATE');
+      expect(payloads.length).toBeGreaterThan(0);
+      expect(payloads[payloads.length - 1]?.suppressDesignHealthRescan).toBe(true);
+    });
+  });
+
+  it('does not suppress a genuine user selection after the reveal', async () => {
+    const { currentPage, figmaEvents, nodesById } = await startPlugin();
+    const frame = createFrame('frame-1', 'Orders', []);
+    nodesById.set('frame-1', frame as unknown as BaseNode);
+
+    utilityMocks.handlers.get('FOCUS_NODE')?.({ nodeId: 'frame-1' });
+    await flushPromises();
+    figmaEvents.get('selectionchange')?.();
+    await vi.waitFor(() => {
+      const payloads = emittedPayloads<{ suppressDesignHealthRescan?: boolean }>('INSPECT_CODE_STATE');
+      expect(payloads[payloads.length - 1]?.suppressDesignHealthRescan).toBe(true);
+    });
+
+    const other = createFrame('frame-2', 'Other', []);
+    nodesById.set('frame-2', other as unknown as BaseNode);
+    currentPage.selection = [other as unknown as SceneNode];
+    figmaEvents.get('selectionchange')?.();
+
+    await vi.waitFor(() => {
+      const payloads = emittedPayloads<{ suppressDesignHealthRescan?: boolean }>('INSPECT_CODE_STATE');
+      expect(payloads.length).toBeGreaterThan(1);
+      expect(payloads[payloads.length - 1]?.suppressDesignHealthRescan).toBeUndefined();
+    });
+  });
+
+  it('does not arm suppression when the reveal target is already the sole selection', async () => {
+    const { figmaEvents, selection } = await startPlugin();
+    const frame = createFrame('frame-1', 'Orders', []);
+    selection.push(frame as unknown as SceneNode);
+
+    utilityMocks.handlers.get('FOCUS_NODE')?.({ nodeId: 'frame-1' });
+    await flushPromises();
+
+    figmaEvents.get('selectionchange')?.();
+
+    await vi.waitFor(() => {
+      const payloads = emittedPayloads<{ suppressDesignHealthRescan?: boolean }>('INSPECT_CODE_STATE');
+      expect(payloads.length).toBeGreaterThan(0);
+      expect(payloads[payloads.length - 1]?.suppressDesignHealthRescan).toBeUndefined();
+    });
+  });
+
+  it('carries the suppression flag on the error path of a failing reveal', async () => {
+    const { figmaEvents, nodesById } = await startPlugin();
+    const component = createComponent('component-a', 'Button');
+    component.getSharedPluginData.mockImplementationOnce(() => {
+      throw new Error('Connection data unavailable.');
+    });
+    nodesById.set('component-a', component as unknown as BaseNode);
+
+    utilityMocks.handlers.get('FOCUS_NODE')?.({ nodeId: 'component-a' });
+    await flushPromises();
+
+    figmaEvents.get('selectionchange')?.();
+
+    await vi.waitFor(() => {
+      const payloads = emittedPayloads<{ status: string; suppressDesignHealthRescan?: boolean }>('INSPECT_CODE_STATE');
+      expect(payloads[payloads.length - 1]).toMatchObject({
+        status: 'invalid-selection',
+        suppressDesignHealthRescan: true,
+      });
     });
   });
 
