@@ -189,6 +189,7 @@ export function SemanticMappingView(props: SemanticMappingViewProps): h.JSX.Elem
                 {props.sourceUploading ? 'Analyzing…' : 'Replace source'}
                 <input
                   accept=".ts,.tsx,.d.ts"
+                  aria-label="Replace source files"
                   disabled={uploadDisabled}
                   multiple
                   onInput={(event) => {
@@ -207,6 +208,7 @@ export function SemanticMappingView(props: SemanticMappingViewProps): h.JSX.Elem
               >
                 Folder
                 <input
+                  aria-label="Upload source folder with dependency declarations"
                   disabled={uploadDisabled}
                   multiple
                   onInput={(event) => {
@@ -946,6 +948,7 @@ function RepeatedSlotEditor(props: {
           return (
             <label class="repeated-slot-option" key={option.id}>
               <input
+                aria-label={`Select component ${option.label}`}
                 checked={checked}
                 disabled={props.disabled}
                 onChange={() => props.onChange(

@@ -72,14 +72,17 @@ module.exports = tseslint.config(
   },
   {
     ignores: [
+      '.agents',
       '.kilo',
       '.zcode',
+      'artifacts',
       'build',
       'code.js',
       'dist',
       'eslint.config.js',
       'examples',
       'prototypes',
+      'reports',
     ],
   },
 )

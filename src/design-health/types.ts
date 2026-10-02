@@ -72,12 +72,20 @@ export interface DeprecatedInstanceNotice {
   instanceName: string;
   componentName: string;
   deprecationNotice: string;
+  /**
+   * Best-effort source-library display name (resolved from the remote
+   * component's document). Absent when it cannot be determined — the UI
+   * omits the library line instead of inventing one.
+   */
+  libraryName?: string;
 }
 
 export interface LibraryUpdateNotice {
   nodeId: string;
   instanceName: string;
   componentName: string;
+  /** See DeprecatedInstanceNotice.libraryName. */
+  libraryName?: string;
 }
 
 export interface LibraryHealthSummary {

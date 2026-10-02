@@ -660,6 +660,25 @@ export type ApplyLibraryUpdatesResultHandler = {
   }) => void;
 };
 
+export type DetachInstancesHandler = {
+  name: 'DETACH_INSTANCES';
+  handler: (payload: {
+    operationId: string;
+    nodeIds: string[];
+  }) => void;
+};
+
+export type DetachInstancesResultHandler = {
+  name: 'DETACH_INSTANCES_RESULT';
+  handler: (result: {
+    ok: boolean;
+    operationId: string;
+    detachedCount: number;
+    failedCount: number;
+    message?: string;
+  }) => void;
+};
+
 export type FocusNodeHandler = {
   name: 'FOCUS_NODE';
   handler: (payload: {

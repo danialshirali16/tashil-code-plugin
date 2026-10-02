@@ -54,8 +54,10 @@ UI View (src/views/DesignHealthView.tsx)
 User triggers Action:
    ├── Bind: APPLY_TOKEN_BINDINGS → setBoundVariableForPaint /
    │   setBoundVariable (exact field/paintIndex) → commitUndo() when ≥1 bound
-   └── Update: APPLY_LIBRARY_UPDATES → reload latest component by key →
-       instance.swapComponent(latest) → commitUndo() once when ≥1 updated
+   ├── Update: APPLY_LIBRARY_UPDATES → reload latest component by key →
+   │   instance.swapComponent(latest) → commitUndo() once when ≥1 updated
+   └── Detach: DETACH_INSTANCES → instance.detachInstance() → 3px red stroke
+       on the detached frame → commitUndo() once when ≥1 detached
 ```
 
 ---
@@ -67,12 +69,12 @@ User triggers Action:
 | `src/design-health/types.ts` | **Pure domain model.** Zero `@figma/plugin-typings` imports. Defines `TokenPropertyIssue`, `TokenAuditSummary` (with `audited`), `TokenSuggestion`, `DeprecatedInstanceNotice`, `LibraryUpdateNotice`, and `DesignHealthScanResult` (with `nodesVisited`/`capReached`/`selectionCount`). |
 | `src/design-health/token-audit.ts` | **Pure token linting and ranking.** Compares raw layer values against available design tokens. Scores suggestions into High, Medium, and Low confidence based on inferred variable, exact value match, and property scope matching; when no token holds the value, falls back to nearest-value (scale step / shade distance / RGB-equal-alpha) and layer-name-affinity suggestions that are decision-only. `calculateTokenAuditSummary` reports `audited: false` (and 0% — never 100%) when nothing was scanned. |
 | `src/design-health/token-audit.test.ts` | Unit tests for pure token ranking, scope matching, confidence classification, and summary honesty. |
-| `src/main/design-health-adapter.ts` | **The Figma runtime adapter.** The only place in this feature that interacts with the Figma Plugin API: walks nodes defensively (instances stay atomic — no descent into non-root instance internals), reads bound and inferred variables, resolves token candidates once per audit into a value index and verifies each suggestion for its consuming node, applies variable bindings to exact field/paint targets, swaps update-available remote instances to their latest imported component, and commits undo steps. `focusNodeOnCanvas` selects the node and scrolls/zooms to it; the programmatic `selectionchange` it fires is consumed exactly once and never rescans. |
+| `src/main/design-health-adapter.ts` | **The Figma runtime adapter.** The only place in this feature that interacts with the Figma Plugin API: walks nodes defensively (instances stay atomic — no descent into non-root instance internals), reads bound and inferred variables, resolves token candidates once per audit into a value index and verifies each suggestion for its consuming node, applies variable bindings to exact field/paint targets, swaps update-available remote instances to their latest imported component, detaches deprecated instances (stamping each detached frame with a 3px red stroke), and commits undo steps. `focusNodeOnCanvas` selects the node and scrolls/zooms to it; the programmatic `selectionchange` it fires is consumed exactly once and never rescans. |
 | `src/views/DesignHealthView.tsx` | **Preact UI view.** Built from `@create-figma-plugin/ui` primitives (`main`/`h1` document structure, `SegmentedControl`, `Banner`, `Dropdown`, `Checkbox`, official icons). Hosts the coverage meter, token groups, and library health. |
 | `src/views/DesignHealthView.test.tsx` | UI component tests: honest empty states, binding payloads, clustering, scope accounting, and deprecation cards. |
 | `src/styles/design-health.css` | Stylesheet for the view. Colors only through `var(--figma-color-*)` tokens (hex solely as `var()` fallback). No keyframes. |
 | `src/ui-controller.ts` | State machine and message orchestrator: `designHealthScanResult`, `designHealthStatus`, `designHealthMessage`, selection/document-change sequences, token-binding/library-update dispatchers, and post-mutation rescans. |
-| `src/types.ts` | Message contracts: `SCAN_DESIGN_HEALTH`, `APPLY_TOKEN_BINDINGS`, `APPLY_LIBRARY_UPDATES`, `FOCUS_NODE`, `DESIGN_HEALTH_DOCUMENT_CHANGED`. |
+| `src/types.ts` | Message contracts: `SCAN_DESIGN_HEALTH`, `APPLY_TOKEN_BINDINGS`, `APPLY_LIBRARY_UPDATES`, `DETACH_INSTANCES`, `FOCUS_NODE`, `DESIGN_HEALTH_DOCUMENT_CHANGED`. |
 
 ---
 
@@ -213,6 +215,10 @@ document-access restrictions:
   component in the file. Every lookup is wrapped in `try…catch`; failures are
   counted as **Unchecked**, never as current. Results are consumed later in
   traversal order, keeping update and deprecated-instance output deterministic.
+  Variant instances present under their **component set's name** — a variant
+  component's own name is its property string ("Style=Text, Link=False"), so
+  the set's friendly name is what reaches the UI; deprecation markers are
+  checked against both the raw variant name and the displayed name.
 - **Stale scan cancellation:** every scan carries a monotonic `scanId`; stale
   completions are discarded, including between variable, collection, and
   main-component fetch chunks. The backend never overlaps full scan pipelines:
@@ -243,6 +249,19 @@ document-access restrictions:
   audit root while preserving that result message. All successful swaps share
   one `figma.commitUndo()` checkpoint, and an all-current/all-failed request
   creates no empty undo entry.
+- `detachInstances`: accepts the deprecated-instance node IDs, resolves each
+  still-existing instance in bounded chunks, and detaches it with
+  `instance.detachInstance()` — deliberately **without a confirmation step**;
+  the single-step undo is the rollback. Every detached frame is immediately
+  stamped with a **3px red stroke** (`#F24822`) so detached layers stay
+  identifiable on the canvas, and the success message names that marking. Each
+  instance is isolated (a nested instance that cannot be detached is counted
+  as failed, never fatal); all successful detaches share one
+  `figma.commitUndo()` checkpoint, and an all-failed request creates no empty
+  undo entry. Library source names on the scan notices are best-effort: for a
+  remote component the adapter walks the component proxy's parent chain to the
+  source document and uses its name; any failure leaves `libraryName`
+  undefined and the UI omits the line.
 - `focusNodeOnCanvas`: sets `figma.currentPage.selection = [node]` then
   `scrollAndZoomIntoView`, so Figma's own selection chrome identifies the layer
   in both themes. The audit stays anchored to the scan root: the
@@ -295,14 +314,22 @@ for empty/loading/error states):
    audit* (nothing scanned), *All properties bound* (only when every scanned
    property really is bound), and *No issues match the current filter* with a
    **Clear filter** action.
-5. **Library tab:** instance composition and update-check stats in an auto-fit
-   grid, followed by update-available and deprecated cards whose node link and
-   **Show on canvas** action both reveal the instance by selecting it on the
-   canvas. Each update card has an explicit **Update** action and the group
-   header has **Update all**; both are disabled while any Design Health
-   mutation is active. A clean state renders only when every relevant lookup
-   succeeded; otherwise the empty state says the check is incomplete and
-   reports the **Unchecked** instance count.
+5. **Library tab:** two finding sections and nothing else — **Updates
+   available** (refresh icon, `Update all` batch action in the header) and
+   **Deprecated** (danger-toned heading, `Detach all` batch action). Each
+   section renders one bordered card of uniform rows separated by hairlines:
+   component icon (brand-colored for updates, muted for deprecated), the
+   component name (variants under their component set's name) over a
+   library-icon + library-name line, a new-tab reveal
+   `IconButton` (same select-and-zoom reveal as the node links — programmatic
+   selection, never a rescan), and a per-row **Update** (primary) or
+   **Detach** (danger) button. Rows carry no prose: the deprecation notice and
+   the update sentence are deliberately not rendered, and there is no
+   composition stats grid. One empty state serves the whole tab and renders
+   only when BOTH sections are empty — "No component instances" /
+   "Library check incomplete" (with the unchecked count) / "Library components
+   are current" (only when every lookup succeeded). Batch and per-row actions
+   are disabled while any Design Health mutation is active.
 
 ---
 
@@ -375,6 +402,14 @@ for empty/loading/error states):
     only after **Update** or **Update all**, repeats async resolution/import at
     action time, accepts remote instances only, reports partial failures, and
     rescans the same audit root after any successful update.
+14. **Detaching deprecated instances is explicit, unconfirmed, and marked:**
+    **Detach** / **Detach all** run immediately — no confirmation dialog; the
+    single-step undo is the rollback. Every detached layer is stamped with a
+    3px red stroke before the batch's single `commitUndo()`, the result
+    message names the marking, and the audit root is rescanned with the
+    result message preserved. Detach is a dead-end by design: a detached
+    layer can no longer receive library updates, so the red mark is the
+    durable record that the library link was cut here.
 
 ---
 

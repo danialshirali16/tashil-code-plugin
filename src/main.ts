@@ -6,6 +6,7 @@ import {
   type CancelDocGenerationHandler,
   type ClearConnectionHandler,
   type CloseHandler,
+  type DetachInstancesHandler,
   type DesignHealthDocumentChangedHandler,
   type ExportConnectionsHandler,
   type ExportTokensHandler,
@@ -72,6 +73,7 @@ import {
 import {
   applyLibraryUpdates,
   applyTokenBindings,
+  detachInstances,
   focusNodeOnCanvas,
   scanDesignHealth,
 } from './main/design-health-adapter';
@@ -200,6 +202,10 @@ export default function (): void {
     void applyLibraryUpdates(payload.operationId, payload.nodeIds);
   });
 
+  on<DetachInstancesHandler>('DETACH_INSTANCES', (payload) => {
+    void detachInstances(payload.operationId, payload.nodeIds);
+  });
+
   on<FocusNodeHandler>('FOCUS_NODE', (payload) => {
     void focusNodeOnCanvas(payload.nodeId);
   });
@@ -235,6 +241,8 @@ function attachDocumentChangeListenerOnce(): void {
     try {
       await figma.loadAllPagesAsync();
       let documentChangeNotifyTimer: ReturnType<typeof setTimeout> | undefined;
+      // loadAllPagesAsync() is awaited above before attaching the listener.
+      // eslint-disable-next-line @figma/figma-plugins/dynamic-page-documentchange-event-advice
       figma.on('documentchange', () => {
         if (documentChangeNotifyTimer !== undefined) {
           clearTimeout(documentChangeNotifyTimer);

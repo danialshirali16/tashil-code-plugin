@@ -893,6 +893,43 @@ describe('Design Health mutations', () => {
     expect(figma.variables.getVariableByIdAsync).not.toHaveBeenCalledWith('stale-external-25');
   });
 
+  it('presents variant instances under their component set name', async () => {
+    const variantComponent = createComponent('variant-comp', 'Style=Text, Link=False');
+    Object.assign(variantComponent, {
+      parent: { type: 'COMPONENT_SET', name: 'CarView' },
+      remote: true,
+    });
+    const latestVariant = createComponent('variant-comp-latest', 'Style=Text, Link=False');
+    Object.assign(latestVariant, {
+      parent: { type: 'COMPONENT_SET', name: 'CarView' },
+      remote: true,
+    });
+    const variantInstance = createInstance('variant-instance', Promise.resolve(variantComponent));
+    const { selection } = await startPlugin();
+    vi.mocked(figma.importComponentByKeyAsync).mockResolvedValue(latestVariant);
+    selection.push(createFrame(
+      'variant-frame',
+      'Variant health',
+      [variantInstance],
+    ));
+
+    utilityMocks.handlers.get('SCAN_DESIGN_HEALTH')?.({ scanId: 'variant-name-scan' });
+    await vi.waitFor(() => {
+      expect(emittedPayloads('SCAN_DESIGN_HEALTH_RESULT')).toHaveLength(1);
+    });
+
+    const result = emittedPayloads<{
+      scanResult: {
+        libraryHealth: {
+          updateAvailableInstances: Array<{ componentName: string; nodeId: string }>;
+        };
+      };
+    }>('SCAN_DESIGN_HEALTH_RESULT')[0];
+    expect(result.scanResult.libraryHealth.updateAvailableInstances).toEqual([
+      expect.objectContaining({ componentName: 'CarView', nodeId: variantInstance.id }),
+    ]);
+  });
+
   it('resolves instance main components concurrently while preserving library health order', async () => {
     const localDeprecated = createComponent('local-deprecated', '_Deprecated Button');
     Object.assign(localDeprecated, {

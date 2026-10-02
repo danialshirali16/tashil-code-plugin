@@ -132,6 +132,8 @@ import {
   type ApplyLibraryUpdatesResultHandler,
   type ApplyTokenBindingsHandler,
   type ApplyTokenBindingsResultHandler,
+  type DetachInstancesHandler,
+  type DetachInstancesResultHandler,
   type DesignHealthDocumentChangedHandler,
   type FocusNodeHandler,
   type ScanDesignHealthHandler,
@@ -282,7 +284,7 @@ export type ConnectionController = {
   generateComponentDocs: (targetToken: string, targetFormat?: 'canvas' | 'markdown') => void;
   generateStyleDocs: (styleKind: DocStyleKind, tokenGroupingDepth?: TokenGroupingDepth) => void;
   designHealthScanResult: DesignHealthScanResult | null;
-  designHealthStatus: 'idle' | 'scanning' | 'scanned' | 'binding' | 'updating-library' | 'error';
+  designHealthStatus: 'idle' | 'scanning' | 'scanned' | 'binding' | 'updating-library' | 'detaching' | 'error';
   designHealthMessage: string;
   /** Increments on every selection-state push from the plugin main thread. */
   designHealthSelectionSequence: number;
@@ -291,6 +293,7 @@ export type ConnectionController = {
   runDesignHealthScan: (targetNodeId?: string, preserveMessage?: boolean) => void;
   applyTokenBindings: (bindings: TokenBindingRequest[]) => void;
   applyLibraryUpdates: (nodeIds: string[]) => void;
+  detachInstances: (nodeIds: string[]) => void;
   focusNode: (nodeId: string) => void;
 };
 
@@ -383,7 +386,7 @@ export function useConnectionController(): ConnectionController {
   // --- Design Health state ---
   const [designHealthScanResult, setDesignHealthScanResult] = useState<DesignHealthScanResult | null>(null);
   const [designHealthStatus, setDesignHealthStatus] = useState<
-    'idle' | 'scanning' | 'scanned' | 'binding' | 'updating-library' | 'error'
+    'idle' | 'scanning' | 'scanned' | 'binding' | 'updating-library' | 'detaching' | 'error'
   >('idle');
   const [designHealthMessage, setDesignHealthMessage] = useState<string>('');
   const [designHealthSelectionSequence, setDesignHealthSelectionSequence] = useState(0);
@@ -678,6 +681,22 @@ export function useConnectionController(): ConnectionController {
       }
     });
 
+    const offDetachInstances = on<DetachInstancesResultHandler>('DETACH_INSTANCES_RESULT', (result) => {
+      if (result.operationId !== currentDesignHealthMutationIdRef.current) return;
+      const mutationMessage = result.message
+        || `Detached ${result.detachedCount} deprecated instances.`;
+      if (result.detachedCount > 0 && designHealthTargetNodeIdRef.current) {
+        designHealthPostScanMessageRef.current = mutationMessage;
+        runDesignHealthScan(designHealthTargetNodeIdRef.current, true);
+      } else if (result.ok) {
+        setDesignHealthStatus('scanned');
+        setDesignHealthMessage(mutationMessage);
+      } else {
+        setDesignHealthStatus('error');
+        setDesignHealthMessage(mutationMessage);
+      }
+    });
+
     const offDesignHealthDocumentChanged = on<DesignHealthDocumentChangedHandler>('DESIGN_HEALTH_DOCUMENT_CHANGED', () => {
       setDesignHealthDocumentChangedSeq((sequence) => sequence + 1);
     });
@@ -714,6 +733,7 @@ export function useConnectionController(): ConnectionController {
       offDesignHealthScan();
       offTokenBindings();
       offLibraryUpdates();
+      offDetachInstances();
       offDesignHealthDocumentChanged();
     };
   }, []);
@@ -1885,6 +1905,14 @@ export function useConnectionController(): ConnectionController {
     emit<ApplyLibraryUpdatesHandler>('APPLY_LIBRARY_UPDATES', { operationId, nodeIds });
   };
 
+  const detachInstancesAction = (nodeIds: string[]): void => {
+    const operationId = `detach-instances-${++designHealthMutationSequenceRef.current}`;
+    currentDesignHealthMutationIdRef.current = operationId;
+    setDesignHealthStatus('detaching');
+    setDesignHealthMessage(`Detaching ${nodeIds.length} deprecated instances...`);
+    emit<DetachInstancesHandler>('DETACH_INSTANCES', { operationId, nodeIds });
+  };
+
   const focusNodeAction = (nodeId: string): void => {
     emit<FocusNodeHandler>('FOCUS_NODE', { nodeId });
   };
@@ -1982,6 +2010,7 @@ export function useConnectionController(): ConnectionController {
     runDesignHealthScan,
     applyTokenBindings: applyTokenBindingsAction,
     applyLibraryUpdates: applyLibraryUpdatesAction,
+    detachInstances: detachInstancesAction,
     focusNode: focusNodeAction,
   };
 }

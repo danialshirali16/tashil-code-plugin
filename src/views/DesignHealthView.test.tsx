@@ -71,6 +71,7 @@ const mockScanResult: DesignHealthScanResult = {
         nodeId: 'inst-update-1',
         instanceName: 'Checkout Button',
         componentName: 'Button',
+        libraryName: 'Swiss Army',
       },
     ],
     deprecatedInstances: [
@@ -79,6 +80,7 @@ const mockScanResult: DesignHealthScanResult = {
         instanceName: 'Old Icon',
         componentName: 'LegacyIcon',
         deprecationNotice: 'Use TashilIcon instead',
+        libraryName: 'TashilIcon',
       },
     ],
   },
@@ -97,6 +99,7 @@ function createProps(
     onScan: vi.fn(),
     onApplyLibraryUpdates: vi.fn(),
     onApplyTokenBindings: vi.fn(),
+    onDetachInstances: vi.fn(),
     onFocusNode: vi.fn(),
     ...overrides,
   };
@@ -170,7 +173,7 @@ describe('DesignHealthView', () => {
       onApplyTokenBindings,
     });
 
-    expect(screen.getByText('Ready to auto-fix (1)')).toBeTruthy();
+    expect(screen.getByRole('heading', { name: /Ready to auto-fix \(\s*1\s*\)/ })).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: 'Bind 1 high-confidence' }));
 
     expect(onApplyTokenBindings).toHaveBeenCalledWith([
@@ -232,7 +235,11 @@ describe('DesignHealthView', () => {
 
     // The node name appears once, with a cluster count — not once per row.
     expect(screen.getByText('Header')).toBeTruthy();
-    expect(screen.getByText('(2)')).toBeTruthy();
+    // Scoped to the cluster card: the "Review suggestions (2)" group heading
+    // contains the same "(2)" string, so an unscoped match would be ambiguous.
+    const cluster = screen.getByText('Header').closest('.health-node-cluster');
+    expect(cluster).toBeTruthy();
+    expect(within(cluster as HTMLElement).getByText('(2)')).toBeTruthy();
     expect(screen.getByText('itemSpacing')).toBeTruthy();
     expect(screen.getByText('paddingTop')).toBeTruthy();
     expect(screen.getAllByRole('button', { name: 'Bind' }).length).toBe(2);
@@ -457,25 +464,47 @@ describe('DesignHealthView', () => {
     expect(screen.queryByText(/100% coverage/)).toBeNull();
 
     fireEvent.click(screen.getByRole('button', { name: 'Clear filter' }));
-    expect(screen.getByText('Ready to auto-fix (1)')).toBeTruthy();
+    expect(screen.getByRole('heading', { name: /Ready to auto-fix \(\s*1\s*\)/ })).toBeTruthy();
     expect(screen.queryByText('No issues match the current filter')).toBeNull();
   });
 
-  it('surfaces deprecated components with a show-on-canvas action', () => {
+  it('surfaces deprecated components as rows with detach and reveal actions', () => {
     const onFocusNode = vi.fn();
+    const onDetachInstances = vi.fn();
     renderView({
       scanResult: mockScanResult,
       status: 'scanned',
       onFocusNode,
+      onDetachInstances,
     });
 
     fireEvent.click(screen.getByRole('radio', { name: /^Library/ }));
 
-    expect(screen.getByText('Deprecated components (1)')).toBeTruthy();
-    expect(screen.getByText('Use TashilIcon instead')).toBeTruthy();
+    expect(screen.getByRole('heading', { name: /Deprecated \(\s*1\s*\)/ })).toBeTruthy();
+    // Deprecation prose is deliberately not rendered — the row is identity only.
+    expect(screen.queryByText('Use TashilIcon instead')).toBeNull();
 
-    fireEvent.click(screen.getByRole('button', { name: 'Show Old Icon on canvas (selects it)' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Detach' }));
+    expect(onDetachInstances).toHaveBeenCalledWith(['inst-dep-1']);
+
+    fireEvent.click(screen.getByRole('button', { name: /^Show Old Icon on canvas/ }));
     expect(onFocusNode).toHaveBeenCalledWith('inst-dep-1');
+  });
+
+  it('renders library rows as component identity over library source', () => {
+    renderView({ scanResult: mockScanResult, status: 'scanned' });
+
+    fireEvent.click(screen.getByRole('radio', { name: /^Library/ }));
+
+    // The composition stats grid is gone — the tab goes straight to findings.
+    expect(screen.queryByText('Total instances')).toBeNull();
+    expect(screen.getByRole('heading', { name: /Updates available \(\s*1\s*\)/ })).toBeTruthy();
+    expect(screen.getByText('Button')).toBeTruthy();
+    expect(screen.getByText('Swiss Army')).toBeTruthy();
+    expect(screen.getByText('LegacyIcon')).toBeTruthy();
+    expect(screen.getByText('TashilIcon')).toBeTruthy();
+    // No update prose either.
+    expect(screen.queryByText(/A newer published library version/)).toBeNull();
   });
 
   it('surfaces instances with a newer published library component', () => {
@@ -490,14 +519,41 @@ describe('DesignHealthView', () => {
 
     fireEvent.click(screen.getByRole('radio', { name: /^Library/ }));
 
-    expect(screen.getByText('Updates available (1)')).toBeTruthy();
-    expect(screen.getByText('A newer published library version is available.')).toBeTruthy();
+    expect(screen.getByRole('heading', { name: /Updates available \(\s*1\s*\)/ })).toBeTruthy();
 
     fireEvent.click(screen.getByRole('button', { name: 'Update' }));
     expect(onApplyLibraryUpdates).toHaveBeenCalledWith(['inst-update-1']);
 
-    fireEvent.click(screen.getByRole('button', { name: 'Show Checkout Button on canvas (selects it)' }));
+    fireEvent.click(screen.getByRole('button', { name: /^Show Checkout Button on canvas/ }));
     expect(onFocusNode).toHaveBeenCalledWith('inst-update-1');
+  });
+
+  it('detaches every deprecated instance as one batch', () => {
+    const onDetachInstances = vi.fn();
+    renderView({
+      scanResult: {
+        ...mockScanResult,
+        libraryHealth: {
+          ...mockScanResult.libraryHealth,
+          deprecatedInstances: [
+            ...mockScanResult.libraryHealth.deprecatedInstances,
+            {
+              nodeId: 'inst-dep-2',
+              instanceName: 'Second Icon',
+              componentName: 'LegacyIcon',
+              deprecationNotice: 'Deprecated',
+            },
+          ],
+        },
+      },
+      status: 'scanned',
+      onDetachInstances,
+    });
+
+    fireEvent.click(screen.getByRole('radio', { name: /^Library/ }));
+    fireEvent.click(screen.getByRole('button', { name: 'Detach all' }));
+
+    expect(onDetachInstances).toHaveBeenCalledWith(['inst-dep-1', 'inst-dep-2']);
   });
 
   it('updates every confirmed outdated instance as one batch', () => {
@@ -527,14 +583,28 @@ describe('DesignHealthView', () => {
     expect(onApplyLibraryUpdates).toHaveBeenCalledWith(['inst-update-1', 'inst-update-2']);
   });
 
-  it('disables library update actions while an update is running', () => {
+  it('disables library mutations while an update is running', () => {
     renderView({ scanResult: mockScanResult, status: 'updating-library' });
 
     fireEvent.click(screen.getByRole('radio', { name: /^Library/ }));
 
     expect(screen.getByText('Updating library…')).toBeTruthy();
-    expect(screen.getByRole('button', { name: 'Updating…' }).hasAttribute('disabled')).toBe(true);
-    expect(screen.getByRole('button', { name: 'Update' }).hasAttribute('disabled')).toBe(true);
+    // The batch action and the per-row action both flip to their in-flight
+    // label; every one of them must be locked.
+    for (const button of screen.getAllByRole('button', { name: 'Updating…' })) {
+      expect(button.hasAttribute('disabled')).toBe(true);
+    }
+  });
+
+  it('disables library mutations while a detach is running', () => {
+    renderView({ scanResult: mockScanResult, status: 'detaching' });
+
+    fireEvent.click(screen.getByRole('radio', { name: /^Library/ }));
+
+    expect(screen.getByText('Detaching instances…')).toBeTruthy();
+    for (const button of screen.getAllByRole('button', { name: 'Detaching…' })) {
+      expect(button.hasAttribute('disabled')).toBe(true);
+    }
   });
 
   it('reports a clean library only when every update check succeeded', () => {
@@ -552,7 +622,7 @@ describe('DesignHealthView', () => {
 
     fireEvent.click(screen.getByRole('radio', { name: /^Library/ }));
     expect(screen.getByText('Library components are current')).toBeTruthy();
-    expect(screen.getByText(/No newer remote component versions/)).toBeTruthy();
+    expect(screen.getByText(/All remote components are up to date/)).toBeTruthy();
   });
 
   it('keeps failed update checks explicitly unknown', () => {

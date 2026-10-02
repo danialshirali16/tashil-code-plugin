@@ -139,6 +139,7 @@ export function Plugin(): h.JSX.Element {
     runDesignHealthScan,
     applyLibraryUpdates,
     applyTokenBindings,
+    detachInstances,
     focusNode,
   } = useConnectionController();
 
@@ -246,7 +247,7 @@ export function Plugin(): h.JSX.Element {
       return;
     }
     designHealthAutoScanTriggerRef.current = triggerKey;
-    if (designHealthStatus === 'binding' || designHealthStatus === 'updating-library') {
+    if (designHealthStatus === 'binding' || designHealthStatus === 'updating-library' || designHealthStatus === 'detaching') {
       // The mutation completion handler rescans with the post-mutation message.
       return;
     }
@@ -566,6 +567,7 @@ export function Plugin(): h.JSX.Element {
             message={designHealthMessage}
             onApplyLibraryUpdates={applyLibraryUpdates}
             onApplyTokenBindings={applyTokenBindings}
+            onDetachInstances={detachInstances}
             onFocusNode={focusNode}
             onScan={() => runDesignHealthScan()}
             scanResult={designHealthScanResult}

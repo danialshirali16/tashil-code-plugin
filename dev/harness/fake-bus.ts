@@ -37,6 +37,7 @@ type Handler = (payload: unknown) => void;
 
 const handlers = new Map<string, Set<Handler>>();
 const appliedLibraryUpdateNodeIds = new Set<string>();
+const detachedInstanceNodeIds = new Set<string>();
 
 // The official Create Figma Plugin controls import these sentinel values from
 // the utilities package. The harness aliases that package to this module, so it
@@ -497,6 +498,7 @@ function designHealthScanResult(scanId: string): DesignHealthScanResult {
     {
       componentName: 'Button',
       instanceName: 'Primary action',
+      libraryName: 'Swiss Army',
       nodeId: 'inst-update-1',
     },
   ].filter((notice) => !appliedLibraryUpdateNodeIds.has(notice.nodeId));
@@ -579,9 +581,10 @@ function designHealthScanResult(scanId: string): DesignHealthScanResult {
           componentName: 'LegacyIcon',
           deprecationNotice: 'Use TashilIcon instead — LegacyIcon is removed in v3.',
           instanceName: 'Trash Icon',
+          libraryName: 'TashilIcon',
           nodeId: 'inst-dep-1',
         },
-      ],
+      ].filter((notice) => !detachedInstanceNodeIds.has(notice.nodeId)),
       localInstancesCount: 2,
       remoteInstancesCount: 3,
       totalInstances: 5,
@@ -778,6 +781,21 @@ function respond(name: string, payload: unknown): void {
         operationId: updateRequest.operationId,
         updatedCount: nodeIds.length,
         message: `Successfully updated ${nodeIds.length} library instances.`,
+      });
+      break;
+    }
+    case 'DETACH_INSTANCES': {
+      const detachRequest = (payload ?? {}) as { nodeIds?: string[]; operationId?: string };
+      const detachNodeIds = Array.from(new Set(detachRequest.nodeIds ?? []));
+      for (const nodeId of detachNodeIds) {
+        detachedInstanceNodeIds.add(nodeId);
+      }
+      send('DETACH_INSTANCES_RESULT', {
+        detachedCount: detachNodeIds.length,
+        failedCount: 0,
+        ok: true,
+        operationId: detachRequest.operationId,
+        message: `Detached ${detachNodeIds.length} deprecated instances and marked them with a red outline.`,
       });
       break;
     }

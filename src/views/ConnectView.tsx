@@ -73,6 +73,7 @@ export function StorybookGenerator(props: {
               return (
                 <label key={variant.targetToken}>
                   <input
+                    aria-label={`Select variant ${variant.label}`}
                     checked={checked}
                     disabled={!checked && selected.length >= 32}
                     onChange={() => setSelected(checked
@@ -212,6 +213,7 @@ export function ComponentInventoryView(props: {
             Import connections
             <input
               accept="application/json,.json"
+              aria-label="Import connections JSON file"
               class="visually-hidden"
               onChange={(event) => {
                 const file = event.currentTarget.files?.[0];

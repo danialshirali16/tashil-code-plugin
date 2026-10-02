@@ -234,6 +234,7 @@ export function MappingEditorView(props: MappingEditorViewProps): h.JSX.Element 
             {props.sourceUploading ? 'Analyzing…' : document ? 'Replace source' : 'Upload source'}
             <input
               accept=".ts,.tsx,.d.ts"
+              aria-label={document ? 'Replace source files' : 'Upload source files'}
               disabled={uploadDisabled}
               multiple
               onInput={(event) => {
@@ -252,6 +253,7 @@ export function MappingEditorView(props: MappingEditorViewProps): h.JSX.Element 
           >
             Folder
             <input
+              aria-label="Upload source folder with dependency declarations"
               disabled={uploadDisabled}
               multiple
               onInput={(event) => {

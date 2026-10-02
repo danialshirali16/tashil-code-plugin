@@ -6,8 +6,10 @@ import {
   IconApprovedCheckmark24,
   IconAutoLayoutPaddingAll24,
   IconAutoLayoutSpacingHorizontal24,
+  IconComponent16,
   IconCorners24,
   IconLibrary16,
+  IconNewTab24,
   IconOpacity24,
   IconRefresh16,
   IconVariable16,
@@ -19,7 +21,9 @@ import {
 import { Fragment, h } from 'preact';
 import { useEffect, useMemo, useState } from 'preact/hooks';
 import type {
+  DeprecatedInstanceNotice,
   DesignHealthScanResult,
+  LibraryUpdateNotice,
   TokenBindingRequest,
   TokenPropertyIssue,
   TokenSuggestion,
@@ -30,11 +34,12 @@ import { IconInteractionClickSmall48 } from '../ui-assets';
 
 export interface DesignHealthViewProps {
   scanResult: DesignHealthScanResult | null;
-  status: 'idle' | 'scanning' | 'scanned' | 'binding' | 'updating-library' | 'error';
+  status: 'idle' | 'scanning' | 'scanned' | 'binding' | 'updating-library' | 'detaching' | 'error';
   message: string;
   onScan: () => void;
   onApplyLibraryUpdates: (nodeIds: string[]) => void;
   onApplyTokenBindings: (bindings: TokenBindingRequest[]) => void;
+  onDetachInstances: (nodeIds: string[]) => void;
   onFocusNode: (nodeId: string) => void;
 }
 
@@ -178,7 +183,8 @@ export function DesignHealthView(props: DesignHealthViewProps): h.JSX.Element {
   const isScanning = status === 'scanning';
   const isBinding = status === 'binding';
   const isUpdatingLibrary = status === 'updating-library';
-  const isMutating = isBinding || isUpdatingLibrary;
+  const isDetaching = status === 'detaching';
+  const isMutating = isBinding || isUpdatingLibrary || isDetaching;
 
   const allIssues = scanResult?.tokenAudit.issues ?? [];
 
@@ -239,15 +245,31 @@ export function DesignHealthView(props: DesignHealthViewProps): h.JSX.Element {
   // Every finding is always visible: rows inside component instances render
   // with a "Fix in the main component" marker instead of a Bind button, so
   // nothing needs hiding and every count reconciles with the full audit.
-  const displayedIssues = allIssues.filter((issue) => matchesPropertyFilter(issue, propertyFilter));
-  const autoFixableIssues = filterHighConfidenceIssues(allIssues).filter(
-    (issue) => matchesPropertyFilter(issue, propertyFilter),
-  );
-  const needsDecisionIssues = displayedIssues.filter(
-    (issue) => issue.isEditableHere && issue.suggestion && issue.suggestion.confidence !== 'high',
-  );
-  const noMatchIssues = displayedIssues.filter((issue) => issue.isEditableHere && !issue.suggestion);
-  const mainComponentIssues = displayedIssues.filter((issue) => !issue.isEditableHere);
+  const {
+    displayedIssues,
+    autoFixableIssues,
+    needsDecisionIssues,
+    noMatchIssues,
+    mainComponentIssues,
+  } = useMemo(() => {
+    const displayed = allIssues.filter((issue) => matchesPropertyFilter(issue, propertyFilter));
+    return {
+      displayedIssues: displayed,
+      autoFixableIssues: filterHighConfidenceIssues(allIssues).filter(
+        (issue) => matchesPropertyFilter(issue, propertyFilter),
+      ),
+      needsDecisionIssues: displayed.filter(
+        (issue) => issue.isEditableHere && issue.suggestion && issue.suggestion.confidence !== 'high',
+      ),
+      noMatchIssues: displayed.filter((issue) => issue.isEditableHere && !issue.suggestion),
+      mainComponentIssues: displayed.filter((issue) => !issue.isEditableHere),
+    };
+  }, [allIssues, propertyFilter]);
+
+  const autoFixableClusters = useMemo(() => clusterByNode(autoFixableIssues), [autoFixableIssues]);
+  const needsDecisionClusters = useMemo(() => clusterByNode(needsDecisionIssues), [needsDecisionIssues]);
+  const noMatchClusters = useMemo(() => clusterByNode(noMatchIssues), [noMatchIssues]);
+  const mainComponentClusters = useMemo(() => clusterByNode(mainComponentIssues), [mainComponentIssues]);
 
   // Coverage spans both tabs: token properties AND library findings.
   const deprecatedCount = scanResult.libraryHealth.deprecatedInstances.length;
@@ -265,9 +287,11 @@ export function DesignHealthView(props: DesignHealthViewProps): h.JSX.Element {
       ? 'Binding tokens…'
       : isUpdatingLibrary
         ? 'Updating library…'
-        : status === 'error'
-          ? 'Update failed — Retry'
-          : `Audited · ${formatRelativeTime(scanResult.scannedAt, now)}`;
+        : isDetaching
+          ? 'Detaching instances…'
+          : status === 'error'
+            ? 'Update failed — Retry'
+            : `Audited · ${formatRelativeTime(scanResult.scannedAt, now)}`;
 
   const handleChooseSuggestion = (
     issue: TokenPropertyIssue,
@@ -413,6 +437,40 @@ export function DesignHealthView(props: DesignHealthViewProps): h.JSX.Element {
             {renderIssueAction(issue)}
           </div>
         ))}
+      </div>
+    </div>
+  );
+
+  // One uniform library row: component icon | component name over its library
+  // | reveal + action. No per-row prose — the group heading carries the
+  // meaning, the reveal icon carries the canvas link.
+  const renderLibraryRow = (
+    notice: LibraryUpdateNotice | DeprecatedInstanceNotice,
+    variant: 'update' | 'deprecated',
+    action: h.JSX.Element,
+  ): h.JSX.Element => (
+    <div class="health-library-row" key={notice.nodeId}>
+      <span aria-hidden="true" class={`health-row-icon health-row-icon-${variant}`}>
+        <IconComponent16 />
+      </span>
+      <div class="health-library-info">
+        <span class="health-library-component">{notice.componentName}</span>
+        {notice.libraryName ? (
+          <span class="health-library-source">
+            <IconLibrary16 />
+            {notice.libraryName}
+          </span>
+        ) : null}
+      </div>
+      <div class="health-library-actions">
+        <IconButton
+          aria-label={`Show ${notice.instanceName} on canvas — selects it; the audit stays unchanged`}
+          onClick={() => props.onFocusNode(notice.nodeId)}
+          title={`Show ${notice.instanceName} on canvas — selects it; the audit stays unchanged`}
+        >
+          <IconNewTab24 />
+        </IconButton>
+        {action}
       </div>
     </div>
   );
@@ -588,7 +646,7 @@ export function DesignHealthView(props: DesignHealthViewProps): h.JSX.Element {
                       {autoFixableIssues.length > 0 ? (
                         <section aria-label="Ready to auto-fix" class="health-issue-group">
                           <div class="health-group-heading-row">
-                            <h2 class="health-group-heading">Ready to auto-fix ({autoFixableIssues.length})</h2>
+                            <h2 class="health-group-heading"><span>Ready to auto-fix <span class="health-group-count">({autoFixableIssues.length})</span></span></h2>
                             <Button disabled={isMutating} onClick={handleBindAllHighConfidence}>
                               {isBinding
                                 ? 'Binding…'
@@ -598,31 +656,31 @@ export function DesignHealthView(props: DesignHealthViewProps): h.JSX.Element {
                             </Button>
                           </div>
                           <div class="health-issue-list">
-                            {clusterByNode(autoFixableIssues).map(renderIssueCluster)}
+                            {autoFixableClusters.map(renderIssueCluster)}
                           </div>
                         </section>
                       ) : null}
                       {needsDecisionIssues.length > 0 ? (
                         <section aria-label="Review suggestions" class="health-issue-group">
-                          <h2 class="health-group-heading">Review suggestions ({needsDecisionIssues.length})</h2>
+                          <h2 class="health-group-heading"><span>Review suggestions <span class="health-group-count">({needsDecisionIssues.length})</span></span></h2>
                           <div class="health-issue-list">
-                            {clusterByNode(needsDecisionIssues).map(renderIssueCluster)}
+                            {needsDecisionClusters.map(renderIssueCluster)}
                           </div>
                         </section>
                       ) : null}
                       {noMatchIssues.length > 0 ? (
                         <section aria-label="No token match" class="health-issue-group">
-                          <h2 class="health-group-heading">No token match ({noMatchIssues.length})</h2>
+                          <h2 class="health-group-heading"><span>No token match <span class="health-group-count">({noMatchIssues.length})</span></span></h2>
                           <div class="health-issue-list">
-                            {clusterByNode(noMatchIssues).map(renderIssueCluster)}
+                            {noMatchClusters.map(renderIssueCluster)}
                           </div>
                         </section>
                       ) : null}
                       {mainComponentIssues.length > 0 ? (
                         <section aria-label="Fix in the main component" class="health-issue-group">
-                          <h2 class="health-group-heading">Fix in the main component ({mainComponentIssues.length})</h2>
+                          <h2 class="health-group-heading"><span>Fix in the main component <span class="health-group-count">({mainComponentIssues.length})</span></span></h2>
                           <div class="health-issue-list">
-                            {clusterByNode(mainComponentIssues).map(renderIssueCluster)}
+                            {mainComponentClusters.map(renderIssueCluster)}
                           </div>
                         </section>
                       ) : null}
@@ -637,42 +695,14 @@ export function DesignHealthView(props: DesignHealthViewProps): h.JSX.Element {
 
       {subTab === 'library' ? (
         <section aria-label="Library health" class="health-panel">
-          <div class="health-stats-grid">
-            <div class="health-stat">
-              <div class="health-stat-value">{scanResult.libraryHealth.totalInstances}</div>
-              <div class="health-stat-label">Total instances</div>
-            </div>
-            <div class="health-stat">
-              <div class="health-stat-value">{scanResult.libraryHealth.uniqueComponentsCount}</div>
-              <div class="health-stat-label">Unique components</div>
-            </div>
-            <div class="health-stat">
-              <div class="health-stat-value">{scanResult.libraryHealth.remoteInstancesCount}</div>
-              <div class="health-stat-label">Library (remote)</div>
-            </div>
-            <div class="health-stat">
-              <div class="health-stat-value">{scanResult.libraryHealth.localInstancesCount}</div>
-              <div class="health-stat-label">Local</div>
-            </div>
-            <div class="health-stat">
-              <div class="health-stat-value">{updateAvailableCount}</div>
-              <div class="health-stat-label">Updates available</div>
-            </div>
-            <div class="health-stat">
-              <div class="health-stat-value">{scanResult.libraryHealth.updateCheckFailuresCount}</div>
-              <div class="health-stat-label">Unchecked</div>
-            </div>
-          </div>
-
           {updateAvailableCount > 0 ? (
-            <div class="health-deprecated-list">
+            <div class="health-library-section">
               <div class="health-group-heading-row">
-                <h2
-                  aria-label={`Updates available (${updateAvailableCount})`}
-                  class="health-group-heading health-tone-warning-text"
-                >
+                <h2 class="health-group-heading">
                   <IconRefresh16 />
-                  Updates available ({updateAvailableCount})
+                  <span>
+                    Updates available <span class="health-group-count">({updateAvailableCount})</span>
+                  </span>
                 </h2>
                 <Button
                   disabled={isMutating}
@@ -683,80 +713,57 @@ export function DesignHealthView(props: DesignHealthViewProps): h.JSX.Element {
                   {isUpdatingLibrary ? 'Updating…' : 'Update all'}
                 </Button>
               </div>
-              {scanResult.libraryHealth.updateAvailableInstances.map((notice) => (
-                <div class="health-deprecated-card health-update-card" key={notice.nodeId}>
-                  <div class="health-deprecated-info">
-                    <button
-                      class="health-node-link"
-                      onClick={() => props.onFocusNode(notice.nodeId)}
-                      aria-label={`Show ${notice.instanceName} on canvas — selects it; the audit stays unchanged`}
-                      title={`Show ${notice.instanceName} on canvas — selects it; the audit stays unchanged`}
-                      type="button"
-                    >
-                      {notice.instanceName}
-                    </button>
-                    <p class="health-deprecated-component">
-                      Component: <strong>{notice.componentName}</strong>
-                    </p>
-                    <p class="health-update-notice">A newer published library version is available.</p>
-                  </div>
-                  <div class="health-deprecated-actions">
+              <div class="health-library-card">
+                {scanResult.libraryHealth.updateAvailableInstances.map((notice) => renderLibraryRow(
+                  notice,
+                  'update',
+                  (
                     <Button
                       disabled={isMutating}
                       onClick={() => props.onApplyLibraryUpdates([notice.nodeId])}
                     >
-                      Update
+                      {isUpdatingLibrary ? 'Updating…' : 'Update'}
                     </Button>
-                    <Button
-                      onClick={() => props.onFocusNode(notice.nodeId)}
-                      aria-label={`Show ${notice.instanceName} on canvas (selects it)`}
-                      secondary
-                    >
-                      Show on canvas
-                    </Button>
-                  </div>
-                </div>
-              ))}
+                  ),
+                ))}
+              </div>
             </div>
           ) : null}
 
-          {scanResult.libraryHealth.deprecatedInstances.length > 0 ? (
-            <div class="health-deprecated-list">
-              <h2
-                aria-label={`Deprecated components (${scanResult.libraryHealth.deprecatedInstances.length})`}
-                class="health-group-heading health-tone-warning-text"
-              >
-                <IconWarningSmall24 />
-                Deprecated components ({scanResult.libraryHealth.deprecatedInstances.length})
-              </h2>
-              {scanResult.libraryHealth.deprecatedInstances.map((notice) => (
-                <div class="health-deprecated-card" key={notice.nodeId}>
-                  <div class="health-deprecated-info">
-                    <button
-                      class="health-node-link"
-                      onClick={() => props.onFocusNode(notice.nodeId)}
-                      aria-label={`Show ${notice.instanceName} on canvas — selects it; the audit stays unchanged`}
-                      title={`Show ${notice.instanceName} on canvas — selects it; the audit stays unchanged`}
-                      type="button"
-                    >
-                      {notice.instanceName}
-                    </button>
-                    <p class="health-deprecated-component">
-                      Component: <strong>{notice.componentName}</strong>
-                    </p>
-                    <p class="health-deprecated-notice">{notice.deprecationNotice}</p>
-                  </div>
-                  <div class="health-deprecated-actions">
+          {deprecatedCount > 0 ? (
+            <div class="health-library-section">
+              <div class="health-group-heading-row">
+                <h2 class="health-group-heading health-tone-danger-text">
+                  <IconWarningSmall24 />
+                  <span>
+                    Deprecated <span class="health-group-count">({deprecatedCount})</span>
+                  </span>
+                </h2>
+                <Button
+                  danger
+                  disabled={isMutating}
+                  onClick={() => props.onDetachInstances(
+                    scanResult.libraryHealth.deprecatedInstances.map((notice) => notice.nodeId),
+                  )}
+                >
+                  {isDetaching ? 'Detaching…' : 'Detach all'}
+                </Button>
+              </div>
+              <div class="health-library-card">
+                {scanResult.libraryHealth.deprecatedInstances.map((notice) => renderLibraryRow(
+                  notice,
+                  'deprecated',
+                  (
                     <Button
-                      onClick={() => props.onFocusNode(notice.nodeId)}
-                      aria-label={`Show ${notice.instanceName} on canvas (selects it)`}
-                      secondary
+                      danger
+                      disabled={isMutating}
+                      onClick={() => props.onDetachInstances([notice.nodeId])}
                     >
-                      Show on canvas
+                      {isDetaching ? 'Detaching…' : 'Detach'}
                     </Button>
-                  </div>
-                </div>
-              ))}
+                  ),
+                ))}
+              </div>
             </div>
           ) : null}
 
@@ -777,7 +784,7 @@ export function DesignHealthView(props: DesignHealthViewProps): h.JSX.Element {
                   No confirmed updates or deprecation markers were found.
                 </p>
               ) : (
-                <p>No newer remote component versions or deprecation markers were found.</p>
+                <p>All remote components are up to date and none are deprecated.</p>
               )}
             </div>
           ) : null}

@@ -19,6 +19,7 @@ import type {
 import type {
   ApplyLibraryUpdatesResultHandler,
   ApplyTokenBindingsResultHandler,
+  DetachInstancesResultHandler,
   ScanDesignHealthResultHandler,
 } from '../types';
 import { armProgrammaticSelection } from './selection-adapter';
@@ -26,6 +27,9 @@ import { armProgrammaticSelection } from './selection-adapter';
 let latestScanId = '';
 const MAX_SCAN_NODES = 800;
 const FIGMA_LOOKUP_CHUNK_SIZE = 25;
+
+/** #F24822 — the red outline stamped on every layer detached from a deprecated component. */
+const DETACH_MARK_COLOR = { r: 0.949, g: 0.282, b: 0.133 };
 
 type DesignHealthScanRequest = {
   scanId: string;
@@ -251,6 +255,8 @@ async function runDesignHealthScan(
           totalInstances++;
           const mainComp = mainComponentsByInstanceId.get(n.id) ?? null;
           if (mainComp) {
+            const libraryName = mainComp.remote ? libraryNameForComponent(mainComp) : undefined;
+            const compName = componentDisplayName(mainComp);
             if (mainComp.remote) {
               remoteInstancesCount++;
 
@@ -263,7 +269,8 @@ async function runDesignHealthScan(
                 updateAvailableInstances.push({
                   nodeId: n.id,
                   instanceName: n.name,
-                  componentName: mainComp.name,
+                  componentName: compName,
+                  libraryName,
                 });
               } else {
                 currentRemoteInstancesCount++;
@@ -273,18 +280,22 @@ async function runDesignHealthScan(
             }
 
             const compKey = mainComp.key || mainComp.id;
-            const compName = mainComp.name;
             uniqueComponentKeys.add(compKey);
 
-            // Check deprecation
+            // Check deprecation. Markers may be authored on the variant's raw
+            // property-string name or on the component set's friendly name.
             const desc = (mainComp.description || '').toLowerCase();
-            const name = compName.toLowerCase();
-            if (desc.includes('[deprecated]') || desc.includes('deprecated') || name.startsWith('_deprecated') || name.startsWith('.deprecated')) {
+            const rawName = mainComp.name.toLowerCase();
+            const displayName = compName.toLowerCase();
+            const isNameMarked = (value: string): boolean =>
+              value.startsWith('_deprecated') || value.startsWith('.deprecated');
+            if (desc.includes('deprecated') || isNameMarked(rawName) || isNameMarked(displayName)) {
               deprecatedInstances.push({
                 nodeId: n.id,
                 instanceName: n.name,
                 componentName: compName,
                 deprecationNotice: mainComp.description || 'Component marked as deprecated in library',
+                libraryName,
               });
             }
           } else {
@@ -853,6 +864,104 @@ export async function focusNodeOnCanvas(nodeId: string): Promise<void> {
   }
 }
 
+export async function detachInstances(
+  operationId: string,
+  nodeIds: readonly string[],
+): Promise<void> {
+  const uniqueNodeIds = Array.from(new Set(nodeIds));
+  const instancesById = new Map<string, InstanceNode>();
+  for (let start = 0; start < uniqueNodeIds.length; start += FIGMA_LOOKUP_CHUNK_SIZE) {
+    const chunk = uniqueNodeIds.slice(start, start + FIGMA_LOOKUP_CHUNK_SIZE);
+    await Promise.all(chunk.map(async (nodeId) => {
+      try {
+        const node = await figma.getNodeByIdAsync(nodeId);
+        if (node?.type === 'INSTANCE' && !node.removed) {
+          instancesById.set(nodeId, node);
+        }
+      } catch {
+        // Missing/inaccessible targets are counted while applying below.
+      }
+    }));
+  }
+
+  let detachedCount = 0;
+  let failedCount = 0;
+
+  for (const nodeId of uniqueNodeIds) {
+    try {
+      const instance = instancesById.get(nodeId);
+      if (!instance) {
+        throw new Error('Deprecated instance target is no longer available.');
+      }
+      // Deliberately unconfirmed: the single-step undo is the rollback, and
+      // the red outline keeps detached layers identifiable on the canvas.
+      const detached = instance.detachInstance();
+      detached.strokes = [{ type: 'SOLID', color: DETACH_MARK_COLOR }];
+      detached.strokeWeight = 3;
+      detachedCount++;
+    } catch {
+      failedCount++;
+    }
+  }
+
+  if (detachedCount > 0) {
+    figma.commitUndo();
+  }
+
+  const ok = failedCount === 0;
+  let message: string;
+  if (uniqueNodeIds.length === 0) {
+    message = 'No deprecated instances were selected.';
+  } else if (failedCount > 0) {
+    message = `Detached ${detachedCount} instances; ${failedCount} could not be detached.`;
+  } else {
+    message = `Detached ${detachedCount} deprecated instances and marked them with a red outline.`;
+  }
+
+  emit<DetachInstancesResultHandler>('DETACH_INSTANCES_RESULT', {
+    ok,
+    operationId,
+    detachedCount,
+    failedCount,
+    message,
+  });
+}
+
+/**
+ * Best-effort display name of the library a remote component comes from: the
+ * source document's own name, reached by walking the component proxy's parent
+ * chain. Figma exposes no first-class library-name API for components, so any
+ * failure resolves to undefined and the UI omits the line.
+ */
+function libraryNameForComponent(component: ComponentNode): string | undefined {
+  try {
+    let node: BaseNode | null = component.parent;
+    while (node && node.type !== 'DOCUMENT') {
+      node = node.parent;
+    }
+    return node && node.type === 'DOCUMENT' ? node.name : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * The name a user sees in Figma's own UI. A variant component's own name is
+ * its property string ("Style=Text, Link=False"), which is meaningless as a
+ * row title — variants present under their component set's friendly name.
+ */
+function componentDisplayName(component: ComponentNode): string {
+  try {
+    const parent = component.parent;
+    if (parent && parent.type === 'COMPONENT_SET') {
+      return parent.name;
+    }
+  } catch {
+    // A remote proxy without a readable parent keeps its own name.
+  }
+  return component.name;
+}
+
 function collectAuditTraversal(
   root: SceneNode,
   maxNodes = MAX_SCAN_NODES,
@@ -1163,7 +1272,10 @@ async function fetchVariablesChunked(
   variableMap: Map<string, Variable>,
   scanId: string,
 ): Promise<boolean> {
-  const uniqueVariableIds = Array.from(new Set(variableIds));
+  const uniqueVariableIds = Array.from(new Set(variableIds)).filter((id) => !variableMap.has(id));
+  if (uniqueVariableIds.length === 0) {
+    return true;
+  }
   for (let start = 0; start < uniqueVariableIds.length; start += FIGMA_LOOKUP_CHUNK_SIZE) {
     if (scanId !== latestScanId) {
       return false;
